@@ -1,0 +1,1315 @@
+{
+  "colors": {
+    "all": [
+      {
+        "hex": "#003a43",
+        "rgb": {
+          "r": 0,
+          "g": 58,
+          "b": 67,
+          "a": 1
+        },
+        "hsl": {
+          "h": 188,
+          "s": 100,
+          "l": 13
+        },
+        "count": 2377,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#f8f3eb",
+        "rgb": {
+          "r": 248,
+          "g": 243,
+          "b": 235,
+          "a": 1
+        },
+        "hsl": {
+          "h": 37,
+          "s": 48,
+          "l": 95
+        },
+        "count": 666,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#000000",
+        "rgb": {
+          "r": 0,
+          "g": 0,
+          "b": 0,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 0
+        },
+        "count": 360,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#232323",
+        "rgb": {
+          "r": 35,
+          "g": 35,
+          "b": 35,
+          "a": 0.72
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 14
+        },
+        "count": 192,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#004952",
+        "rgb": {
+          "r": 0,
+          "g": 73,
+          "b": 82,
+          "a": 0.04
+        },
+        "hsl": {
+          "h": 187,
+          "s": 100,
+          "l": 16
+        },
+        "count": 123,
+        "contexts": [
+          "background",
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#ffffff",
+        "rgb": {
+          "r": 255,
+          "g": 255,
+          "b": 255,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 100
+        },
+        "count": 59,
+        "contexts": [
+          "background",
+          "border",
+          "text"
+        ]
+      },
+      {
+        "hex": "#555555",
+        "rgb": {
+          "r": 85,
+          "g": 85,
+          "b": 85,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 33
+        },
+        "count": 31,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#ff8d6e",
+        "rgb": {
+          "r": 255,
+          "g": 141,
+          "b": 110,
+          "a": 1
+        },
+        "hsl": {
+          "h": 13,
+          "s": 100,
+          "l": 72
+        },
+        "count": 24,
+        "contexts": [
+          "background",
+          "border"
+        ]
+      },
+      {
+        "hex": "#dcdcdc",
+        "rgb": {
+          "r": 220,
+          "g": 220,
+          "b": 220,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 86
+        },
+        "count": 9,
+        "contexts": [
+          "background",
+          "border"
+        ]
+      },
+      {
+        "hex": "#27455c",
+        "rgb": {
+          "r": 39,
+          "g": 69,
+          "b": 92,
+          "a": 1
+        },
+        "hsl": {
+          "h": 206,
+          "s": 40,
+          "l": 26
+        },
+        "count": 8,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#8ca7a2",
+        "rgb": {
+          "r": 140,
+          "g": 167,
+          "b": 162,
+          "a": 0.04
+        },
+        "hsl": {
+          "h": 169,
+          "s": 13,
+          "l": 60
+        },
+        "count": 6,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#696969",
+        "rgb": {
+          "r": 105,
+          "g": 105,
+          "b": 105,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 41
+        },
+        "count": 6,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#000a0c",
+        "rgb": {
+          "r": 0,
+          "g": 10,
+          "b": 12,
+          "a": 1
+        },
+        "hsl": {
+          "h": 190,
+          "s": 100,
+          "l": 2
+        },
+        "count": 5,
+        "contexts": [
+          "text",
+          "border"
+        ]
+      },
+      {
+        "hex": "#c5d6d7",
+        "rgb": {
+          "r": 197,
+          "g": 214,
+          "b": 215,
+          "a": 1
+        },
+        "hsl": {
+          "h": 183,
+          "s": 18,
+          "l": 81
+        },
+        "count": 4,
+        "contexts": [
+          "border"
+        ]
+      },
+      {
+        "hex": "#3860be",
+        "rgb": {
+          "r": 56,
+          "g": 96,
+          "b": 190,
+          "a": 1
+        },
+        "hsl": {
+          "h": 222,
+          "s": 54,
+          "l": 48
+        },
+        "count": 4,
+        "contexts": [
+          "text",
+          "border",
+          "background"
+        ]
+      },
+      {
+        "hex": "#767676",
+        "rgb": {
+          "r": 118,
+          "g": 118,
+          "b": 118,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 46
+        },
+        "count": 3,
+        "contexts": [
+          "background",
+          "border"
+        ]
+      },
+      {
+        "hex": "#e0d3c8",
+        "rgb": {
+          "r": 224,
+          "g": 211,
+          "b": 200,
+          "a": 0.24
+        },
+        "hsl": {
+          "h": 27,
+          "s": 28,
+          "l": 83
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#3a6d71",
+        "rgb": {
+          "r": 58,
+          "g": 109,
+          "b": 113,
+          "a": 1
+        },
+        "hsl": {
+          "h": 184,
+          "s": 32,
+          "l": 34
+        },
+        "count": 1,
+        "contexts": [
+          "border"
+        ]
+      },
+      {
+        "hex": "#32ae88",
+        "rgb": {
+          "r": 50,
+          "g": 174,
+          "b": 136,
+          "a": 1
+        },
+        "hsl": {
+          "h": 162,
+          "s": 55,
+          "l": 44
+        },
+        "count": 1,
+        "contexts": [
+          "border"
+        ]
+      },
+      {
+        "hex": "#468254",
+        "rgb": {
+          "r": 70,
+          "g": 130,
+          "b": 84,
+          "a": 1
+        },
+        "hsl": {
+          "h": 134,
+          "s": 30,
+          "l": 39
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      },
+      {
+        "hex": "#bbbbbb",
+        "rgb": {
+          "r": 187,
+          "g": 187,
+          "b": 187,
+          "a": 1
+        },
+        "hsl": {
+          "h": 0,
+          "s": 0,
+          "l": 73
+        },
+        "count": 1,
+        "contexts": [
+          "border"
+        ]
+      },
+      {
+        "hex": "#6aaae4",
+        "rgb": {
+          "r": 106,
+          "g": 170,
+          "b": 228,
+          "a": 1
+        },
+        "hsl": {
+          "h": 209,
+          "s": 69,
+          "l": 65
+        },
+        "count": 1,
+        "contexts": [
+          "background"
+        ]
+      }
+    ]
+  },
+  "regions": [
+    {
+      "role": "nav",
+      "tag": "nav",
+      "bounds": {
+        "x": 0,
+        "y": 64,
+        "w": 1280,
+        "h": 120
+      },
+      "heading": null,
+      "buttonCount": 4,
+      "cardCount": 41,
+      "className": "TbrNavbar-Header TbrNavbar-HeaderWithBanner"
+    },
+    {
+      "role": "pricing",
+      "tag": "main",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 1280,
+        "h": 7553.125
+      },
+      "heading": "Run your entire practice with one EHR+ platform",
+      "buttonCount": 12,
+      "cardCount": 32,
+      "className": "MainWrapper_Main__UCCBe MainWrapper_MainWithBanner__hF0mJ"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 184,
+        "w": 1280,
+        "h": 633.78125
+      },
+      "heading": "Run your entire practice with one EHR+ platform",
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 3294.625,
+        "w": 1280,
+        "h": 1042.5625
+      },
+      "heading": null,
+      "buttonCount": 5,
+      "cardCount": 9,
+      "className": "TestimonialsWithTabs_TestimonialsWithTabs__IpEVJ"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": -1025.99951171875,
+        "y": 3631.1875,
+        "w": 1100,
+        "h": 646
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 3,
+      "className": "Card_Card__rAyrW"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": -984.99951171875,
+        "y": 4127.1875,
+        "w": 312.65625,
+        "h": 40
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": -632.34326171875,
+        "y": 4127.1875,
+        "w": 312.671875,
+        "h": 40
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": -279.67138671875,
+        "y": 4147.1875,
+        "w": 312.671875,
+        "h": 20
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 90.00048828125,
+        "y": 3631.1875,
+        "w": 1100,
+        "h": 646
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 3,
+      "className": "Card_Card__rAyrW"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 131.00048828125,
+        "y": 4147.1875,
+        "w": 312.65625,
+        "h": 20
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 483.65673828125,
+        "y": 4147.1875,
+        "w": 312.671875,
+        "h": 20
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 836.32861328125,
+        "y": 4147.1875,
+        "w": 312.671875,
+        "h": 20
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "testimonials",
+      "tag": "section",
+      "bounds": {
+        "x": 1206.00048828125,
+        "y": 3631.1875,
+        "w": 1100,
+        "h": 646
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 3,
+      "className": "Card_Card__rAyrW"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 1247.00048828125,
+        "y": 4127.1875,
+        "w": 312.65625,
+        "h": 40
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 1599.65673828125,
+        "y": 4127.1875,
+        "w": 312.671875,
+        "h": 40
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 1952.32861328125,
+        "y": 4127.1875,
+        "w": 312.671875,
+        "h": 40
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Card_ReviewFooter__7N_qF"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 4337.1875,
+        "w": 1280,
+        "h": 659.8125
+      },
+      "heading": "Get started with Tebra in 3 easy steps",
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "Steps_Section__21Gni"
+    },
+    {
+      "role": "pricing",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 5606.234375,
+        "w": 1280,
+        "h": 922.34375
+      },
+      "heading": "Frequently asked questions",
+      "buttonCount": 6,
+      "cardCount": 0,
+      "className": "Faq_Faq__XWAzr Faq_Faq--backbone__cKqyR Faq_Faq--narrow__qvshD"
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 216,
+        "y": 5828.625,
+        "w": 848,
+        "h": 81
+      },
+      "heading": "Is Tebra’s software HIPAA-compliant?",
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 216,
+        "y": 6015.578125,
+        "w": 848,
+        "h": 81
+      },
+      "heading": "How does Tebra help private practices grow?",
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 216,
+        "y": 6097.578125,
+        "w": 848,
+        "h": 81
+      },
+      "heading": "What makes Tebra different from other healthcare platforms?",
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 216,
+        "y": 6179.578125,
+        "w": 848,
+        "h": 81
+      },
+      "heading": "Is it easy to switch to Tebra from another system?",
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "nav",
+      "tag": "header",
+      "bounds": {
+        "x": 216,
+        "y": 6261.578125,
+        "w": 848,
+        "h": 81
+      },
+      "heading": "What types of specialties does Tebra support?",
+      "buttonCount": 1,
+      "cardCount": 0,
+      "className": null
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 6528.578125,
+        "w": 1280,
+        "h": 682.546875
+      },
+      "heading": "Practice Management Tools",
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "CtaBannerTiles_CtaBannerTiles__flIfv"
+    },
+    {
+      "role": "footer",
+      "tag": "footer",
+      "bounds": {
+        "x": 0,
+        "y": 7553.125,
+        "w": 1280,
+        "h": 1135.515625
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 70,
+      "className": "Footer_Footer__6IL4W"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": " Manage Consent Preferences",
+      "buttonCount": 4,
+      "cardCount": 4,
+      "className": "ot-sdk-row ot-cat-grp"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": "Cookie List",
+      "buttonCount": 5,
+      "cardCount": 1,
+      "className": "ot-hide ot-hosts-ui ot-pc-scrollbar"
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 3,
+      "cardCount": 1,
+      "className": null
+    },
+    {
+      "role": "content",
+      "tag": "section",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "heading": null,
+      "buttonCount": 0,
+      "cardCount": 0,
+      "className": "ot-host-cnt ot-pc-scrollbar"
+    }
+  ],
+  "componentClusters": [
+    {
+      "kind": "button",
+      "structuralHash": "button>div",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(35, 35, 35)",
+            "padding": "5px 22px 5px 22px",
+            "borderRadius": "57px",
+            "border": "1px solid rgba(0, 0, 0, 0)",
+            "fontSize": "18px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>span>p",
+      "instanceCount": 2,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(235, 240, 241)",
+            "color": "rgb(0, 58, 67)",
+            "padding": "16px 40px 16px 40px",
+            "borderRadius": "100px",
+            "border": "0px none rgb(0, 58, 67)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        },
+        {
+          "css": {
+            "background": "rgb(0, 73, 82)",
+            "color": "rgb(248, 243, 235)",
+            "padding": "16px 40px 16px 40px",
+            "borderRadius": "100px",
+            "border": "0px none rgb(248, 243, 235)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>p",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(235, 240, 241)",
+            "color": "rgb(0, 58, 67)",
+            "padding": "16px 40px 16px 40px",
+            "borderRadius": "100px",
+            "border": "0px none rgb(0, 58, 67)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>svg",
+      "instanceCount": 2,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(255, 255, 255, 0.72)",
+            "color": "rgb(0, 73, 82)",
+            "padding": "5px 5px 5px 5px",
+            "borderRadius": "4px",
+            "border": "1px solid rgb(0, 73, 82)",
+            "fontSize": "18px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>h3>div",
+      "instanceCount": 5,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 58, 67)",
+            "padding": "24px 64px 24px 16px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(0, 58, 67)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 5
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button",
+      "instanceCount": 6,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 73, 82)",
+            "padding": "5px 22px 5px 22px",
+            "borderRadius": "57px",
+            "border": "1px solid rgb(0, 73, 82)",
+            "fontSize": "18px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 2
+        },
+        {
+          "css": {
+            "background": "rgb(239, 239, 239)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "1px 6px 1px 6px",
+            "borderRadius": "0px",
+            "border": "2px outset rgb(0, 0, 0)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 2
+        },
+        {
+          "css": {
+            "background": "rgb(0, 73, 82)",
+            "color": "rgb(255, 255, 255)",
+            "padding": "12px 10px 12px 10px",
+            "borderRadius": "2px",
+            "border": "1px solid rgb(0, 73, 82)",
+            "fontSize": "11.382px",
+            "fontWeight": "600"
+          },
+          "instanceCount": 2
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "button>img",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgb(255, 255, 255)",
+            "color": "rgb(0, 0, 0)",
+            "padding": "0px 0px 0px 0px",
+            "borderRadius": "50%",
+            "border": "0px none rgb(0, 0, 0)",
+            "fontSize": "16px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    },
+    {
+      "kind": "button",
+      "structuralHash": "div>div",
+      "instanceCount": 1,
+      "variants": [
+        {
+          "css": {
+            "background": "rgba(0, 0, 0, 0)",
+            "color": "rgb(0, 58, 67)",
+            "padding": "15px 30px 15px 30px",
+            "borderRadius": "0px",
+            "border": "0px none rgb(0, 58, 67)",
+            "fontSize": "14px",
+            "fontWeight": "400"
+          },
+          "instanceCount": 1
+        }
+      ]
+    }
+  ],
+  "accessibility": {
+    "remediation": []
+  },
+  "cssHealth": {
+    "sheets": [
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/8fabe4952351b8a6.css",
+        "totalBytes": 85902,
+        "usedBytes": 6341,
+        "unusedBytes": 79561,
+        "unusedPercent": 93
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/266ec33b061cf2dd.css",
+        "totalBytes": 1710,
+        "usedBytes": 0,
+        "unusedBytes": 1710,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/9b8a5e92095f914d.css",
+        "totalBytes": 16414,
+        "usedBytes": 0,
+        "unusedBytes": 16414,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/6a37117afee11019.css",
+        "totalBytes": 7176,
+        "usedBytes": 0,
+        "unusedBytes": 7176,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/8833d526b186ba0e.css",
+        "totalBytes": 100938,
+        "usedBytes": 17722,
+        "unusedBytes": 83216,
+        "unusedPercent": 82
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/373e69e96f10ac50.css",
+        "totalBytes": 86649,
+        "usedBytes": 2289,
+        "unusedBytes": 84360,
+        "unusedPercent": 97
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/295a462761631af6.css",
+        "totalBytes": 62918,
+        "usedBytes": 3287,
+        "unusedBytes": 59631,
+        "unusedPercent": 95
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/1e3b503252920caf.css",
+        "totalBytes": 11240,
+        "usedBytes": 247,
+        "unusedBytes": 10993,
+        "unusedPercent": 98
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/afd6cf6d88a9b739.css",
+        "totalBytes": 29348,
+        "usedBytes": 1746,
+        "unusedBytes": 27602,
+        "unusedPercent": 94
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/e02cfbf4b7e90b54.css",
+        "totalBytes": 68340,
+        "usedBytes": 853,
+        "unusedBytes": 67487,
+        "unusedPercent": 99
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/b86a0f3cbf10a437.css",
+        "totalBytes": 3481,
+        "usedBytes": 925,
+        "unusedBytes": 2556,
+        "unusedPercent": 73
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/66235f8fa3c3300a.css",
+        "totalBytes": 3691,
+        "usedBytes": 0,
+        "unusedBytes": 3691,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/a303db311e1a4be9.css",
+        "totalBytes": 7188,
+        "usedBytes": 1218,
+        "unusedBytes": 5970,
+        "unusedPercent": 83
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/e43caed773e1b7dd.css",
+        "totalBytes": 4158,
+        "usedBytes": 0,
+        "unusedBytes": 4158,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/8d4cb7fd3ba7d8d6.css",
+        "totalBytes": 53442,
+        "usedBytes": 9073,
+        "unusedBytes": 44369,
+        "unusedPercent": 83
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/1c708716bd6c66fc.css",
+        "totalBytes": 745,
+        "usedBytes": 0,
+        "unusedBytes": 745,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/5b71fc57443f892c.css",
+        "totalBytes": 3229,
+        "usedBytes": 1298,
+        "unusedBytes": 1931,
+        "unusedPercent": 60
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/88631b58c7cfc547.css",
+        "totalBytes": 3106,
+        "usedBytes": 161,
+        "unusedBytes": 2945,
+        "unusedPercent": 95
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/bc300c451928a689.css",
+        "totalBytes": 5467,
+        "usedBytes": 0,
+        "unusedBytes": 5467,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/e205089bef78f5d6.css",
+        "totalBytes": 6747,
+        "usedBytes": 762,
+        "unusedBytes": 5985,
+        "unusedPercent": 89
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/1f05aa86baf3c566.css",
+        "totalBytes": 6855,
+        "usedBytes": 161,
+        "unusedBytes": 6694,
+        "unusedPercent": 98
+      },
+      {
+        "url": "https://www.tebra.com/tebranew/_next/static/css/4d4e7dd1be30f618.css",
+        "totalBytes": 22745,
+        "usedBytes": 10139,
+        "unusedBytes": 12606,
+        "unusedPercent": 55
+      },
+      {
+        "url": "https://fonts.googleapis.com/css?family=Open%2BSans:400|Inter:400|Poppins:400&display=swap",
+        "totalBytes": 3780,
+        "usedBytes": 0,
+        "unusedBytes": 3780,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&display=swap",
+        "totalBytes": 2496,
+        "usedBytes": 0,
+        "unusedBytes": 2496,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css?family=Poppins:700,400,600&display=swap",
+        "totalBytes": 3591,
+        "usedBytes": 0,
+        "unusedBytes": 3591,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500&family=Poppins:wght@400&display=swap",
+        "totalBytes": 3685,
+        "usedBytes": 0,
+        "unusedBytes": 3685,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://www.tebra.com/",
+        "totalBytes": 0,
+        "usedBytes": 0,
+        "unusedBytes": 0,
+        "unusedPercent": 0
+      },
+      {
+        "url": "https://fonts.googleapis.com/css?family=Poppins:400|Inter:400,700&display=swap",
+        "totalBytes": 6131,
+        "usedBytes": 0,
+        "unusedBytes": 6131,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400&family=Inter:wght@400&family=Poppins:wght@400&display=swap",
+        "totalBytes": 9973,
+        "usedBytes": 0,
+        "unusedBytes": 9973,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap",
+        "totalBytes": 2390,
+        "usedBytes": 0,
+        "unusedBytes": 2390,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css?family=Poppins:400,700&display=swap",
+        "totalBytes": 2390,
+        "usedBytes": 0,
+        "unusedBytes": 2390,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css?family=Poppins:600,400&display=swap",
+        "totalBytes": 2390,
+        "usedBytes": 0,
+        "unusedBytes": 2390,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap",
+        "totalBytes": 3591,
+        "usedBytes": 0,
+        "unusedBytes": 3591,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap",
+        "totalBytes": 2390,
+        "usedBytes": 0,
+        "unusedBytes": 2390,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400&family=Inter:wght@400;700&display=swap",
+        "totalBytes": 6131,
+        "usedBytes": 0,
+        "unusedBytes": 6131,
+        "unusedPercent": 100
+      },
+      {
+        "url": "https://cdn.popupsmart.com/accounts/33281/249025/13/main.css",
+        "totalBytes": 75615,
+        "usedBytes": 1015,
+        "unusedBytes": 74600,
+        "unusedPercent": 99
+      },
+      {
+        "url": "https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap",
+        "totalBytes": 2390,
+        "usedBytes": 0,
+        "unusedBytes": 2390,
+        "unusedPercent": 100
+      }
+    ],
+    "totalBytes": 718432,
+    "usedBytes": 57237,
+    "unusedBytes": 661195,
+    "unusedPercent": 92,
+    "importantCount": 345,
+    "duplicates": 12466,
+    "vendorPrefixes": {
+      "webkit": 132,
+      "moz": 70,
+      "ms": 30,
+      "o": 9
+    },
+    "keyframes": [],
+    "specificity": {
+      "max": [
+        1,
+        9,
+        5
+      ],
+      "average": [
+        0,
+        0.88,
+        0.19
+      ],
+      "count": 7965
+    },
+    "issues": [
+      "345 !important rules",
+      "12466 duplicate declarations",
+      "92% unused CSS"
+    ]
+  }
+}

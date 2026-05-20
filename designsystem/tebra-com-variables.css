@@ -1,0 +1,126 @@
+:root {
+  /* Colors — Primary */
+  --color-primary: #ff8d6e;
+  --color-secondary: #004952;
+  --color-accent: #3860be;
+
+  /* Colors — Neutrals */
+  --color-neutral-50: #000000;
+  --color-neutral-100: #232323;
+  --color-neutral-200: #ffffff;
+  --color-neutral-300: #555555;
+  --color-neutral-400: #dcdcdc;
+  --color-neutral-500: #8ca7a2;
+  --color-neutral-600: #696969;
+  --color-neutral-700: #000a0c;
+  --color-neutral-800: #c5d6d7;
+  --color-neutral-900: #767676;
+
+  /* Colors — Backgrounds */
+  --color-bg: #ffffff;
+  --color-bg-1: #004952;
+  --color-bg-2: #f5f8f8;
+  --color-bg-3: #8ca7a2;
+  --color-bg-4: #ebf0ef;
+  --color-bg-5: #f6f8f8;
+  --color-bg-6: #f8f3eb;
+  --color-bg-7: #fdfbfb;
+  --color-bg-8: #ff8d6e;
+  --color-bg-9: #efefef;
+  --color-bg-10: #000000;
+
+  /* Colors — Text */
+  --color-text: #000000;
+  --color-text-1: #003a43;
+  --color-text-2: #232323;
+  --color-text-3: #004952;
+  --color-text-4: #f8f3eb;
+
+  /* Typography — Families */
+  --font-sans: '__AkkuratLL_8dc0fd', sans-serif;
+  --font-body: '__Lora_e96844', sans-serif;
+  --font-body: 'Times New Roman', sans-serif;
+  --font-body: 'Poppins', sans-serif;
+  --font-body: 'Arial', sans-serif;
+  --font-body: '__AkkuratMonoLL_c826bb', sans-serif;
+
+  /* Typography — Scale */
+  --font-size-68: 68px;
+  --font-size-60: 60px;
+  --font-size-50: 50px;
+  --font-size-48: 48px;
+  --font-size-36: 36px;
+  --font-size-26.32: 26.32px;
+  --font-size-24: 24px;
+  --font-size-22: 22px;
+  --font-size-21: 21px;
+  --font-size-18: 18px;
+  --font-size-16: 16px;
+  --font-size-15.82: 15.82px;
+
+  /* Spacing */
+  --spacing-1: 1px;
+  --spacing-15: 15px;
+  --spacing-30: 30px;
+  --spacing-35: 35px;
+  --spacing-40: 40px;
+  --spacing-47: 47px;
+  --spacing-52: 52px;
+  --spacing-56: 56px;
+  --spacing-64: 64px;
+  --spacing-78: 78px;
+  --spacing-103: 103px;
+  --spacing-107: 107px;
+  --spacing-116: 116px;
+  --spacing-136: 136px;
+  --spacing-145: 145px;
+  --spacing-180: 180px;
+  --spacing-184: 184px;
+  --spacing-199: 199px;
+  --spacing-268: 268px;
+  --spacing-308: 308px;
+
+  /* Border Radius */
+  --radius-xs: 1px;
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-xl: 24px;
+  --radius-full: 30px;
+  --radius-full: 50px;
+  --radius-full: 57px;
+  --radius-full: 60px;
+  --radius-full: 100px;
+
+  /* Box Shadows */
+  --shadow-xs: rgb(220, 220, 220) 0px -1px 0px 0px inset;
+  --shadow-md: rgb(199, 197, 199) -3px -3px 5px -2px;
+  --shadow-md: rgb(153, 153, 153) 0px 2px 10px -3px;
+  --shadow-md: rgb(199, 197, 199) 0px 0px 12px 2px;
+  --shadow-md: rgba(0, 0, 0, 0.2) 0px 4px 8px 0px;
+  --shadow-md: rgba(0, 0, 0, 0.15) 0px 5px 10px 0px;
+  --shadow-lg: rgba(0, 0, 0, 0.2) 0px 0px 18px 0px;
+  --shadow-lg: rgba(0, 0, 0, 0.1) 0px 10.1px 10.1px -5.05px, rgba(0, 0, 0, 0.04) 0px 20.2px 25.25px -5.05px;
+  --shadow-xl: rgba(43, 43, 43, 0.16) 0px 16px 40px 0px;
+  --shadow-xl: rgba(0, 0, 0, 0.07) -2.47px 4.94px 60.28px 0px;
+
+  /* Original Site Variables */
+  /* — spacing — */
+  --containerPadding: 80px;
+  /* — other — */
+  --containerBaseWidth: 1280px;
+  --containerWidth: calc(var(--containerBaseWidth) + 2 * var(--containerPadding));
+  --gutter: 16px;
+  --app-height: 100vh;
+  --navBannerHeight: 64px;
+  /* — dependencies — */
+  --containerWidth: --containerBaseWidth,--containerPadding;
+  /* — semantic — */
+  success: [object Object];
+  warning: [object Object];
+  error: [object Object];
+  info: [object Object];
+
+}

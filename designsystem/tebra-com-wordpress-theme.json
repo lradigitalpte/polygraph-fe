@@ -1,0 +1,208 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "color": {
+      "palette": [
+        {
+          "slug": "primary",
+          "color": "#ff8d6e",
+          "name": "Primary"
+        },
+        {
+          "slug": "secondary",
+          "color": "#004952",
+          "name": "Secondary"
+        },
+        {
+          "slug": "accent",
+          "color": "#3860be",
+          "name": "Accent"
+        },
+        {
+          "slug": "neutral-1",
+          "color": "#000000",
+          "name": "Neutral 1"
+        },
+        {
+          "slug": "neutral-2",
+          "color": "#232323",
+          "name": "Neutral 2"
+        },
+        {
+          "slug": "neutral-3",
+          "color": "#ffffff",
+          "name": "Neutral 3"
+        },
+        {
+          "slug": "neutral-4",
+          "color": "#555555",
+          "name": "Neutral 4"
+        },
+        {
+          "slug": "neutral-5",
+          "color": "#dcdcdc",
+          "name": "Neutral 5"
+        },
+        {
+          "slug": "bg-ffffff",
+          "color": "#ffffff",
+          "name": "Background #ffffff"
+        },
+        {
+          "slug": "bg-004952",
+          "color": "#004952",
+          "name": "Background #004952"
+        },
+        {
+          "slug": "bg-f5f8f8",
+          "color": "#f5f8f8",
+          "name": "Background #f5f8f8"
+        }
+      ],
+      "gradients": [
+        {
+          "slug": "gradient-1",
+          "gradient": "linear-gradient(90deg, rgb(255, 141, 110) 0.17%, rgb(248, 243, 235) 187.97%)",
+          "name": "Gradient 1"
+        }
+      ]
+    },
+    "typography": {
+      "fontFamilies": [
+        {
+          "fontFamily": "__AkkuratLL_8dc0fd",
+          "slug": "__akkuratll_8dc0fd",
+          "name": "__AkkuratLL_8dc0fd"
+        },
+        {
+          "fontFamily": "__Lora_e96844",
+          "slug": "__lora_e96844",
+          "name": "__Lora_e96844"
+        },
+        {
+          "fontFamily": "Times New Roman",
+          "slug": "times-new-roman",
+          "name": "Times New Roman"
+        },
+        {
+          "fontFamily": "Poppins",
+          "slug": "poppins",
+          "name": "Poppins"
+        },
+        {
+          "fontFamily": "Arial",
+          "slug": "arial",
+          "name": "Arial"
+        },
+        {
+          "fontFamily": "__AkkuratMonoLL_c826bb",
+          "slug": "__akkuratmonoll_c826bb",
+          "name": "__AkkuratMonoLL_c826bb"
+        }
+      ],
+      "fontSizes": [
+        {
+          "size": "68px",
+          "slug": "size-68",
+          "name": "68px"
+        },
+        {
+          "size": "60px",
+          "slug": "size-60",
+          "name": "60px"
+        },
+        {
+          "size": "50px",
+          "slug": "size-50",
+          "name": "50px"
+        },
+        {
+          "size": "48px",
+          "slug": "size-48",
+          "name": "48px"
+        },
+        {
+          "size": "36px",
+          "slug": "size-36",
+          "name": "36px"
+        },
+        {
+          "size": "26.32px",
+          "slug": "size-26.32",
+          "name": "26.32px"
+        },
+        {
+          "size": "24px",
+          "slug": "size-24",
+          "name": "24px"
+        },
+        {
+          "size": "22px",
+          "slug": "size-22",
+          "name": "22px"
+        }
+      ]
+    },
+    "spacing": {
+      "spacingSizes": [
+        {
+          "size": "1px",
+          "slug": "spacing-1",
+          "name": "1px"
+        },
+        {
+          "size": "15px",
+          "slug": "spacing-15",
+          "name": "15px"
+        },
+        {
+          "size": "30px",
+          "slug": "spacing-30",
+          "name": "30px"
+        },
+        {
+          "size": "35px",
+          "slug": "spacing-35",
+          "name": "35px"
+        },
+        {
+          "size": "40px",
+          "slug": "spacing-40",
+          "name": "40px"
+        },
+        {
+          "size": "47px",
+          "slug": "spacing-47",
+          "name": "47px"
+        },
+        {
+          "size": "52px",
+          "slug": "spacing-52",
+          "name": "52px"
+        },
+        {
+          "size": "56px",
+          "slug": "spacing-56",
+          "name": "56px"
+        }
+      ]
+    },
+    "layout": {
+      "contentSize": "1440px",
+      "wideSize": "1400px"
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "#ffffff",
+      "text": "#000000"
+    },
+    "typography": {
+      "fontSize": "18px",
+      "lineHeight": "29px",
+      "fontFamily": "__AkkuratLL_8dc0fd"
+    },
+    "spacing": {}
+  }
+}

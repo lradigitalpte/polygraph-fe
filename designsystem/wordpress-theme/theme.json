@@ -1,0 +1,296 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "color": {
+      "palette": [
+        {
+          "slug": "action-primary",
+          "color": "#ff8d6e",
+          "name": "Action Primary"
+        },
+        {
+          "slug": "action-secondary",
+          "color": "#004952",
+          "name": "Action Secondary"
+        },
+        {
+          "slug": "surface-default",
+          "color": "#ffffff",
+          "name": "Surface Default"
+        },
+        {
+          "slug": "text-body",
+          "color": "#000000",
+          "name": "Text Body"
+        }
+      ]
+    },
+    "typography": {
+      "fontSizes": [
+        {
+          "slug": "h1",
+          "size": "68px",
+          "name": "h1"
+        },
+        {
+          "slug": "h2",
+          "size": "60px",
+          "name": "h2"
+        },
+        {
+          "slug": "div",
+          "size": "50px",
+          "name": "div"
+        },
+        {
+          "slug": "h2",
+          "size": "48px",
+          "name": "h2"
+        },
+        {
+          "slug": "h3",
+          "size": "36px",
+          "name": "h3"
+        },
+        {
+          "slug": "div",
+          "size": "26.32px",
+          "name": "div"
+        },
+        {
+          "slug": "div",
+          "size": "24px",
+          "name": "div"
+        },
+        {
+          "slug": "span",
+          "size": "22px",
+          "name": "span"
+        },
+        {
+          "slug": "div",
+          "size": "21px",
+          "name": "div"
+        },
+        {
+          "slug": "li",
+          "size": "18px",
+          "name": "li"
+        },
+        {
+          "slug": "html",
+          "size": "16px",
+          "name": "html"
+        },
+        {
+          "slug": "div",
+          "size": "15.82px",
+          "name": "div"
+        },
+        {
+          "slug": "span",
+          "size": "15.3px",
+          "name": "span"
+        },
+        {
+          "slug": "button",
+          "size": "14.4px",
+          "name": "button"
+        },
+        {
+          "slug": "p",
+          "size": "14px",
+          "name": "p"
+        },
+        {
+          "slug": "div",
+          "size": "13.6px",
+          "name": "div"
+        },
+        {
+          "slug": "span",
+          "size": "13.5px",
+          "name": "span"
+        },
+        {
+          "slug": "div",
+          "size": "13.008px",
+          "name": "div"
+        },
+        {
+          "slug": "div",
+          "size": "12.992px",
+          "name": "div"
+        },
+        {
+          "slug": "input",
+          "size": "12.8px",
+          "name": "input"
+        },
+        {
+          "slug": "button",
+          "size": "12.6px",
+          "name": "button"
+        },
+        {
+          "slug": "li",
+          "size": "12px",
+          "name": "li"
+        },
+        {
+          "slug": "div",
+          "size": "11.382px",
+          "name": "div"
+        }
+      ],
+      "fontFamilies": [
+        {
+          "slug": "akkuratll8dc0fd",
+          "fontFamily": "__AkkuratLL_8dc0fd, sans-serif",
+          "name": "__AkkuratLL_8dc0fd"
+        },
+        {
+          "slug": "lorae96844",
+          "fontFamily": "__Lora_e96844, sans-serif",
+          "name": "__Lora_e96844"
+        },
+        {
+          "slug": "times-new-roman",
+          "fontFamily": "Times New Roman, sans-serif",
+          "name": "Times New Roman"
+        },
+        {
+          "slug": "poppins",
+          "fontFamily": "Poppins, sans-serif",
+          "name": "Poppins"
+        },
+        {
+          "slug": "arial",
+          "fontFamily": "Arial, sans-serif",
+          "name": "Arial"
+        },
+        {
+          "slug": "akkuratmonollc826bb",
+          "fontFamily": "__AkkuratMonoLL_c826bb, sans-serif",
+          "name": "__AkkuratMonoLL_c826bb"
+        }
+      ]
+    },
+    "spacing": {
+      "spacingSizes": [
+        {
+          "slug": "s0",
+          "size": "1px",
+          "name": "S0"
+        },
+        {
+          "slug": "s1",
+          "size": "15px",
+          "name": "S1"
+        },
+        {
+          "slug": "s2",
+          "size": "30px",
+          "name": "S2"
+        },
+        {
+          "slug": "s3",
+          "size": "35px",
+          "name": "S3"
+        },
+        {
+          "slug": "s4",
+          "size": "40px",
+          "name": "S4"
+        },
+        {
+          "slug": "s5",
+          "size": "47px",
+          "name": "S5"
+        },
+        {
+          "slug": "s6",
+          "size": "52px",
+          "name": "S6"
+        },
+        {
+          "slug": "s7",
+          "size": "56px",
+          "name": "S7"
+        },
+        {
+          "slug": "s8",
+          "size": "64px",
+          "name": "S8"
+        },
+        {
+          "slug": "s9",
+          "size": "78px",
+          "name": "S9"
+        },
+        {
+          "slug": "s10",
+          "size": "103px",
+          "name": "S10"
+        },
+        {
+          "slug": "s11",
+          "size": "107px",
+          "name": "S11"
+        },
+        {
+          "slug": "s12",
+          "size": "116px",
+          "name": "S12"
+        },
+        {
+          "slug": "s13",
+          "size": "136px",
+          "name": "S13"
+        },
+        {
+          "slug": "s14",
+          "size": "145px",
+          "name": "S14"
+        },
+        {
+          "slug": "s15",
+          "size": "180px",
+          "name": "S15"
+        },
+        {
+          "slug": "s16",
+          "size": "184px",
+          "name": "S16"
+        },
+        {
+          "slug": "s17",
+          "size": "199px",
+          "name": "S17"
+        },
+        {
+          "slug": "s18",
+          "size": "268px",
+          "name": "S18"
+        },
+        {
+          "slug": "s19",
+          "size": "308px",
+          "name": "S19"
+        },
+        {
+          "slug": "s20",
+          "size": "474px",
+          "name": "S20"
+        }
+      ]
+    }
+  },
+  "styles": {
+    "color": {
+      "background": "var(--wp--preset--color--surface-default, #ffffff)",
+      "text": "var(--wp--preset--color--text-body, #000000)"
+    }
+  }
+}

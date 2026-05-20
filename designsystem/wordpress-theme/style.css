@@ -1,0 +1,37 @@
+/*
+Theme Name: designlang extracted theme
+Theme URI: https://github.com/Manavarya09/design-extract
+Description: Block theme generated from https://www.tebra.com/ by designlang v7.0.0
+Version: 1.0.0
+Author: designlang
+License: MIT
+Text Domain: designlang-theme
+*/
+
+:root {
+  --action-primary: #ff8d6e;
+  --action-secondary: #004952;
+  --surface-default: #ffffff;
+  --text-body: #000000;
+  --spacing-s0: 1px;
+  --spacing-s1: 15px;
+  --spacing-s2: 30px;
+  --spacing-s3: 35px;
+  --spacing-s4: 40px;
+  --spacing-s5: 47px;
+  --spacing-s6: 52px;
+  --spacing-s7: 56px;
+  --spacing-s8: 64px;
+  --spacing-s9: 78px;
+  --spacing-s10: 103px;
+  --spacing-s11: 107px;
+  --spacing-s12: 116px;
+  --spacing-s13: 136px;
+  --spacing-s14: 145px;
+  --spacing-s15: 180px;
+  --spacing-s16: 184px;
+  --spacing-s17: 199px;
+  --spacing-s18: 268px;
+  --spacing-s19: 308px;
+  --spacing-s20: 474px;
+}
