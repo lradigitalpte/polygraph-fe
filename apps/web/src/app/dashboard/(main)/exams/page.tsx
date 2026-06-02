@@ -34,11 +34,15 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
+  deleteAppointment,
   fetchAppointments,
+  rescheduleAppointment,
   updateAppointmentPayment,
   type AppointmentRecord,
 } from "@/lib/exam-booking";
+import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
 type LedgerRow = {
   id: number;
@@ -52,14 +56,20 @@ type LedgerRow = {
   dateLabel: string;
   timeLabel: string;
   amount: number;
+  collected: number;
   payment: string;
   status: string;
   reason: string;
+  scheduledAt: string;
+  duration: number;
 };
 
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-amber-600", "bg-purple-600", "bg-rose-600", "bg-cyan-600"];
 
 export default function ExamsPage() {
+  const { can } = useCurrentUser();
+  const canViewPayments = can("payment:view");
+  const canManageAppointments = can("appointment:manage");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [rows, setRows] = React.useState<LedgerRow[]>([]);
@@ -68,6 +78,10 @@ export default function ExamsPage() {
   const [paymentStatus, setPaymentStatus] = React.useState("");
   const [examFee, setExamFee] = React.useState("");
   const [savingPayment, setSavingPayment] = React.useState(false);
+  const [rescheduleDate, setRescheduleDate] = React.useState("");
+  const [rescheduleTime, setRescheduleTime] = React.useState("");
+  const [savingReschedule, setSavingReschedule] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -122,7 +136,61 @@ export default function ExamsPage() {
     setSelectedExam(row);
     setPaymentStatus(row.payment);
     setExamFee(String(row.amount));
+    const d = new Date(row.scheduledAt);
+    if (!Number.isNaN(d.getTime())) {
+      // Local date/time strings for the date & time inputs.
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setRescheduleDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+      setRescheduleTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    }
     setIsSheetOpen(true);
+  };
+
+  const handleReschedule = async () => {
+    if (!selectedExam) return;
+    if (!rescheduleDate || !rescheduleTime) {
+      toast.error("Pick a new date and time");
+      return;
+    }
+    const newDate = new Date(`${rescheduleDate}T${rescheduleTime}`);
+    if (Number.isNaN(newDate.getTime())) {
+      toast.error("Invalid date or time");
+      return;
+    }
+    setSavingReschedule(true);
+    try {
+      await rescheduleAppointment(selectedExam.id, { scheduled_at: newDate.toISOString() });
+      const dateLabel = newDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      const timeLabel = newDate.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      setRows((current) =>
+        current.map((row) =>
+          row.id === selectedExam.id
+            ? { ...row, scheduledAt: newDate.toISOString(), dateLabel, timeLabel }
+            : row,
+        ),
+      );
+      toast.success("Appointment rescheduled");
+      setIsSheetOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to reschedule");
+    } finally {
+      setSavingReschedule(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedExam) return;
+    setDeleting(true);
+    try {
+      await deleteAppointment(selectedExam.id);
+      setRows((current) => current.filter((row) => row.id !== selectedExam.id));
+      toast.success("Appointment deleted");
+      setIsSheetOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete appointment");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSavePayment = async () => {
@@ -198,7 +266,9 @@ export default function ExamsPage() {
         {[
           { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
           { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
-          { label: "Accounts Receivable", value: `$${stats.receivable.toFixed(2)}`, icon: CreditCard, color: "text-rose-500" },
+          ...(canViewPayments
+            ? [{ label: "Accounts Receivable", value: `$${stats.receivable.toFixed(2)}`, icon: CreditCard, color: "text-rose-500" }]
+            : []),
           { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
         ].map((stat) => (
           <Card key={stat.label} className="border-border/40 shadow-sm bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-primary/30 transition-all">
@@ -245,7 +315,9 @@ export default function ExamsPage() {
                   </th>
                   <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Assigned Expert</th>
                   <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Type / Schedule</th>
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Payment</th>
+                  {canViewPayments && (
+                    <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Payment</th>
+                  )}
                   <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status</th>
                   <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Details</th>
                 </tr>
@@ -253,11 +325,11 @@ export default function ExamsPage() {
               <tbody className="divide-y divide-border/30">
                 {loading ? (
                   <tr>
-                    <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={6}>Loading appointments...</td>
+                    <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={canViewPayments ? 6 : 5}>Loading appointments...</td>
                   </tr>
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={6}>No appointments found.</td>
+                    <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={canViewPayments ? 6 : 5}>No appointments found.</td>
                   </tr>
                 ) : (
                   filteredRows.map((row) => (
@@ -285,19 +357,21 @@ export default function ExamsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-5">
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                            row.payment === "Paid" ? "bg-emerald-500/10 text-emerald-600" :
-                            row.payment === "Partial" ? "bg-amber-500/10 text-amber-600" :
-                            "bg-rose-500/10 text-rose-600",
-                          )}
-                        >
-                          {row.payment} • ${row.amount.toFixed(2)}
-                        </Badge>
-                      </td>
+                      {canViewPayments && (
+                        <td className="px-6 py-5">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
+                              row.payment === "Paid" ? "bg-emerald-500/10 text-emerald-600" :
+                              row.payment === "Partial" ? "bg-amber-500/10 text-amber-600" :
+                              "bg-rose-500/10 text-rose-600",
+                            )}
+                          >
+                            {row.payment} • ${row.amount.toFixed(2)}
+                          </Badge>
+                        </td>
+                      )}
                       <td className="px-6 py-5">
                         <Badge
                           className={cn(
@@ -363,36 +437,93 @@ export default function ExamsPage() {
                 </div>
 
                 <div className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collect / Edit Payment</p>
+                  {canViewPayments && (
+                    <>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collect / Edit Payment</p>
 
-                  <div className="grid gap-2">
-                    <Label>Payment Status</Label>
-                    <Select value={paymentStatus} onValueChange={(value) => setPaymentStatus(String(value ?? ""))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payment status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Paid">Paid</SelectItem>
-                        <SelectItem value="Partial">Partial</SelectItem>
-                        <SelectItem value="Unpaid">Unpaid</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-xl bg-muted/30 p-2.5">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Total</p>
+                          <p className="text-sm font-black">${selectedExam.amount.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-500/10 p-2.5">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-600">Collected</p>
+                          <p className="text-sm font-black text-emerald-600">${selectedExam.collected.toFixed(2)}</p>
+                        </div>
+                        <div className="rounded-xl bg-rose-500/10 p-2.5">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-rose-600">Balance</p>
+                          <p className="text-sm font-black text-rose-600">${Math.max(0, selectedExam.amount - selectedExam.collected).toFixed(2)}</p>
+                        </div>
+                      </div>
 
-                  <div className="grid gap-2">
-                    <Label>Amount</Label>
-                    <Input type="number" min={0} step={0.01} value={examFee} onChange={(event) => setExamFee(event.target.value)} />
-                  </div>
+                      <div className="grid gap-2">
+                        <Label>Payment Status</Label>
+                        <Select value={paymentStatus} onValueChange={(value) => setPaymentStatus(String(value ?? ""))}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select payment status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Paid">Paid</SelectItem>
+                            <SelectItem value="Partial">Partial</SelectItem>
+                            <SelectItem value="Unpaid">Unpaid</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                  <Button className="w-full gap-2" onClick={() => void handleSavePayment()} disabled={savingPayment || !paymentStatus}>
-                    <Wallet className="h-4 w-4" />
-                    {savingPayment ? "Saving..." : "Save Payment"}
-                  </Button>
+                      <div className="grid gap-2">
+                        <Label>Amount</Label>
+                        <Input type="number" min={0} step={0.01} value={examFee} onChange={(event) => setExamFee(event.target.value)} />
+                      </div>
+
+                      <Button className="w-full gap-2" onClick={() => void handleSavePayment()} disabled={savingPayment || !paymentStatus}>
+                        <Wallet className="h-4 w-4" />
+                        {savingPayment ? "Saving..." : "Save Payment"}
+                      </Button>
+                    </>
+                  )}
 
                   <Button variant="outline" className="w-full" render={<Link href={`/dashboard/clients/${selectedExam.clientId}`} />}>
                     Open Client Page
                   </Button>
                 </div>
+
+                {canManageAppointments && (
+                  <div className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reschedule</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="grid gap-1.5">
+                        <Label className="text-xs">Date</Label>
+                        <Input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label className="text-xs">Time</Label>
+                        <Input type="time" value={rescheduleTime} onChange={(e) => setRescheduleTime(e.target.value)} />
+                      </div>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="w-full gap-2"
+                      onClick={() => void handleReschedule()}
+                      disabled={savingReschedule}
+                    >
+                      <CalendarIcon className="h-4 w-4" />
+                      {savingReschedule ? "Rescheduling..." : "Save New Date"}
+                    </Button>
+                  </div>
+                )}
+
+                {canManageAppointments && (
+                  <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-destructive mb-2">Danger Zone</p>
+                    <DeleteConfirmDialog
+                      title={`Delete ${selectedExam.code}`}
+                      description="This permanently removes the appointment and its schedule slot. This cannot be undone."
+                      confirmLabel="Confirmation"
+                      triggerLabel={deleting ? "Deleting..." : "Delete Appointment"}
+                      onConfirm={handleDelete}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -428,9 +559,12 @@ function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): Le
       dateLabel: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
       timeLabel: date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
       amount: Number(appointment.exam_fee || 0),
+      collected: Number(appointment.collected_amount || 0),
       payment: normalizePaymentStatus(appointment.payment_status),
       status: normalizeStatus(appointment.status),
       reason: parsed.reason,
+      scheduledAt: appointment.scheduled_at,
+      duration: Number(appointment.duration || 150),
     };
   });
 }

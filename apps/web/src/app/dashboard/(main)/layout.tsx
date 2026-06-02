@@ -2,8 +2,8 @@
 
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { TopNav } from "@/components/dashboard/top-nav";
+import { IdleTimeout } from "@/components/dashboard/idle-timeout";
 import { useUIStore } from "@/lib/store";
-import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
 export default function MainDashboardLayout({
@@ -15,6 +15,7 @@ export default function MainDashboardLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-muted/20">
+      <IdleTimeout />
       {/* Sidebar for desktop */}
       <div className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:z-50">
         <Sidebar />

@@ -234,14 +234,16 @@ function getTokenFromStorage(): string | null {
 }
 
 /**
- * Make an authenticated fetch request with automatic JWT bearer token and user email header.
- * Queries better-auth's /get-session endpoint to get both the token and user email.
+ * Make an authenticated request. The backend authenticates by validating the
+ * better-auth session token (sent as a Bearer token), so identity is never derived
+ * from a client-supplied header. On 401 (expired/invalid session) the user is sent
+ * back to the login page.
  */
 export async function authenticatedFetch(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const { token, email } = await getToken();
+  const { token } = await getToken();
   const headers = new Headers(options.headers);
 
   // Set content-type default (skip for FormData so the browser sets multipart boundary)
@@ -249,30 +251,26 @@ export async function authenticatedFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  // Attach bearer token if available
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[authenticatedFetch] Attaching token to request:", endpoint);
-    }
   }
 
-  // Attach user email as header for session token validation
-  if (email) {
-    headers.set("X-User-Email", email);
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[authenticatedFetch] Attaching user email:", email);
-    }
-  }
-
-  if (!token && process.env.NODE_ENV === "development") {
-    console.warn("[authenticatedFetch] No token found, sending request with credentials:", endpoint);
-  }
-
-  // Use credentials: 'include' to send cookies with cross-origin requests
-  return fetch(`${API_BASE}${endpoint}`, {
+  const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    credentials: "include", // Always include cookies
+    credentials: "include", // include cookies for same-site deployments
     headers,
   });
+
+  // Session expired or invalid → clear cached token and bounce to login.
+  if (response.status === 401 && typeof window !== "undefined") {
+    cachedToken = null;
+    cachedEmail = null;
+    tokenCacheTime = 0;
+    const path = window.location.pathname;
+    if (!path.startsWith("/login") && !path.startsWith("/sign-")) {
+      window.location.href = "/login";
+    }
+  }
+
+  return response;
 }

@@ -141,12 +141,12 @@ export default function ClientOverviewPage() {
                         APT-{String(appointment.id).padStart(4, "0")}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
-                        {new Date(appointment.scheduled_at).toLocaleDateString()} • {appointment.status}
+                        {new Date(appointment.scheduled_at).toLocaleDateString()}
                       </div>
                     </div>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">
-                    {appointment.payment_status || "—"}
+                  <Badge variant="outline" className="text-[10px] capitalize">
+                    {appointment.status || "—"}
                   </Badge>
                 </div>
               ))

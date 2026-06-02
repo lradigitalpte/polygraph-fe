@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { formatClientCode, getClientInitials } from "@/lib/clients";
 import { isOrganizationClient } from "@/lib/client-types";
 
@@ -24,6 +25,9 @@ export function ClientSidebar() {
   const params = useParams();
   const id = params.id;
   const { client, loading } = useClientDetail();
+  const { user, can } = useCurrentUser();
+  const isExaminer = user?.role?.name === "Examiner";
+  const canViewBilling = can("client:manage") && !isExaminer;
   const displayName = client?.name ?? (loading ? "Loading..." : `Client ${id}`);
   const initials = client ? getClientInitials(client.name) : "--";
   const isOrg = isOrganizationClient(client);
@@ -46,7 +50,11 @@ export function ClientSidebar() {
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
   ];
 
-  const navigation = isOrg ? organizationNav : individualNav;
+  const fullNav = isOrg ? organizationNav : individualNav;
+  // Hide the billing tab from users who can't access billing (e.g. examiners).
+  const navigation = canViewBilling
+    ? fullNav
+    : fullNav.filter((item) => item.href !== `/dashboard/clients/${id}/account`);
   const bookHref = isOrg
     ? `/dashboard/calendar/book?clientId=${id}`
     : `/dashboard/calendar/book?clientId=${id}`;

@@ -49,6 +49,8 @@ import { toast } from "sonner";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import { fetchQuotations, type QuotationRecord } from "@/lib/quotations";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { fetchExamByAppointment, type ExamPhaseRecord } from "@/lib/exam-documentation";
 
 const timeSlots = [
   "08:00", "09:00", "10:00", "11:00", "12:00",
@@ -90,16 +92,44 @@ type CalendarAppointment = {
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-purple-600", "bg-amber-600", "bg-rose-600", "bg-cyan-600"];
 
 export default function CalendarPage() {
+  const { can } = useCurrentUser();
+  const canViewPayments = can("payment:view");
   const [view, setView] = React.useState<"month" | "week" | "day">("week");
   const [cursorDate, setCursorDate] = React.useState<Date>(() => startOfDay(new Date()));
   const [selectedExaminers, setSelectedExaminers] = React.useState<string[]>([]);
   const [selectedAppointment, setSelectedAppointment] = React.useState<CalendarAppointment | null>(null);
+  const [timelinePhases, setTimelinePhases] = React.useState<ExamPhaseRecord[]>([]);
+  const [timelineLoading, setTimelineLoading] = React.useState(false);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
   const [paymentStep, setPaymentStep] = React.useState<'billing' | 'collection' | 'confirmed'>('billing');
   const [examiners, setExaminers] = React.useState<CalendarExaminer[]>([]);
   const [appointments, setAppointments] = React.useState<CalendarAppointment[]>([]);
   const [quotations, setQuotations] = React.useState<QuotationRecord[]>([]);
+  // Load the real session timeline (exam phases) for the selected appointment.
+  React.useEffect(() => {
+    const appointmentId = selectedAppointment?.id;
+    if (!appointmentId) {
+      setTimelinePhases([]);
+      return;
+    }
+    let cancelled = false;
+    setTimelineLoading(true);
+    void (async () => {
+      try {
+        const exam = await fetchExamByAppointment(Number(appointmentId));
+        if (!cancelled) setTimelinePhases(exam?.phases ?? []);
+      } catch {
+        if (!cancelled) setTimelinePhases([]);
+      } finally {
+        if (!cancelled) setTimelineLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAppointment?.id]);
+
   const weekDays = React.useMemo(() => buildWeekDays(cursorDate), [cursorDate]);
   const dayViewDay = React.useMemo(() => {
     return {
@@ -593,7 +623,9 @@ export default function CalendarPage() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground leading-none">Invoice</p>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground leading-none">
+                          {canViewPayments ? "Invoice" : "Payment Status"}
+                        </p>
                         <Badge className={cn(
                           "text-[8px] font-black uppercase tracking-widest px-2 py-0.5",
                           selectedAppointment?.paymentStatus?.toLowerCase() === "paid"
@@ -605,19 +637,25 @@ export default function CalendarPage() {
                           {selectedAppointment?.paymentStatus || "Unpaid"}
                         </Badge>
                       </div>
-                      <p className="text-base font-black text-foreground">${billingSummary.total.toFixed(2)}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground">
-                        Paid ${billingSummary.paid.toFixed(2)} • Balance ${billingSummary.balance.toFixed(2)}
-                      </p>
+                      {canViewPayments && (
+                        <>
+                          <p className="text-base font-black text-foreground">${billingSummary.total.toFixed(2)}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground">
+                            Paid ${billingSummary.paid.toFixed(2)} • Balance ${billingSummary.balance.toFixed(2)}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
-                  <Button
-                    onClick={() => setIsPaymentOpen(true)}
-                    size="sm"
-                    className="h-8 px-4 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-black text-[9px] uppercase tracking-widest shadow-md shadow-primary/10 transition-all shrink-0 ml-2"
-                  >
-                    Pay Now
-                  </Button>
+                  {canViewPayments && (
+                    <Button
+                      onClick={() => setIsPaymentOpen(true)}
+                      size="sm"
+                      className="h-8 px-4 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-black text-[9px] uppercase tracking-widest shadow-md shadow-primary/10 transition-all shrink-0 ml-2"
+                    >
+                      Pay Now
+                    </Button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -651,32 +689,48 @@ export default function CalendarPage() {
 
                   <div className="space-y-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Timeline</p>
-                    <div className="space-y-3 relative before:absolute before:left-[9px] before:top-2 before:bottom-2 before:w-px before:bg-border/30">
-                      {[
-                        { time: "09:42 AM", event: "Biometric prep", icon: CheckCircle2, color: "text-emerald-500" },
-                        { time: "09:15 AM", event: "Pre-test interview", icon: Info, color: "text-blue-500" },
-                        { time: "08:55 AM", event: "Check-in", icon: User, color: "text-muted-foreground" }
-                      ].map((item, idx) => (
-                        <div key={idx} className="flex gap-3 relative z-10">
-                          <div className={cn("mt-1 p-0.5 rounded-full bg-card border border-border shadow-xs", item.color)}>
-                            <item.icon className="h-2.5 w-2.5" />
+                    {timelineLoading ? (
+                      <p className="text-[10px] text-muted-foreground ml-1">Loading session phases…</p>
+                    ) : timelinePhases.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground ml-1">No session phases logged yet.</p>
+                    ) : (
+                      <div className="space-y-3 relative before:absolute before:left-[9px] before:top-2 before:bottom-2 before:w-px before:bg-border/30">
+                        {timelinePhases.map((phase) => (
+                          <div key={phase.id} className="flex gap-3 relative z-10">
+                            <div className="mt-1 p-0.5 rounded-full bg-card border border-border shadow-xs text-primary">
+                              <CheckCircle2 className="h-2.5 w-2.5" />
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-black text-foreground/90">{phase.name}</p>
+                              <p className="text-[8px] font-bold text-muted-foreground/60 uppercase">
+                                {new Date(phase.start_time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                              {phase.notes && (
+                                <p className="text-[9px] text-muted-foreground mt-0.5">{phase.notes}</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-[11px] font-black text-foreground/90">{item.event}</p>
-                            <p className="text-[8px] font-bold text-muted-foreground/60 uppercase">{item.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="pt-2 flex flex-col gap-2 pb-6">
-                  <Button className="w-full h-12 rounded-xl font-black text-xs shadow-lg shadow-primary/10 transition-all hover:scale-[1.01] bg-primary text-primary-foreground">
-                    Case Console
+                  <Button
+                    className="w-full h-12 rounded-xl font-black text-xs shadow-lg shadow-primary/10 transition-all hover:scale-[1.01] bg-primary text-primary-foreground"
+                    render={
+                      <Link href={`/dashboard/clients/${selectedAppointment.clientId}/exams/${selectedAppointment.id}`} />
+                    }
+                  >
+                    Open Case Console
                   </Button>
-                  <Button variant="ghost" className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/50">
-                    Modify Schedule
+                  <Button
+                    variant="ghost"
+                    className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/50"
+                    render={<Link href={`/dashboard/clients/${selectedAppointment.clientId}`} />}
+                  >
+                    Open Client Page
                   </Button>
                 </div>
               </div>

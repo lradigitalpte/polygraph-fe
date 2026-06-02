@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { SettingsSidebar } from "@/components/dashboard/settings-sidebar";
 import { TopNav } from "@/components/dashboard/top-nav";
+import { IdleTimeout } from "@/components/dashboard/idle-timeout";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
 export default function SettingsLayout({
@@ -25,6 +26,7 @@ export default function SettingsLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <IdleTimeout />
       {/* Settings Sidebar */}
       <div className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:z-50">
         <SettingsSidebar />

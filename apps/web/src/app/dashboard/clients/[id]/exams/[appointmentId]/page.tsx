@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
-import type { AppointmentRecord } from "@/lib/exam-booking";
 import {
   addExamPhase,
   fetchExamByAppointment,
@@ -42,7 +41,6 @@ import {
   type ExamRecord,
 } from "@/lib/exam-documentation";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
-import { ClientPaymentPanel } from "@/components/dashboard/client-payment-panel";
 
 const EXAM_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"] as const;
 const DOC_TYPES = [
@@ -267,17 +265,6 @@ export default function ExaminationDocumentationPage() {
           </div>
         </div>
       </div>
-
-      {appointment && (
-        <div className="max-w-md">
-          <ClientPaymentPanel
-            appointment={appointment}
-            clientEmail={client?.email}
-            clientId={clientId}
-            onUpdated={() => void refresh()}
-          />
-        </div>
-      )}
 
       {loading ? (
         <div className="flex justify-center py-24 text-muted-foreground">

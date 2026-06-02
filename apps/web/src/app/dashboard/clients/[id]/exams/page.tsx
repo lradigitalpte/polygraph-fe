@@ -14,7 +14,6 @@ import {
   Calendar,
   ChevronRight,
   Clock,
-  CreditCard,
   FileText,
   Loader2,
 } from "lucide-react";
@@ -92,12 +91,6 @@ function AppointmentRow({
               <Clock className="h-3 w-3" />
               {formatDuration(appointment.duration)}
             </span>
-            {appointment.exam_fee != null && appointment.exam_fee > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <CreditCard className="h-3 w-3" />
-                ${appointment.exam_fee.toFixed(2)}
-              </span>
-            )}
           </div>
           {appointment.notes && (
             <p className="text-xs text-muted-foreground line-clamp-2">{appointment.notes}</p>

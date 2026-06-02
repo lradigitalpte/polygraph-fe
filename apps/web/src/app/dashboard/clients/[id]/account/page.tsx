@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   CreditCard,
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import {
   collectAppointmentPayment,
   formatMoney,
@@ -64,8 +65,18 @@ function statusVariant(status: string) {
 
 export default function ClientAccountPage() {
   const params = useParams();
+  const router = useRouter();
   const clientId = Number(params.id);
   const { client } = useClientDetail();
+  const { user, loading: userLoading, can } = useCurrentUser();
+  const isExaminer = user?.role?.name === "Examiner";
+
+  React.useEffect(() => {
+    if (!userLoading && (!can("client:manage") || isExaminer)) {
+      toast.error("You don't have access to billing information.");
+      router.replace(`/dashboard/clients/${clientId}`);
+    }
+  }, [userLoading, can, router, clientId, isExaminer]);
 
   const [summary, setSummary] = React.useState<AccountSummary | null>(null);
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);

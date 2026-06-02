@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import * as React from "react";
-import { CheckCircle2, Plus, Shield } from "lucide-react";
+import { CheckCircle2, Pencil, Plus, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ import { fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
 import { fetchUsers, type UserRecord } from "@/lib/users";
 import {
   createRole,
+  updateRole,
   fetchPermissions,
   fetchRoles,
   type PermissionRecord,
@@ -73,6 +74,7 @@ export default function RolesPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
+  const [editingRole, setEditingRole] = React.useState<RoleRecord | null>(null);
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [selectedPermissions, setSelectedPermissions] = React.useState<number[]>([]);
@@ -117,7 +119,23 @@ export default function RolesPage() {
     });
   };
 
-  const handleCreateRole = async () => {
+  const openCreate = () => {
+    setEditingRole(null);
+    setName("");
+    setDescription("");
+    setSelectedPermissions([]);
+    setOpen(true);
+  };
+
+  const openEdit = (role: RoleRecord) => {
+    setEditingRole(role);
+    setName(role.name);
+    setDescription(role.description ?? "");
+    setSelectedPermissions((role.permissions ?? []).map((p) => p.id));
+    setOpen(true);
+  };
+
+  const handleSaveRole = async () => {
     if (!name.trim()) {
       toast.error("Role name is required");
       return;
@@ -125,19 +143,30 @@ export default function RolesPage() {
 
     setCreating(true);
     try {
-      const role = await createRole({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        permission_ids: selectedPermissions,
-      });
-      setRoles((current) => [...current, role]);
+      if (editingRole) {
+        const updated = await updateRole(editingRole.id, {
+          name: name.trim(),
+          description: description.trim(),
+          permission_ids: selectedPermissions,
+        });
+        setRoles((current) => current.map((r) => (r.id === updated.id ? updated : r)));
+        toast.success("Role updated");
+      } else {
+        const role = await createRole({
+          name: name.trim(),
+          description: description.trim() || undefined,
+          permission_ids: selectedPermissions,
+        });
+        setRoles((current) => [...current, role]);
+        toast.success("Role created successfully");
+      }
       setOpen(false);
+      setEditingRole(null);
       setName("");
       setDescription("");
       setSelectedPermissions([]);
-      toast.success("Role created successfully");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create role");
+      toast.error(err instanceof Error ? err.message : "Failed to save role");
     } finally {
       setCreating(false);
     }
@@ -152,7 +181,7 @@ export default function RolesPage() {
             Define access levels and security permissions for your team.
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setOpen(true)}>
+        <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           Create Role
         </Button>
@@ -175,12 +204,18 @@ export default function RolesPage() {
               return (
                 <Card key={role.id} className="relative overflow-hidden group">
                   <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2 text-primary">
-                      <Shield className="h-5 w-5" />
-                      <CardTitle className="text-base">{role.name}</CardTitle>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-primary">
+                        <Shield className="h-5 w-5" />
+                        <CardTitle className="text-base">{role.name}</CardTitle>
+                      </div>
+                      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openEdit(role)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </Button>
                     </div>
                     <CardDescription className="text-xs">
-                      {assignedUsers} active user{assignedUsers === 1 ? "" : "s"} assigned
+                      {assignedUsers} active user{assignedUsers === 1 ? "" : "s"} assigned · {(role.permissions || []).length} permission{(role.permissions || []).length === 1 ? "" : "s"}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -191,11 +226,18 @@ export default function RolesPage() {
                       {previewPermissions.length === 0 ? (
                         <Badge variant="outline">No permissions attached</Badge>
                       ) : (
-                        previewPermissions.map((permission) => (
-                          <Badge key={permission.id} variant="outline">
-                            {permissionLabel(permission)}
-                          </Badge>
-                        ))
+                        <>
+                          {previewPermissions.map((permission) => (
+                            <Badge key={permission.id} variant="outline">
+                              {permissionLabel(permission)}
+                            </Badge>
+                          ))}
+                          {(role.permissions || []).length > previewPermissions.length && (
+                            <Badge variant="secondary">
+                              +{(role.permissions || []).length - previewPermissions.length} more
+                            </Badge>
+                          )}
+                        </>
                       )}
                     </div>
                   </CardContent>
@@ -237,7 +279,7 @@ export default function RolesPage() {
               <p className="text-sm text-muted-foreground max-w-sm mb-6">
                 Create roles with granular permission sets that match your organization workflow.
               </p>
-              <Button variant="outline" onClick={() => setOpen(true)}>Create Custom Role</Button>
+              <Button variant="outline" onClick={openCreate}>Create Custom Role</Button>
             </CardContent>
           </Card>
         </>
@@ -246,9 +288,9 @@ export default function RolesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Create Role</DialogTitle>
+            <DialogTitle>{editingRole ? `Edit ${editingRole.name}` : "Create Role"}</DialogTitle>
             <DialogDescription>
-              Define a role name, describe its purpose, and attach permissions.
+              Define a role name, describe its purpose, and toggle its permissions.
             </DialogDescription>
           </DialogHeader>
 
@@ -298,8 +340,8 @@ export default function RolesPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleCreateRole} disabled={creating}>
-              {creating ? "Creating..." : "Create Role"}
+            <Button onClick={handleSaveRole} disabled={creating}>
+              {creating ? "Saving..." : editingRole ? "Save Changes" : "Create Role"}
             </Button>
           </DialogFooter>
         </DialogContent>

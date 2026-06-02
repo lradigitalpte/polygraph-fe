@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  LayoutDashboard, 
-  Users, 
-  FileText, 
-  Settings, 
-  ShieldCheck,
+import {
+  LayoutDashboard,
+  Users,
+  FileText,
+  Settings,
   LogOut,
   Calendar,
+  CalendarClock,
   Target,
   CreditCard,
   BellRing,
+  UserCircle,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
@@ -21,40 +22,59 @@ import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { useUIStore } from "@/lib/store";
-import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { useCurrentUser, clearCurrentUserCache } from "@/components/dashboard/use-current-user";
 
-const navigation: Array<{
+type NavItem = {
   name: string;
   href: string;
   icon: typeof LayoutDashboard;
   badge?: string;
   requires?: string;
-}> = [
+};
+
+// Full operations nav for Admin / ops users. Items with `requires` are still
+// permission-filtered so the ops "User" role only sees what it's allowed.
+const staffNav: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Exams", href: "/dashboard/exams", icon: FileText, badge: "3" },
+  { name: "Exams", href: "/dashboard/exams", icon: FileText },
   { name: "Clients", href: "/dashboard/clients", icon: Users },
-  { name: "Leads", href: "/dashboard/leads", icon: Target, badge: "New", requires: "lead:view" },
+  { name: "Leads", href: "/dashboard/leads", icon: Target, requires: "lead:view" },
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
-  { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, badge: "!", requires: "reminder:view" },
+  { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, requires: "reminder:view" },
   { name: "Payments", href: "/dashboard/payments", icon: CreditCard, requires: "payment:view" },
   { name: "Settings", href: "/dashboard/settings", icon: Settings, requires: "user:view" },
+];
+
+// Dedicated, curated nav for Examiners — their workspace, not "admin minus items".
+const examinerNav: NavItem[] = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "My Exams", href: "/dashboard/exams", icon: FileText },
+  { name: "Clients", href: "/dashboard/clients", icon: Users },
+  { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
+  { name: "My Availability", href: "/dashboard/profile/availability", icon: CalendarClock },
+  { name: "My Profile", href: "/dashboard/profile", icon: UserCircle },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isSidebarCollapsed, toggleSidebar } = useUIStore();
-  const { loading, can } = useCurrentUser();
+  const { user, loading, can } = useCurrentUser();
 
-  // Hide items the user lacks the required permission for. While permissions are
-  // still loading, hide gated items to avoid a flash of links they can't access.
-  const filteredNavigation = navigation.filter((item) => {
-    if (!item.requires) return true;
-    if (loading) return false;
-    return can(item.requires);
-  });
+  const isExaminer = user?.role?.name === "Examiner";
+
+  // Examiners get their own curated nav. Everyone else gets the ops nav, with
+  // permission-gated items filtered out (and hidden while permissions load).
+  const filteredNavigation = isExaminer
+    ? examinerNav
+    : staffNav.filter((item) => {
+        if (!item.requires) return true;
+        if (loading) return false;
+        return can(item.requires);
+      });
 
   const handleSignOut = async () => {
+    clearCurrentUserCache();
     await authClient.signOut();
     router.push("/login");
   };
@@ -88,7 +108,15 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-6 overflow-y-auto">
-        {filteredNavigation.map((item) => {
+        {/* While the role is still resolving, show placeholders instead of the wrong nav. */}
+        {loading && !user ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2">
+              <div className="h-5 w-5 shrink-0 rounded bg-muted animate-pulse" />
+              {!isSidebarCollapsed && <div className="h-3 flex-1 rounded bg-muted animate-pulse" />}
+            </div>
+          ))
+        ) : filteredNavigation.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link

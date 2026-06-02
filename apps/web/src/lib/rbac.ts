@@ -47,3 +47,18 @@ export async function createRole(input: {
   }
   return response.json();
 }
+
+export async function updateRole(
+  id: number,
+  input: { name?: string; description?: string; permission_ids?: number[] },
+): Promise<RoleRecord> {
+  const response = await authenticatedFetch(`/api/rbac/roles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to update role (${response.status})`);
+  }
+  return response.json();
+}

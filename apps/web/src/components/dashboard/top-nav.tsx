@@ -1,14 +1,12 @@
 "use client";
 
-import * as React from "react";
-import { 
-  Search,
-  Bell, 
-  Calendar, 
-  Moon, 
-  Sun, 
-  User, 
-  Settings, 
+import {
+  Bell,
+  Calendar,
+  Moon,
+  Sun,
+  User,
+  Settings,
   LogOut,
   Plus
 } from "lucide-react";
@@ -28,17 +26,20 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { MobileNav } from "./mobile-nav";
-import { useCurrentUser, userInitials } from "./use-current-user";
+import { GlobalSearch } from "./global-search";
+import { useCurrentUser, userInitials, clearCurrentUserCache } from "./use-current-user";
 
 export function TopNav() {
   const { setTheme, theme } = useTheme();
   const router = useRouter();
-  const { user } = useCurrentUser();
+  const { user, can } = useCurrentUser();
+  const canViewAdmin = can("user:view");
   const displayName = user?.name ?? "User";
   const displayEmail = user?.email ?? "";
   const initials = userInitials(displayName, displayEmail);
 
   const handleSignOut = async () => {
+    clearCurrentUserCache();
     await authClient.signOut();
     router.push("/login");
   };
@@ -46,20 +47,28 @@ export function TopNav() {
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-background/80 backdrop-blur-md px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
       <MobileNav />
-      <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6">
-        <div className="flex-1" />
+      <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6 items-center">
+        <div className="flex flex-1 items-center">
+          <GlobalSearch />
+        </div>
         
         <div className="flex items-center gap-x-4 lg:gap-x-6">
-          <Button size="sm" className="hidden sm:flex rounded-full gap-2 font-semibold shadow-sm shadow-primary/20">
+          <Button
+            size="sm"
+            className="hidden sm:flex rounded-full gap-2 font-semibold shadow-sm shadow-primary/20"
+            onClick={() => router.push("/dashboard/calendar/book")}
+          >
             <Plus className="h-4 w-4" />
             New Exam
           </Button>
 
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground hover:bg-primary/5">
-            <Search className="h-5 w-5" />
-          </Button>
-
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground hover:bg-primary/5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-full text-muted-foreground hover:text-foreground hover:bg-primary/5"
+            onClick={() => router.push("/dashboard/calendar")}
+            aria-label="Open calendar"
+          >
             <Calendar className="h-5 w-5" />
           </Button>
 
@@ -104,10 +113,12 @@ export function TopNav() {
                   <User className="mr-2 h-4 w-4" />
                   <span>My Profile</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Admin Settings</span>
-                </DropdownMenuItem>
+                {canViewAdmin && (
+                  <DropdownMenuItem onClick={() => router.push("/dashboard/settings")}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Admin Settings</span>
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
