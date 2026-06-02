@@ -159,6 +159,26 @@ export async function fetchBillingLedger(clientId?: number): Promise<ClientAccou
   return data;
 }
 
+// Delete an invoice. A quotation-backed invoice deletes the quotation; a pure
+// session invoice deletes the appointment. Requires the payment:manage permission.
+export async function deleteInvoice(invoice: {
+  quotationId?: number;
+  appointmentId?: number;
+}): Promise<void> {
+  const target = invoice.quotationId
+    ? `/api/quotations/${invoice.quotationId}`
+    : invoice.appointmentId
+      ? `/api/appointments/${invoice.appointmentId}`
+      : null;
+  if (!target) throw new Error("Nothing to delete for this invoice");
+
+  const response = await authenticatedFetch(target, { method: "DELETE" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to delete invoice (${response.status})`);
+  }
+}
+
 export type FinancialInvoice = {
   id: number;
   source: "booking" | "session" | "quote";

@@ -43,6 +43,7 @@ import {
 } from "@/lib/exam-booking";
 import { createSubject, fetchSubjects, type SubjectRecord } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { convertQuotation } from "@/lib/quotations";
 import { cn } from "@/lib/utils";
 
 const paymentTypes = [
@@ -62,6 +63,7 @@ function BookAppointmentPageContent() {
   const searchParams = useSearchParams();
   const presetClientId = searchParams.get("clientId");
   const presetSubjectId = searchParams.get("subjectId");
+  const convertQuotationId = searchParams.get("quotationId");
   const [step, setStep] = React.useState(1);
   const [isBooking, setIsBooking] = React.useState(false);
   const [isLoadingInitialData, setIsLoadingInitialData] = React.useState(true);
@@ -449,23 +451,36 @@ function BookAppointmentPageContent() {
         paymentStatus = "Partial";
       }
 
-      await createAppointment({
-        client_id: Number(formData.clientId),
-        subject_id: subjectID,
-        examiner_id: Number(formData.examinerId),
-        scheduled_at: new Date(`${formData.date}T${formData.time}:00`).toISOString(),
-        duration: selectedExamType.duration,
-        exam_fee: selectedExamType.price,
-        collected_amount: collectedAmount,
-        payment_status: paymentStatus,
-        payment_mode: formData.paymentType,
-        notes: `${selectedExamType.name}\n\n${formData.reason}`,
-        status: "pending",
-      });
+      const scheduledAt = new Date(`${formData.date}T${formData.time}:00`).toISOString();
 
-      toast.success("Appointment booked", {
-        description: `Invoice for $${selectedExamType.price.toFixed(2)} added to Financial Hub.`,
-      });
+      if (convertQuotationId) {
+        // Converting an existing quotation into a booking — the quote's amount carries
+        // over and the quotation becomes this booking's invoice (no new invoice).
+        await convertQuotation(Number(convertQuotationId), {
+          subject_id: subjectID,
+          examiner_id: Number(formData.examinerId),
+          scheduled_at: scheduledAt,
+          duration: selectedExamType.duration,
+        });
+        toast.success("Quotation converted to a booking");
+      } else {
+        await createAppointment({
+          client_id: Number(formData.clientId),
+          subject_id: subjectID,
+          examiner_id: Number(formData.examinerId),
+          scheduled_at: scheduledAt,
+          duration: selectedExamType.duration,
+          exam_fee: selectedExamType.price,
+          collected_amount: collectedAmount,
+          payment_status: paymentStatus,
+          payment_mode: formData.paymentType,
+          notes: `${selectedExamType.name}\n\n${formData.reason}`,
+          status: "pending",
+        });
+        toast.success("Appointment booked", {
+          description: `Invoice for $${selectedExamType.price.toFixed(2)} added to Financial Hub.`,
+        });
+      }
       router.push("/dashboard/payments");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create appointment");
@@ -484,8 +499,14 @@ function BookAppointmentPageContent() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Book New Exam</h1>
-            <p className="text-sm text-muted-foreground">Clinical scheduling & intake.</p>
+            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              {convertQuotationId ? "Convert Quotation to Booking" : "Book New Exam"}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {convertQuotationId
+                ? "Schedule this quoted service — the quote becomes its invoice."
+                : "Clinical scheduling & intake."}
+            </p>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">

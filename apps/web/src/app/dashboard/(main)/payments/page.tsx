@@ -19,6 +19,7 @@ import {
   AlertCircle, 
   ChevronRight,
   ChevronLeft,
+  Calendar,
   Mail,
   FileText,
   ChevronDown,
@@ -38,7 +39,8 @@ import {
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { collectAppointmentPayment } from "@/lib/client-account";
-import { fetchBillingLedger, mapLedgerEntryToInvoice, type FinancialInvoice } from "@/lib/billing";
+import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, type FinancialInvoice } from "@/lib/billing";
+import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { 
   Sheet, 
@@ -121,6 +123,75 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
 
   const win = window.open("", "_blank");
   if (!win) { toast.error("Allow popups to download PDF"); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 400);
+}
+
+function isPaidInFull(status: string): boolean {
+  const s = status.toLowerCase();
+  return s === "paid" || s === "completed";
+}
+
+// ---------- helper: printable PAID receipt (shown once an invoice is settled) ----------
+function downloadReceiptPDF(inv: Invoice) {
+  const receiptNo = inv.code.replace(/^INV-/, "RCPT-");
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>${receiptNo} — Payment Receipt</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Helvetica Neue',sans-serif;color:#111;padding:48px}
+  .logo{font-size:22px;font-weight:900;letter-spacing:-0.03em;color:#000}
+  .tagline{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px}
+  .paid{display:inline-block;margin-top:32px;background:#dcfce7;color:#15803d;border-radius:8px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0.14em;padding:8px 16px}
+  h1{font-size:38px;font-weight:900;letter-spacing:-0.04em;margin:16px 0 4px;color:#15803d}
+  .meta{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.12em}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:32px 0}
+  .field label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.14em;color:#aaa;display:block;margin-bottom:4px}
+  .field span{font-size:13px;font-weight:700}
+  table{width:100%;border-collapse:collapse;margin:32px 0}
+  th{font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:#aaa;border-bottom:1px solid #e5e5e5;padding:8px 0;text-align:left;font-weight:800}
+  td{padding:12px 0;font-size:13px;border-bottom:1px solid #f3f3f3;font-weight:600}
+  .amount{text-align:right}
+  .total-row td{font-weight:900;font-size:15px;border-top:2px solid #000;border-bottom:none;padding-top:16px}
+  .footer{margin-top:64px;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:16px}
+  @media print{body{padding:32px}}
+</style>
+</head>
+<body>
+<div class="logo">Polygraph Services</div>
+<div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
+
+<div class="paid">✓ Paid in Full</div>
+<h1>$${inv.paidAmount.toFixed(2)}</h1>
+<div class="meta">Amount Received</div>
+
+<div class="grid">
+  <div class="field"><label>Receipt No.</label><span>${receiptNo}</span></div>
+  <div class="field"><label>Invoice No.</label><span>${inv.code}</span></div>
+  <div class="field"><label>Client</label><span>${inv.client}</span></div>
+  <div class="field"><label>Date</label><span>${inv.date}</span></div>
+</div>
+
+<table>
+  <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
+  <tbody>
+    ${inv.items.map((item) => `<tr><td>${item.description}</td><td class="amount">$${item.amount.toFixed(2)}</td></tr>`).join("")}
+    <tr class="total-row"><td>Total Paid</td><td class="amount">$${inv.paidAmount.toFixed(2)}</td></tr>
+    <tr><td style="color:#888;font-size:12px">Balance Due</td><td class="amount">$0.00</td></tr>
+  </tbody>
+</table>
+
+<div class="footer">Thank you for your payment. This receipt confirms settlement in full of ${inv.code}.</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank");
+  if (!win) { toast.error("Allow popups to download the receipt"); return; }
   win.document.write(html);
   win.document.close();
   win.focus();
@@ -466,7 +537,15 @@ export default function PaymentsPage() {
                       <td className="px-8 py-6">
                         <div className="flex flex-col gap-1">
                           <span className="font-black text-base leading-none text-foreground">{inv.client}</span>
-                          <span className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">{inv.code}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">{inv.code}</span>
+                            <span className={cn(
+                              "rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest",
+                              inv.source === "quote" ? "bg-violet-500/10 text-violet-600" : "bg-muted text-muted-foreground",
+                            )}>
+                              {inv.source === "quote" ? "Quotation" : "Invoice"}
+                            </span>
+                          </span>
                         </div>
                       </td>
                       <td className="px-8 py-6">
@@ -632,12 +711,35 @@ export default function PaymentsPage() {
                 </div>
 
                 <div className="pt-10 flex flex-col gap-4">
-                  <Button 
+                  <Button
                     onClick={() => setIsRecordPaymentOpen(true)}
                     className="w-full h-16 rounded-[2rem] font-black text-base shadow-2xl shadow-primary/30 bg-primary text-primary-foreground hover:scale-[1.03] transition-all"
                   >
                     Record Payment Entry
                   </Button>
+                  {selectedInvoice.source === "quote" && can("appointment:create") && (
+                    <Button
+                      variant="secondary"
+                      className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest gap-2"
+                      onClick={() =>
+                        router.push(
+                          `/dashboard/calendar/book?clientId=${selectedInvoice.clientId}&quotationId=${selectedInvoice.quotationId ?? selectedInvoice.id}`,
+                        )
+                      }
+                    >
+                      <Calendar className="h-4 w-4" />
+                      Convert to Booking
+                    </Button>
+                  )}
+                  {isPaidInFull(selectedInvoice.status) && (
+                    <Button
+                      className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest gap-2 bg-emerald-600 text-white hover:bg-emerald-600/90"
+                      onClick={() => downloadReceiptPDF(selectedInvoice)}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download Receipt
+                    </Button>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <Button
                       variant="outline"
@@ -666,6 +768,25 @@ export default function PaymentsPage() {
                         <Download className="mr-2 h-4 w-4 text-primary" /> PDF
                     </Button>
                   </div>
+                  {can("payment:manage") && (
+                    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+                      <DeleteConfirmDialog
+                        title={`Delete ${selectedInvoice.code}`}
+                        description="This permanently removes this invoice from billing. The linked appointment (if any) is kept."
+                        confirmLabel="Confirmation"
+                        triggerLabel="Delete Invoice"
+                        onConfirm={async () => {
+                          await deleteInvoice({
+                            quotationId: selectedInvoice.quotationId,
+                            appointmentId: selectedInvoice.appointmentId,
+                          });
+                          setInvoices((current) => current.filter((inv) => inv.id !== selectedInvoice.id));
+                          setIsSheetOpen(false);
+                          toast.success("Invoice deleted");
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

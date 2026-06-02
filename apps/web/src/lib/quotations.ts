@@ -70,6 +70,23 @@ export async function sendQuotationEmail(
   }
 }
 
+// Convert a standalone quotation into a booked appointment. The quote's amount
+// carries over as the fee and the quotation becomes that booking's invoice.
+export async function convertQuotation(
+  id: number,
+  input: { subject_id: number; examiner_id: number; scheduled_at: string; duration: number },
+): Promise<{ id: number }> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/convert`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to convert quotation (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function collectQuotationPayment(
   id: number,
   input: { amount: number }
