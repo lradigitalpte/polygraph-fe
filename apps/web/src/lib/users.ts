@@ -132,6 +132,39 @@ export async function deleteUser(id: number): Promise<void> {
   }
 }
 
+export type PermissionState = {
+  id: number;
+  name: string;
+  description?: string;
+  group?: string;
+  role_default: boolean;
+  override: boolean | null;
+  effective: boolean;
+};
+
+export async function fetchUserPermissions(id: number): Promise<PermissionState[]> {
+  const response = await authenticatedFetch(`/api/users/${id}/permissions`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to load permissions (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function updateUserPermissions(
+  id: number,
+  overrides: Array<{ permission_id: number; granted: boolean }>,
+): Promise<void> {
+  const response = await authenticatedFetch(`/api/users/${id}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ overrides }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to update permissions (${response.status})`);
+  }
+}
+
 export async function fetchUserActivity(id: number, limit = 25): Promise<UserActivityRecord[]> {
   const response = await authenticatedFetch(`/api/users/${id}/activity?limit=${limit}`);
   if (!response.ok) {

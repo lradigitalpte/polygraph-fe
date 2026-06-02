@@ -10,6 +10,16 @@ export async function fetchMe(): Promise<UserRecord> {
   return response.json();
 }
 
+export async function fetchMyPermissions(): Promise<string[]> {
+  const response = await authenticatedFetch("/api/me/permissions");
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to load permissions (${response.status})`);
+  }
+  const data = await response.json();
+  return Array.isArray(data?.permissions) ? data.permissions : [];
+}
+
 export async function updateMe(input: { name: string }): Promise<UserRecord> {
   const response = await authenticatedFetch("/api/me", {
     method: "PATCH",

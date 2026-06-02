@@ -4,7 +4,7 @@
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-const AUTH_URL = process.env.NEXT_PUBLIC_NEON_AUTH_URL ?? "http://localhost:8080/api/auth";
+const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "http://localhost:8080/api/auth";
 
 // Cache for the token to avoid repeated async calls during the same request
 let cachedToken: string | null = null;

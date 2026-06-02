@@ -4,10 +4,12 @@ import * as React from "react";
 
 import { authClient } from "@/lib/auth-client";
 import type { UserRecord } from "@/lib/users";
+import { fetchMe, fetchMyPermissions } from "@/lib/account";
 
-/** Nav display name/email from Better Auth session only (no /api/me on every page). */
+/** Nav display name/email from Better Auth session + /api/me for full user record, role & effective permissions. */
 export function useCurrentUser() {
   const [user, setUser] = React.useState<UserRecord | null>(null);
+  const [permissions, setPermissions] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -16,19 +18,30 @@ export function useCurrentUser() {
       setLoading(true);
       try {
         const session = await authClient.getSession();
-        const email = session?.data?.user?.email ?? "";
-        const name = session?.data?.user?.name ?? email;
-        if (!cancelled && email) {
-          setUser({
-            id: 0,
-            name: name || email,
-            email,
-            status: "active",
-            role_id: 0,
-            password_reset_required: false,
-            created_at: "",
-            updated_at: "",
-          });
+        const sessionEmail = session?.data?.user?.email ?? "";
+        if (!cancelled && sessionEmail) {
+          try {
+            const [me, perms] = await Promise.all([fetchMe(), fetchMyPermissions()]);
+            if (!cancelled) {
+              setUser(me);
+              setPermissions(perms);
+            }
+          } catch (err) {
+            // Fallback to basic session info if /api/me fails
+            const name = session?.data?.user?.name ?? sessionEmail;
+            if (!cancelled) {
+              setUser({
+                id: 0,
+                name: name || sessionEmail,
+                email: sessionEmail,
+                status: "active",
+                role_id: 0,
+                password_reset_required: false,
+                created_at: "",
+                updated_at: "",
+              });
+            }
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -39,7 +52,12 @@ export function useCurrentUser() {
     };
   }, []);
 
-  return { user, loading };
+  const can = React.useCallback(
+    (permission: string) => permissions.includes(permission),
+    [permissions],
+  );
+
+  return { user, loading, permissions, can };
 }
 
 export function userInitials(name: string, email: string): string {

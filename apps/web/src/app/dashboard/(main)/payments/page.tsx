@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,6 +129,16 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
 // ---------------------------------------------------------------------------
 
 export default function PaymentsPage() {
+  const router = useRouter();
+  const { loading: userLoading, can } = useCurrentUser();
+
+  React.useEffect(() => {
+    if (!userLoading && !can("payment:view")) {
+      toast.error("You don't have permission to access this page.");
+      router.replace("/dashboard");
+    }
+  }, [userLoading, can, router]);
+
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
   const [clients, setClients] = React.useState<ClientRecord[]>([]);
   const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);

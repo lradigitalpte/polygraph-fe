@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +51,16 @@ type ComposeTarget =
   | (SessionReminderItem & { kind: "session" });
 
 export default function RemindersPage() {
+  const router = useRouter();
+  const { loading: userLoading, can } = useCurrentUser();
+
+  React.useEffect(() => {
+    if (!userLoading && !can("reminder:view")) {
+      toast.error("You don't have permission to access this page.");
+      router.replace("/dashboard");
+    }
+  }, [userLoading, can, router]);
+
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");

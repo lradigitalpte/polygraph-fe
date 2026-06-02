@@ -1,13 +1,28 @@
 "use client";
 
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
 import { SettingsSidebar } from "@/components/dashboard/settings-sidebar";
 import { TopNav } from "@/components/dashboard/top-nav";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
 export default function SettingsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+  const { loading, can } = useCurrentUser();
+
+  React.useEffect(() => {
+    if (!loading && !can("user:view")) {
+      toast.error("You don't have access to the admin settings area.");
+      router.replace("/dashboard");
+    }
+  }, [loading, can, router]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Settings Sidebar */}

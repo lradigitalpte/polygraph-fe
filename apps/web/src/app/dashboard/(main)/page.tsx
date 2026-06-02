@@ -28,6 +28,7 @@ import { fetchSubjects, type SubjectRecord } from "@/lib/subjects";
 import { fetchLeads, type LeadRecord } from "@/lib/leads";
 import { fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
 type DashboardExam = {
   id: number;
@@ -58,6 +59,12 @@ const quickActions = [
   { title: "Start New Exam", description: "Open intake and assign examiner", href: "/dashboard/calendar/book", icon: Activity },
   { title: "Register Subject", description: "Create subject record and upload ID", href: "/dashboard/clients/new", icon: Users },
   { title: "View Audit Logs", description: "Review access history and security events", href: "/dashboard/settings/audit", icon: ShieldCheck },
+] as const;
+
+const examinerQuickActions = [
+  { title: "View My Schedule", description: "Check calendar and upcoming appointments", href: "/dashboard/calendar", icon: Activity },
+  { title: "Conduct Exam", description: "Open examiner panel and write details", href: "/dashboard/exams", icon: Users },
+  { title: "Personal Settings", description: "Manage your profile and password", href: "/dashboard/settings", icon: ShieldCheck },
 ] as const;
 
 function toStartOfDay(date: Date) {
@@ -195,6 +202,7 @@ function badgeVariantForStatus(status: DashboardExam["status"]): "success" | "wa
 }
 
 export default function DashboardPage() {
+  const { user } = useCurrentUser();
   const [appointments, setAppointments] = React.useState<AppointmentRecord[]>([]);
   const [subjects, setSubjects] = React.useState<SubjectRecord[]>([]);
   const [leads, setLeads] = React.useState<LeadRecord[]>([]);
@@ -204,18 +212,23 @@ export default function DashboardPage() {
   const [lastSync, setLastSync] = React.useState<Date | null>(null);
 
   React.useEffect(() => {
+    if (!user) return;
+
     let cancelled = false;
 
     async function load() {
       setIsLoading(true);
 
-      const [appointmentsResult, subjectsResult, leadsResult, logsResult, examinersResult] = await Promise.allSettled([
+      const isExaminer = user?.role?.name === "Examiner";
+      const promises = [
         fetchAppointments(),
         fetchSubjects(),
-        fetchLeads(),
-        fetchAuditLogs(200),
+        isExaminer ? Promise.resolve([]) : fetchLeads(),
+        isExaminer ? Promise.resolve([]) : fetchAuditLogs(200),
         fetchExaminers(),
-      ]);
+      ] as const;
+
+      const [appointmentsResult, subjectsResult, leadsResult, logsResult, examinersResult] = await Promise.allSettled(promises);
 
       if (cancelled) {
         return;
@@ -241,7 +254,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   const mappedExams = React.useMemo<DashboardExam[]>(() => {
     const examinerMap = new Map<number, string>();
@@ -249,23 +262,32 @@ export default function DashboardPage() {
       examinerMap.set(examiner.id, examiner.name);
     });
 
-    return appointments.map((appointment) => {
-      const parsed = parseNotes(appointment.notes || "");
-      const scheduledAt = new Date(appointment.scheduled_at);
+    const isExaminer = user?.role?.name === "Examiner";
 
-      return {
-        id: appointment.id,
-        code: `EX-${String(appointment.id).padStart(4, "0")}`,
-        label: parsed.title,
-        subject: appointment.client?.name || `Client #${appointment.client_id}`,
-        owner: examinerMap.get(appointment.examiner_id) || `Examiner ${initials(String(appointment.examiner_id))}`,
-        status: normalizeStatus(appointment.status),
-        payment: normalizePaymentStatus(appointment.payment_status),
-        durationMinutes: Number(appointment.duration || 0),
-        scheduledAt,
-      };
-    });
-  }, [appointments, examiners]);
+    return appointments
+      .filter((appointment) => {
+        if (isExaminer && user) {
+          return appointment.examiner_id === user.id;
+        }
+        return true;
+      })
+      .map((appointment) => {
+        const parsed = parseNotes(appointment.notes || "");
+        const scheduledAt = new Date(appointment.scheduled_at);
+
+        return {
+          id: appointment.id,
+          code: `EX-${String(appointment.id).padStart(4, "0")}`,
+          label: parsed.title,
+          subject: appointment.client?.name || `Client #${appointment.client_id}`,
+          owner: examinerMap.get(appointment.examiner_id) || `Examiner ${initials(String(appointment.examiner_id))}`,
+          status: normalizeStatus(appointment.status),
+          payment: normalizePaymentStatus(appointment.payment_status),
+          durationMinutes: Number(appointment.duration || 0),
+          scheduledAt,
+        };
+      });
+  }, [appointments, examiners, user]);
 
   const analytics = React.useMemo(() => {
     const now = new Date();
@@ -427,40 +449,82 @@ export default function DashboardPage() {
 
   const throughputPath = React.useMemo(() => buildChart(analytics.throughput), [analytics.throughput]);
 
-  const metrics = [
-    {
-      title: "Total Cases",
-      value: String(analytics.totalCases),
-      delta: formatDelta(analytics.totalCasesCurrentMonth, analytics.totalCasesPreviousMonth, "vs last month"),
-      detail: `${analytics.completed} cleared for delivery`,
-      icon: ShieldCheck,
-      accent: "from-primary/20 via-primary/8 to-transparent",
-    },
-    {
-      title: "Active Exams",
-      value: String(analytics.activeExams),
-      delta: formatDelta(analytics.activeExams, analytics.activeYesterday, "from yesterday"),
-      detail: `${analytics.todaysQueue.length} currently in today's queue`,
-      icon: Activity,
-      accent: "from-amber-500/20 via-amber-500/8 to-transparent",
-    },
-    {
-      title: "Subjects",
-      value: String(analytics.totalSubjects),
-      delta: formatDelta(analytics.subjectsCurrentMonth, analytics.subjectsPreviousMonth, "vs last month"),
-      detail: `${analytics.totalSubjects} total registered profiles`,
-      icon: Users,
-      accent: "from-sky-500/20 via-sky-500/8 to-transparent",
-    },
-    {
-      title: "Reports Generated",
-      value: String(analytics.totalReports),
-      delta: formatDelta(analytics.reportsCurrentMonth, analytics.reportsPreviousMonth, "vs last month"),
-      detail: `${analytics.avgDurationHours.toFixed(1)}h average exam duration`,
-      icon: FileText,
-      accent: "from-emerald-500/20 via-emerald-500/8 to-transparent",
-    },
-  ] as const;
+  const isExaminerRole = user?.role?.name === "Examiner";
+
+  const pendingReports = mappedExams.filter((exam) => exam.status === "Confirmed" || exam.status === "Pending").length;
+  const myCompletedExams = mappedExams.filter((exam) => exam.status === "Completed").length;
+  const myTotalExams = mappedExams.length;
+  const myClearanceRate = myTotalExams === 0 ? 0 : Math.round((myCompletedExams / myTotalExams) * 100);
+
+  const metrics = isExaminerRole
+    ? ([
+        {
+          title: "My Assigned Exams",
+          value: String(myTotalExams),
+          delta: formatDelta(analytics.totalCasesCurrentMonth, analytics.totalCasesPreviousMonth, "vs last month"),
+          detail: `${analytics.todaysQueue.length} scheduled for today`,
+          icon: ShieldCheck,
+          accent: "from-primary/20 via-primary/8 to-transparent",
+        },
+        {
+          title: "Pending Reports",
+          value: String(pendingReports),
+          delta: formatDelta(pendingReports, 0, "requiring sign-off"),
+          detail: "Assigned exams awaiting your assessment",
+          icon: Activity,
+          accent: "from-amber-500/20 via-amber-500/8 to-transparent",
+        },
+        {
+          title: "My Completed Exams",
+          value: String(myCompletedExams),
+          delta: formatDelta(analytics.reportsCurrentMonth, analytics.reportsPreviousMonth, "vs last month"),
+          detail: `${analytics.avgDurationHours.toFixed(1)}h average exam duration`,
+          icon: FileText,
+          accent: "from-emerald-500/20 via-emerald-500/8 to-transparent",
+        },
+        {
+          title: "Clearance Rate",
+          value: `${myClearanceRate}%`,
+          delta: "Personal performance",
+          detail: "Completed reports out of total assigned",
+          icon: Users,
+          accent: "from-sky-500/20 via-sky-500/8 to-transparent",
+        },
+      ] as const)
+    : ([
+        {
+          title: "Total Cases",
+          value: String(analytics.totalCases),
+          delta: formatDelta(analytics.totalCasesCurrentMonth, analytics.totalCasesPreviousMonth, "vs last month"),
+          detail: `${analytics.completed} cleared for delivery`,
+          icon: ShieldCheck,
+          accent: "from-primary/20 via-primary/8 to-transparent",
+        },
+        {
+          title: "Active Exams",
+          value: String(analytics.activeExams),
+          delta: formatDelta(analytics.activeExams, analytics.activeYesterday, "from yesterday"),
+          detail: `${analytics.todaysQueue.length} currently in today's queue`,
+          icon: Activity,
+          accent: "from-amber-500/20 via-amber-500/8 to-transparent",
+        },
+        {
+          title: "Subjects",
+          value: String(analytics.totalSubjects),
+          delta: formatDelta(analytics.subjectsCurrentMonth, analytics.subjectsPreviousMonth, "vs last month"),
+          detail: `${analytics.totalSubjects} total registered profiles`,
+          icon: Users,
+          accent: "from-sky-500/20 via-sky-500/8 to-transparent",
+        },
+        {
+          title: "Reports Generated",
+          value: String(analytics.totalReports),
+          delta: formatDelta(analytics.reportsCurrentMonth, analytics.reportsPreviousMonth, "vs last month"),
+          detail: `${analytics.avgDurationHours.toFixed(1)}h average exam duration`,
+          icon: FileText,
+          accent: "from-emerald-500/20 via-emerald-500/8 to-transparent",
+        },
+      ] as const);
 
   return (
     <div className="space-y-6 pb-6">
@@ -470,19 +534,21 @@ export default function DashboardPage() {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge className="rounded-none px-3 py-1 uppercase tracking-[0.24em]" variant="outline">
-                Live Operations
+                {user?.role?.name === "Examiner" ? "Examiner Portal" : "Live Operations"}
               </Badge>
               <span className="text-muted-foreground text-xs uppercase tracking-[0.24em]">
-                Polygraph Command Center
+                {user?.role?.name === "Examiner" ? "My Forensic Workspace" : "Polygraph Command Center"}
               </span>
             </div>
 
             <div className="max-w-2xl space-y-3">
               <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                Dashboard Overview
+                {user?.role?.name === "Examiner" ? `Welcome, ${user.name.split(" ")[0]}` : "Dashboard Overview"}
               </h1>
               <p className="text-muted-foreground max-w-xl text-sm sm:text-base">
-                Live intelligence from appointments, subjects, leads, and audit activity.
+                {user?.role?.name === "Examiner"
+                  ? "Your assigned exams, today's schedule, and personal performance metrics."
+                  : "Live intelligence from appointments, subjects, leads, and audit activity."}
               </p>
             </div>
 
@@ -497,11 +563,21 @@ export default function DashboardPage() {
                 <p className="mt-2 text-3xl font-semibold">{analytics.avgDurationHours.toFixed(1)}h</p>
                 <p className="text-muted-foreground mt-1 text-xs">Based on appointment durations</p>
               </div>
-              <div className="border border-border/70 bg-background/70 p-4 backdrop-blur-sm">
-                <p className="text-muted-foreground text-[11px] uppercase tracking-[0.24em]">Risk Alerts</p>
-                <p className="mt-2 text-3xl font-semibold">{analytics.riskAlerts}</p>
-                <p className="text-muted-foreground mt-1 text-xs">Audit events with HTTP status 400+ in last 24h</p>
-              </div>
+              {user?.role?.name === "Examiner" ? (
+                <div className="border border-border/70 bg-background/70 p-4 backdrop-blur-sm">
+                  <p className="text-muted-foreground text-[11px] uppercase tracking-[0.24em]">Pending Reports</p>
+                  <p className="mt-2 text-3xl font-semibold">
+                    {mappedExams.filter((exam) => exam.status === "Confirmed" || exam.status === "Pending").length}
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">Assigned exams requiring your assessment</p>
+                </div>
+              ) : (
+                <div className="border border-border/70 bg-background/70 p-4 backdrop-blur-sm">
+                  <p className="text-muted-foreground text-[11px] uppercase tracking-[0.24em]">Risk Alerts</p>
+                  <p className="mt-2 text-3xl font-semibold">{analytics.riskAlerts}</p>
+                  <p className="text-muted-foreground mt-1 text-xs">Audit events with HTTP status 400+ in last 24h</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -657,10 +733,12 @@ export default function DashboardPage() {
           <Card className="border-border/70 bg-card/80">
             <CardHeader>
               <CardTitle className="text-base">Quick Actions</CardTitle>
-              <CardDescription>Common tasks for the operations team</CardDescription>
+              <CardDescription>
+                {user?.role?.name === "Examiner" ? "Your key tools and shortcuts" : "Common tasks for the operations team"}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {quickActions.map((item) => {
+              {(user?.role?.name === "Examiner" ? examinerQuickActions : quickActions).map((item) => {
                 const Icon = item.icon;
 
                 return (
@@ -690,14 +768,48 @@ export default function DashboardPage() {
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <CardTitle className="text-base">Operational Watchlist</CardTitle>
-                <CardDescription>Items that may slow delivery or require intervention</CardDescription>
+                <CardTitle className="text-base">
+                  {user?.role?.name === "Examiner" ? "My Work Summary" : "Operational Watchlist"}
+                </CardTitle>
+                <CardDescription>
+                  {user?.role?.name === "Examiner"
+                    ? "Status of exams assigned to you"
+                    : "Items that may slow delivery or require intervention"}
+                </CardDescription>
               </div>
               <Badge className="rounded-none" variant="warning">
-                {analytics.alerts} alerts
+                {user?.role?.name === "Examiner"
+                  ? `${mappedExams.filter((e) => e.status === "Pending" || e.status === "Confirmed").length} active`
+                  : `${analytics.alerts} alerts`}
               </Badge>
             </div>
           </CardHeader>
+          {user?.role?.name === "Examiner" ? (
+            <CardContent className="grid gap-3 md:grid-cols-3">
+              <div className="border border-border/70 bg-background/60 p-4">
+                <CheckCircle2 className="mb-3 h-4 w-4 text-emerald-500" />
+                <p className="text-sm font-medium">Completed</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {mappedExams.filter((e) => e.status === "Completed").length} exam{mappedExams.filter((e) => e.status === "Completed").length !== 1 ? "s" : ""} successfully completed by you.
+                </p>
+              </div>
+              <div className="border border-border/70 bg-background/60 p-4">
+                <Activity className="mb-3 h-4 w-4 text-amber-500" />
+                <p className="text-sm font-medium">Active / Pending</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {mappedExams.filter((e) => e.status === "Pending" || e.status === "Confirmed").length} exam{mappedExams.filter((e) => e.status === "Pending" || e.status === "Confirmed").length !== 1 ? "s" : ""} awaiting your attention.
+                </p>
+              </div>
+              <div className="border border-border/70 bg-background/60 p-4">
+                <CalendarClock className="mb-3 h-4 w-4 text-sky-500" />
+                <p className="text-sm font-medium">Today&apos;s Queue</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {analytics.todaysQueue.length} appointment{analytics.todaysQueue.length !== 1 ? "s" : ""} scheduled for you today.
+                </p>
+              </div>
+            </CardContent>
+          ) : (
+          <>
           <CardContent className="grid gap-3 md:grid-cols-3">
             <div className="border border-border/70 bg-background/60 p-4">
               <Siren className="mb-3 h-4 w-4 text-amber-500" />
@@ -727,12 +839,18 @@ export default function DashboardPage() {
             </span>
             <span className="text-xs font-medium">Security posture {analytics.riskAlerts > 0 ? "watch" : "stable"}</span>
           </CardFooter>
+          </>
+          )}
         </Card>
 
         <Card className="border-border/70 bg-card/80">
           <CardHeader>
-            <CardTitle className="text-base">Today&apos;s Queue</CardTitle>
-            <CardDescription>Upcoming milestones and live checkpoints</CardDescription>
+            <CardTitle className="text-base">
+              {user?.role?.name === "Examiner" ? "My Schedule Today" : "Today\u0027s Queue"}
+            </CardTitle>
+            <CardDescription>
+              {user?.role?.name === "Examiner" ? "Your assigned appointments for today" : "Upcoming milestones and live checkpoints"}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {analytics.todaysQueue.length === 0 ? (
@@ -751,7 +869,11 @@ export default function DashboardPage() {
                       {item.status}
                     </Badge>
                   </div>
-                  <p className="text-muted-foreground mt-1 text-xs">Examiner: {item.owner}</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    {user?.role?.name === "Examiner"
+                      ? `Subject: ${item.subject}`
+                      : `Examiner: ${item.owner}`}
+                  </p>
                 </div>
               </div>
             ))}

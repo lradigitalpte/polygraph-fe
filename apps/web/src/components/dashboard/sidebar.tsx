@@ -21,22 +21,38 @@ import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { useUIStore } from "@/lib/store";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
-const navigation = [
+const navigation: Array<{
+  name: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  badge?: string;
+  requires?: string;
+}> = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Exams", href: "/dashboard/exams", icon: FileText, badge: "3" },
   { name: "Clients", href: "/dashboard/clients", icon: Users },
-  { name: "Leads", href: "/dashboard/leads", icon: Target, badge: "New" },
+  { name: "Leads", href: "/dashboard/leads", icon: Target, badge: "New", requires: "lead:view" },
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
-  { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, badge: "!" },
-  { name: "Payments", href: "/dashboard/payments", icon: CreditCard },
-  { name: "Settings", href: "/dashboard/settings", icon: Settings },
+  { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, badge: "!", requires: "reminder:view" },
+  { name: "Payments", href: "/dashboard/payments", icon: CreditCard, requires: "payment:view" },
+  { name: "Settings", href: "/dashboard/settings", icon: Settings, requires: "user:view" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isSidebarCollapsed, toggleSidebar } = useUIStore();
+  const { loading, can } = useCurrentUser();
+
+  // Hide items the user lacks the required permission for. While permissions are
+  // still loading, hide gated items to avoid a flash of links they can't access.
+  const filteredNavigation = navigation.filter((item) => {
+    if (!item.requires) return true;
+    if (loading) return false;
+    return can(item.requires);
+  });
 
   const handleSignOut = async () => {
     await authClient.signOut();
@@ -72,7 +88,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-6 overflow-y-auto">
-        {navigation.map((item) => {
+        {filteredNavigation.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link

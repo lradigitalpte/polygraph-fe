@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -152,6 +154,16 @@ function buildLeadForm(lead: LeadRecord): LeadDetailForm {
 }
 
 export default function LeadsPage() {
+  const router = useRouter();
+  const { loading: userLoading, can } = useCurrentUser();
+
+  React.useEffect(() => {
+    if (!userLoading && !can("lead:view")) {
+      toast.error("You don't have permission to access this page.");
+      router.replace("/dashboard");
+    }
+  }, [userLoading, can, router]);
+
   const [searchQuery, setSearchQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<(typeof statusOptions)[number]>("All");
   const [sourceFilter, setSourceFilter] = React.useState<(typeof sourceOptions)[number]>("All");

@@ -3,12 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Clock3, Mail, Shield, UserRound } from "lucide-react";
+import { ArrowLeft, Clock3, Mail, RotateCcw, Shield, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
@@ -17,7 +18,10 @@ import {
   fetchRoles,
   fetchUser,
   fetchUserActivity,
+  fetchUserPermissions,
   requirePasswordReset,
+  updateUserPermissions,
+  type PermissionState,
   type RoleRecord,
   type UserActivityRecord,
   type UserRecord,
@@ -49,23 +53,42 @@ export default function UserDetailPage() {
   const [user, setUser] = React.useState<UserRecord | null>(null);
   const [roles, setRoles] = React.useState<RoleRecord[]>([]);
   const [activity, setActivity] = React.useState<UserActivityRecord[]>([]);
+  const [permissions, setPermissions] = React.useState<PermissionState[]>([]);
+  const [savingPerms, setSavingPerms] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const permsDirty = React.useMemo(
+    () => permissions.some((p) => p.effective !== p.role_default),
+    [permissions],
+  );
+  const groupedPerms = React.useMemo(() => {
+    const map = new Map<string, PermissionState[]>();
+    for (const p of permissions) {
+      const g = p.group || "Other";
+      const list = map.get(g) || [];
+      list.push(p);
+      map.set(g, list);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [permissions]);
 
   const load = React.useCallback(async () => {
     if (!id || Number.isNaN(id)) return;
     setLoading(true);
     setError(null);
     try {
-      const [userData, roleData, activityData] = await Promise.all([
+      const [userData, roleData, activityData, permsData] = await Promise.all([
         fetchUser(id),
         fetchRoles(),
         fetchUserActivity(id, 25),
+        fetchUserPermissions(id),
       ]);
       setUser(userData);
       setRoles(roleData);
       setActivity(activityData);
+      setPermissions(permsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load user details");
     } finally {
@@ -119,6 +142,43 @@ export default function UserDetailPage() {
     }
   };
 
+  const togglePermission = (permId: number, checked: boolean) => {
+    setPermissions((current) =>
+      current.map((p) => (p.id === permId ? { ...p, effective: checked } : p)),
+    );
+  };
+
+  const handleSavePermissions = async () => {
+    if (!user) return;
+    setSavingPerms(true);
+    try {
+      const overrides = permissions
+        .filter((p) => p.effective !== p.role_default)
+        .map((p) => ({ permission_id: p.id, granted: p.effective }));
+      await updateUserPermissions(user.id, overrides);
+      // Reflect the saved state: anything differing from role default is now an override.
+      setPermissions((current) =>
+        current.map((p) => ({
+          ...p,
+          override: p.effective !== p.role_default ? p.effective : null,
+        })),
+      );
+      toast.success(
+        overrides.length === 0
+          ? "Reset to role defaults."
+          : `Saved ${overrides.length} permission override${overrides.length === 1 ? "" : "s"}.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save permissions");
+    } finally {
+      setSavingPerms(false);
+    }
+  };
+
+  const handleResetPermissions = () => {
+    setPermissions((current) => current.map((p) => ({ ...p, effective: p.role_default })));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -164,6 +224,7 @@ export default function UserDetailPage() {
             <TabsList className="h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="security">Security</TabsTrigger>
+              <TabsTrigger value="permissions">Permissions</TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
 
@@ -237,6 +298,83 @@ export default function UserDetailPage() {
                     <br />
                     Suspended at: <span className="font-medium text-foreground">{formatDateTime(user.suspended_at)}</span>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="permissions" className="space-y-4 outline-none">
+              <Card>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <CardTitle>Permission Overrides</CardTitle>
+                      <CardDescription>
+                        Toggles default to the <span className="font-medium">{user.role?.name ?? "role"}</span> role.
+                        Changing one creates a per-user override that takes precedence.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResetPermissions}
+                        disabled={savingPerms || !permsDirty}
+                        className="gap-1.5"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Reset to role
+                      </Button>
+                      <Button size="sm" onClick={handleSavePermissions} disabled={savingPerms}>
+                        {savingPerms ? "Saving..." : "Save changes"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {groupedPerms.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No permissions defined.</div>
+                  ) : (
+                    groupedPerms.map(([group, items]) => (
+                      <div key={group} className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-semibold">{group}</div>
+                          <Badge variant="outline">{items.length}</Badge>
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {items.map((perm) => {
+                            const isOverride = perm.effective !== perm.role_default;
+                            return (
+                              <label
+                                key={perm.id}
+                                className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                                  isOverride ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40"
+                                }`}
+                              >
+                                <Checkbox
+                                  checked={perm.effective}
+                                  onCheckedChange={(value) => togglePermission(perm.id, Boolean(value))}
+                                  className="mt-0.5"
+                                />
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-medium">{perm.name}</span>
+                                    {isOverride && (
+                                      <Badge variant={perm.effective ? "success" : "destructive"} className="text-[10px]">
+                                        {perm.effective ? "Granted" : "Denied"} override
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {perm.description || "No description"}
+                                  </div>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
