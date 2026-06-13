@@ -237,6 +237,49 @@ export async function fetchAppointments(): Promise<AppointmentRecord[]> {
   return response.json();
 }
 
+export type BulkScheduleRow = {
+  subject_id?: number;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  employee_ref?: string;
+  offset_minutes?: number;
+};
+
+export type BulkScheduleResultItem = {
+  subject: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email?: string;
+    phone?: string;
+    employee_ref?: string;
+  };
+  appointment: AppointmentRecord;
+};
+
+export async function bulkSchedule(input: {
+  client_id: number;
+  examiner_id: number;
+  scheduled_at: string;
+  duration: number;
+  exam_fee?: number;
+  payment_mode: string;
+  notes: string;
+  examinees: BulkScheduleRow[];
+}): Promise<{ scheduled: number; results: BulkScheduleResultItem[] }> {
+  const response = await authenticatedFetch("/api/appointments/bulk-schedule", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Bulk schedule failed (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function updateAppointmentPayment(
   id: number,
   input: {

@@ -43,6 +43,7 @@ export type FormRequestRecord = {
   expires_at: string;
   client_document_id?: number;
   subject_document_id?: number;
+  submitted_data?: string;
 };
 
 export type PublicFormView = {

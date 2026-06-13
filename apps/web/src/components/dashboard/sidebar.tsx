@@ -15,7 +15,8 @@ import {
   BellRing,
   UserCircle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth-client";
@@ -38,6 +39,7 @@ const staffNav: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Exams", href: "/dashboard/exams", icon: FileText },
   { name: "Clients", href: "/dashboard/clients", icon: Users },
+  { name: "Batch Intake", href: "/dashboard/intake", icon: ClipboardList, requires: "appointment:create" },
   { name: "Leads", href: "/dashboard/leads", icon: Target, requires: "lead:view" },
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
   { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, requires: "reminder:view" },

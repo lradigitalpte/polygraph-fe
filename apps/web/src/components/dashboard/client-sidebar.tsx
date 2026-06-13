@@ -5,7 +5,6 @@ import { usePathname, useParams } from "next/navigation";
 import {
   User,
   FileText,
-  Activity,
   FolderLock,
   Wallet,
   ArrowLeft,
@@ -13,6 +12,7 @@ import {
   PlayCircle,
   Users,
   Building2,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
@@ -36,7 +36,6 @@ export function ClientSidebar() {
     { name: "Client Overview", href: `/dashboard/clients/${id}`, icon: LayoutDashboard },
     { name: "Personal Details", href: `/dashboard/clients/${id}/details`, icon: User },
     { name: "Exam History", href: `/dashboard/clients/${id}/exams`, icon: FileText },
-    { name: "Biometric Data", href: `/dashboard/clients/${id}/biometrics`, icon: Activity },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
   ];
@@ -45,6 +44,7 @@ export function ClientSidebar() {
     { name: "Account Overview", href: `/dashboard/clients/${id}`, icon: LayoutDashboard },
     { name: "Account Details", href: `/dashboard/clients/${id}/details`, icon: Building2 },
     { name: "Examinee Roster", href: `/dashboard/clients/${id}/roster`, icon: Users },
+    { name: "Request Examinee Roster", href: `/dashboard/clients/${id}/intake`, icon: Mail },
     { name: "All Sessions", href: `/dashboard/clients/${id}/exams`, icon: FileText },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import {
   ArrowLeft,
-  Activity,
   FileText,
   FolderLock,
   LayoutDashboard,
@@ -34,7 +33,6 @@ export function ExamineeSidebar() {
     { name: "Overview", href: base, icon: LayoutDashboard },
     { name: "Personal Details", href: `${base}/details`, icon: User },
     { name: "Exam History", href: `${base}/exams`, icon: FileText },
-    { name: "Biometric Data", href: `${base}/biometrics`, icon: Activity },
     { name: "Documents", href: `${base}/documents`, icon: FolderLock },
   ];
 

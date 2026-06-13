@@ -158,7 +158,7 @@ export function CorporateClientOverview() {
           <div>
             <CardTitle>Examinee roster</CardTitle>
             <CardDescription>
-              Each person tested under this account has their own profile, exams, and biometrics.
+              Each person tested under this account has their own profile, exams, and documents.
             </CardDescription>
           </div>
           <Button size="sm" render={<Link href={`/dashboard/clients/${client.id}/roster`} />}>

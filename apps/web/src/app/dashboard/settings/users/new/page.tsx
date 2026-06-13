@@ -78,9 +78,9 @@ export default function NewUserPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
       });
+      const authPayload = await authRes.json().catch(() => null);
       if (!authRes.ok) {
-        const payload = await authRes.json().catch(() => null);
-        throw new Error(payload?.error || "Failed to create auth account");
+        throw new Error(authPayload?.error || "Failed to create auth account");
       }
 
       const user = await createUser({
@@ -88,7 +88,16 @@ export default function NewUserPage() {
         email: email.trim(),
         role_id: Number(roleId),
       });
-      toast.success(`${name.trim()} can now sign in with the temporary password.`);
+
+      if (authPayload?.emailWarning) {
+        toast.warning(
+          `${name.trim()} created, but the set-password email failed: ${authPayload.emailWarning}. Share the temporary password instead.`
+        );
+      } else {
+        toast.success(
+          `${name.trim()} created — a set-password email has been sent to ${email.trim()}.`
+        );
+      }
       router.push(`/dashboard/settings/users/${user.id}` as Route);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create user");
