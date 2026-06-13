@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -88,23 +89,26 @@ export function Sidebar() {
       className="flex h-full flex-col bg-card border-r border-border transition-all duration-300 ease-in-out relative"
     >
       {/* Logo Area */}
-      <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
-        <Link href="/dashboard" className="flex items-center gap-3 font-bold text-xl tracking-tight overflow-hidden">
-          <div className="shrink-0 w-8 h-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg shadow-sm">
-            P
-          </div>
-          <AnimatePresence mode="wait">
-            {!isSidebarCollapsed && (
-              <motion.span
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                className="whitespace-nowrap"
-              >
-                Polygraph
-              </motion.span>
-            )}
-          </AnimatePresence>
+      <div
+        className={cn(
+          "flex h-16 shrink-0 items-center border-b border-border",
+          isSidebarCollapsed ? "justify-center px-2" : "px-6"
+        )}
+      >
+        <Link href="/dashboard" className="flex items-center overflow-hidden">
+          <span className="inline-flex items-center rounded-md bg-black px-2 py-1.5 shadow-sm">
+            <Image
+              src="/logo.png"
+              alt="Polygraph"
+              width={2048}
+              height={674}
+              priority
+              className={cn(
+                "w-auto object-contain",
+                isSidebarCollapsed ? "h-4 max-w-11" : "h-7"
+              )}
+            />
+          </span>
         </Link>
       </div>
 

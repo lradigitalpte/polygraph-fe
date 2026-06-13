@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,9 +48,16 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit}>
           <CardHeader className="space-y-1">
             <div className="flex justify-center mb-4">
-              <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-2xl shadow-md">
-                P
-              </div>
+              <span className="inline-flex items-center rounded-xl bg-black px-5 py-3 shadow-md">
+                <Image
+                  src="/logo.png"
+                  alt="Polygraph"
+                  width={2048}
+                  height={674}
+                  priority
+                  className="h-12 w-auto"
+                />
+              </span>
             </div>
             <CardTitle className="text-2xl font-bold text-center">Sign in</CardTitle>
             <CardDescription className="text-center">

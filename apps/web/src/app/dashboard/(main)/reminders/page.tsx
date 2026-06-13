@@ -122,25 +122,69 @@ export default function RemindersPage() {
 
   const applyTemplate = (name: string) => {
     if (!selected) return;
-    if (name === "Payment Due" && selected.kind === "payment") {
-      const tpl = paymentReminderTemplate(selected);
+
+    // Any template can be chosen regardless of how the compose dialog was opened
+    // (payment vs session); we synthesise the fields the template needs.
+    if (name === "Payment Due") {
+      const item: PaymentReminderItem =
+        selected.kind === "payment"
+          ? selected
+          : {
+              id: selected.id,
+              appointmentId: selected.appointmentId,
+              client: selected.client,
+              email: selected.email,
+              amount: "",
+              balance: 0,
+              due: "",
+              status: "Pending",
+              sessionDate: selected.scheduledAt,
+              title: selected.client,
+            };
+      const tpl = paymentReminderTemplate(item);
       setSubject(tpl.subject);
       setBody(tpl.body);
       return;
     }
-    if (selected.kind === "session") {
-      const map: Record<string, string> = {
-        "Prep Guide": "Prep instructions",
-        Confirmation: "Confirm schedule",
-        "Result Followup": "Follow-up report",
-      };
-      const type = map[name];
-      if (type) {
-        const tpl = sessionReminderTemplate({ ...selected, type });
-        setSubject(tpl.subject);
-        setBody(tpl.body);
-      }
-    }
+
+    const map: Record<string, string> = {
+      "Prep Guide": "Prep instructions",
+      Confirmation: "Confirm schedule",
+      "Result Followup": "Follow-up report",
+    };
+    const type = map[name];
+    if (!type) return;
+
+    const formatWhen = (iso: string) => {
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime())
+        ? "your scheduled time"
+        : d.toLocaleString(undefined, {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+    };
+
+    const sessionItem: SessionReminderItem =
+      selected.kind === "session"
+        ? { ...selected, type }
+        : {
+            id: selected.id,
+            appointmentId: selected.appointmentId,
+            clientId: 0,
+            client: selected.client,
+            email: selected.email,
+            type,
+            appointment: formatWhen(selected.sessionDate),
+            status: "Ready",
+            scheduledAt: selected.sessionDate,
+          };
+    const tpl = sessionReminderTemplate(sessionItem);
+    setSubject(tpl.subject);
+    setBody(tpl.body);
   };
 
   const handleSend = async () => {

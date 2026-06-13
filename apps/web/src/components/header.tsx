@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { buttonVariants } from "./ui/button";
 import { ModeToggle } from "./mode-toggle";
 
@@ -8,11 +9,17 @@ export default function Header() {
     <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-primary text-primary-foreground flex items-center justify-center font-bold shadow-sm">
-              P
-            </div>
-            <span className="font-bold text-xl tracking-tight text-foreground">Polygraph</span>
+          <Link href="/" className="flex items-center">
+            <span className="inline-flex items-center rounded-md bg-black px-3 py-2 shadow-sm">
+              <Image
+                src="/logo.png"
+                alt="Polygraph"
+                width={2048}
+                height={674}
+                priority
+                className="h-8 w-auto"
+              />
+            </span>
           </Link>
         </div>
         <div className="flex items-center gap-4">
