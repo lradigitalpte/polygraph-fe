@@ -54,7 +54,9 @@
     "@vitest/coverage-v8": "^4.1.5",
     "@vitest/ui": "^4.1.5",
     "jsdom": "^29.1.0",
+    "png-to-ico": "^3.0.1",
     "shadcn": "^4.5.0",
+    "sharp": "^0.35.1",
     "tailwindcss": "^4.2.4",
     "typescript": "^5",
     "vitest": "^4.1.5"

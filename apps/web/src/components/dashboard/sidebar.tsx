@@ -105,7 +105,7 @@ export function Sidebar() {
               priority
               className={cn(
                 "w-auto object-contain",
-                isSidebarCollapsed ? "h-4 max-w-11" : "h-7"
+                isSidebarCollapsed ? "h-5 max-w-11" : "h-9"
               )}
             />
           </span>

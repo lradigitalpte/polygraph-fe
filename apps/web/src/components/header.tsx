@@ -17,7 +17,7 @@ export default function Header() {
                 width={2048}
                 height={674}
                 priority
-                className="h-8 w-auto"
+                className="h-10 w-auto"
               />
             </span>
           </Link>
