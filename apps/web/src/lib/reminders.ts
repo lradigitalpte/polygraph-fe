@@ -260,19 +260,19 @@ export async function loadRemindersData() {
 export function paymentReminderTemplate(item: PaymentReminderItem) {
   return {
     subject: `Payment reminder — ${item.id}`,
-    body: `Hello,\n\nThis is a reminder regarding your scheduled polygraph session (${item.id} — ${item.title}).\n\nBalance due: ${item.amount}\n\nPlease contact us to arrange payment before your appointment.\n\nThank you,\nPolygraph Forensic System`,
+    body: `Hello ${item.client},\n\nThis is a reminder regarding your scheduled polygraph session (${item.id} — ${item.title}).\n\nBalance due: ${item.amount}\n\nPlease contact us to arrange payment before your appointment.\n\nThank you,\nPolygraph Forensic System`,
   };
 }
 
 export function sessionReminderTemplate(item: SessionReminderItem) {
   const lines: Record<string, string> = {
-    "Prep instructions": `Hello,\n\nYour polygraph session (${item.id}) is coming up on ${item.appointment}.\n\nPlease arrive 15 minutes early, bring valid ID, and avoid caffeine for 4 hours before the exam.\n\nThank you,\nPolygraph Forensic System`,
-    "Confirm schedule": `Hello,\n\nPlease confirm your attendance for your polygraph session on ${item.appointment} (${item.id}).\n\nReply to this email or contact our office if you need to reschedule.\n\nThank you,\nPolygraph Forensic System`,
-    "Follow-up report": `Hello,\n\nYour session (${item.id}) is complete. We will share your report through secure channels when it is finalized.\n\nContact us if you have any questions.\n\nThank you,\nPolygraph Forensic System`,
+    "Prep instructions": `Hello ${item.client},\n\nYour polygraph session (${item.id}) is coming up on ${item.appointment}.\n\nPlease arrive 15 minutes early, bring valid ID, and avoid caffeine for 4 hours before the exam.\n\nThank you,\nPolygraph Forensic System`,
+    "Confirm schedule": `Hello ${item.client},\n\nPlease confirm your attendance for your polygraph session on ${item.appointment} (${item.id}).\n\nReply to this email or contact our office if you need to reschedule.\n\nThank you,\nPolygraph Forensic System`,
+    "Follow-up report": `Hello ${item.client},\n\nYour session (${item.id}) is complete. We will share your report through secure channels when it is finalized.\n\nContact us if you have any questions.\n\nThank you,\nPolygraph Forensic System`,
   };
   const body =
     lines[item.type] ||
-    `Hello,\n\nThis is a reminder about your polygraph session (${item.id}) scheduled for ${item.appointment}.\n\nThank you,\nPolygraph Forensic System`;
+    `Hello ${item.client},\n\nThis is a reminder about your polygraph session (${item.id}) scheduled for ${item.appointment}.\n\nThank you,\nPolygraph Forensic System`;
   return {
     subject: `${item.type} — ${item.id}`,
     body,

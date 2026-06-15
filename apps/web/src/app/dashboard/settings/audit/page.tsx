@@ -36,7 +36,7 @@ function humanizeAction(method: string, path: string): string {
 
   const resourceLabels: Record<string, string> = {
     leads: "lead",
-    subjects: "subject",
+    subjects: "examinee",
     users: "user",
     appointments: "appointment",
     exams: "exam",
@@ -45,11 +45,88 @@ function humanizeAction(method: string, path: string): string {
     permissions: "permission",
     documents: "document",
     clients: "client",
+    quotations: "invoice",
+    "intake-requests": "roster request",
+    availability: "availability block",
+    settings: "setting",
   };
 
   const label = resourceLabels[resource] ?? resource;
   const plural = `${label}s`;
   const specific = id ? `${label} #${id}` : null;
+  const last = parts[parts.length - 1];
+
+  // Semantic actions — so meaningful operations read clearly instead of being
+  // mislabeled as a generic "Updated/Created #X".
+
+  // Email / outbound
+  if (cleanPath.endsWith("/send-payment-reminder"))
+    return `Sent payment reminder${id ? ` for appointment #${id}` : ""}`;
+  if (resource === "intake-requests" && last === "resend") return "Resent examinee roster request";
+  if (resource === "intake-requests" && last === "submission") return "Viewed submitted roster";
+  if (resource === "intake-requests" && m === "POST" && parts.length === 1)
+    return "Sent examinee roster request";
+  if (last === "form-requests" && m === "POST") return `Sent a form to ${label} #${id}`;
+  if (resource === "forms" && parts[1] === "requests" && last === "resend")
+    return "Resent a form reminder";
+  if (resource === "cron" && last === "run-reminders") return "Ran scheduled session reminders";
+
+  // Users & access
+  if (resource === "users" && last === "status") return `Changed account status for user #${id}`;
+  if (resource === "users" && last === "role") return `Changed role for user #${id}`;
+  if (resource === "users" && last === "permissions") return `Updated permissions for user #${id}`;
+  if (resource === "users" && last === "require-password-reset")
+    return `Required a password reset for user #${id}`;
+  if (resource === "users" && m === "POST" && parts.length === 1) return "Created a user account";
+  if (resource === "me" && m === "PATCH") return "Updated their own profile";
+  if (resource === "me" && m === "DELETE") return "Deleted their own account";
+
+  // Roles
+  if (resource === "rbac" && parts[1] === "roles" && m === "POST") return "Created a role";
+  if (resource === "rbac" && parts[1] === "roles" && parts[2]) return `Updated role #${parts[2]}`;
+
+  // Appointments & billing
+  if (resource === "appointments" && last === "bulk-schedule") return "Batch-scheduled appointments";
+  if (resource === "appointments" && last === "status") return `Changed status of appointment #${id}`;
+  if (resource === "appointments" && last === "payment") return `Updated payment for appointment #${id}`;
+  if (resource === "appointments" && last === "collect-payment")
+    return `Collected payment for appointment #${id}`;
+  if (resource === "appointments" && m === "POST" && parts.length === 1) return "Booked an appointment";
+  if (resource === "appointments" && m === "DELETE" && id) return `Cancelled appointment #${id}`;
+
+  // Invoices / quotations
+  if (resource === "quotations" && last === "send-email") return `Emailed invoice #${id}`;
+  if (resource === "quotations" && last === "collect-payment") return `Collected payment on invoice #${id}`;
+  if (resource === "quotations" && last === "convert") return `Converted quotation #${id} to a booking`;
+  if (resource === "quotations" && m === "POST" && parts.length === 1) return "Created an invoice";
+  if (resource === "quotations" && m === "DELETE" && id) return `Deleted invoice #${id}`;
+
+  // Clients & examinees
+  if (resource === "clients" && last === "examinees") return `Added examinees to client #${id}`;
+  if (resource === "clients" && (last === "documents" || last === "form"))
+    return `Uploaded a document for client #${id}`;
+  if (resource === "subjects" && last === "documents") return `Uploaded a document for examinee #${id}`;
+  if (resource === "subjects" && m === "POST" && parts.length === 1) return "Added an examinee";
+
+  // Exams
+  if (resource === "exams" && last === "start") return "Started exam documentation";
+  if (resource === "exams" && parts[1] === "types" && m === "POST") return "Created an exam type";
+  if (resource === "exams" && parts[1] === "types" && parts[2])
+    return m === "DELETE" ? `Deleted exam type #${parts[2]}` : `Updated exam type #${parts[2]}`;
+  if (resource === "exams" && last === "referral") return "Created a case referral";
+  if (resource === "exams" && last === "assessment") return "Recorded a clinical assessment";
+  if (resource === "exams" && last === "phase") return "Added an exam phase";
+  if (resource === "exams" && last === "report") return "Created an exam report";
+  if (resource === "exams" && m === "POST" && parts.length === 1) return "Created an exam";
+
+  // Availability
+  if (resource === "availability" && parts[1] === "blocks" && m === "POST") return "Blocked off availability";
+  if (resource === "availability" && parts[1] === "blocks" && parts[2])
+    return m === "DELETE" ? "Removed an availability block" : "Updated an availability block";
+
+  // Organization settings
+  if (resource === "settings" && m === "PATCH") return "Updated organization settings";
+  if (resource === "settings" && m === "DELETE") return "Reset organization settings";
 
   if (m === "GET" && specific) return `Viewed ${specific}`;
   if (m === "GET") return `Viewed ${plural} list`;
@@ -165,6 +242,8 @@ export default function AuditLogsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [showTechnical, setShowTechnical] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
 
   const loadLogs = async (refresh = false) => {
     if (refresh) {
@@ -174,7 +253,7 @@ export default function AuditLogsPage() {
     }
     setLogsError(null);
     try {
-      const data = await fetchAuditLogs(200);
+      const data = await fetchAuditLogs(500);
       setLogs(data);
     } catch {
       setLogsError("Failed to load audit logs. Please refresh.");
@@ -187,6 +266,11 @@ export default function AuditLogsPage() {
   useEffect(() => {
     void loadLogs(false);
   }, []);
+
+  // Reset to the first page whenever the filter or search changes.
+  useEffect(() => {
+    setPage(1);
+  }, [query, filter]);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -228,6 +312,10 @@ export default function AuditLogsPage() {
       );
     });
   }, [filter, logs, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedLogs = filteredLogs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="space-y-6">
@@ -314,6 +402,7 @@ export default function AuditLogsPage() {
               {logsError}
             </div>
           ) : (
+            <>
             <div className="relative w-full overflow-auto">
               <table className="w-full caption-bottom text-sm">
                 <thead>
@@ -335,7 +424,7 @@ export default function AuditLogsPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredLogs.map((log) => {
+                    pagedLogs.map((log) => {
                       const { method, path } = splitAction(log.action);
                       const tone = statusTone(log.status);
                       const variant =
@@ -389,6 +478,36 @@ export default function AuditLogsPage() {
                 </tbody>
               </table>
             </div>
+            {filteredLogs.length > 0 && (
+              <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xs text-muted-foreground">
+                  Showing {(currentPage - 1) * pageSize + 1}–
+                  {Math.min(currentPage * pageSize, filteredLogs.length)} of {filteredLogs.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage(currentPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage(currentPage + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>

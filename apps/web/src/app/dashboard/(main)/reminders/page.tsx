@@ -196,6 +196,9 @@ export default function RemindersPage() {
       toast.error("Enter a valid recipient email");
       return;
     }
+    if (!window.confirm(`Send this email to ${toEmail.trim()} now? This will email the recipient immediately.`)) {
+      return;
+    }
     setSending(true);
     try {
       await dispatchAppointmentReminder(
@@ -223,6 +226,9 @@ export default function RemindersPage() {
     if (!item.email) {
       openCompose({ ...item, kind: "payment" });
       toast.message("Add recipient email before sending");
+      return;
+    }
+    if (!window.confirm(`Send a payment reminder to ${item.email} now? This will email the recipient immediately.`)) {
       return;
     }
     setSending(true);
