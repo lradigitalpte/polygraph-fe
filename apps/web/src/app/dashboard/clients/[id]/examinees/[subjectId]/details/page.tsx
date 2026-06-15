@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useSubjectDetail } from "@/components/dashboard/subject-detail-context";
-import { formatSubjectCode, updateSubject } from "@/lib/subjects";
+import { ENGLISH_PROFICIENCY_LEVELS, formatSubjectCode, updateSubject } from "@/lib/subjects";
 
 const labelClass = "text-xs font-bold uppercase tracking-wider text-muted-foreground";
 
@@ -31,6 +32,8 @@ export default function ExamineeDetailsPage() {
   const [employeeRef, setEmployeeRef] = React.useState("");
   const [spokenLanguage, setSpokenLanguage] = React.useState("");
   const [writtenLanguage, setWrittenLanguage] = React.useState("");
+  const [englishProficiency, setEnglishProficiency] = React.useState("");
+  const [interpreterRequired, setInterpreterRequired] = React.useState(false);
 
   React.useEffect(() => {
     if (!subject) return;
@@ -43,6 +46,8 @@ export default function ExamineeDetailsPage() {
     setNationality(subject.nationality ?? "");
     setSpokenLanguage(subject.spoken_language ?? "");
     setWrittenLanguage(subject.written_language ?? "");
+    setEnglishProficiency(subject.english_proficiency ?? "");
+    setInterpreterRequired(subject.interpreter_required ?? false);
   }, [subject]);
 
   const handleSave = async () => {
@@ -59,6 +64,8 @@ export default function ExamineeDetailsPage() {
         nationality,
         spoken_language: spokenLanguage,
         written_language: writtenLanguage,
+        english_proficiency: englishProficiency,
+        interpreter_required: interpreterRequired,
       });
       setSubjectRecord(updated);
       toast.success("Examinee profile saved");
@@ -141,6 +148,55 @@ export default function ExamineeDetailsPage() {
           <div className="space-y-2">
             <Label className={labelClass}>Written language</Label>
             <Input className="h-11 rounded-xl" value={writtenLanguage} onChange={(e) => setWrittenLanguage(e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Language &amp; communication</CardTitle>
+          <CardDescription>
+            How well the examinee speaks and understands English — examiners use this to decide
+            whether the test runs in English or needs an interpreter.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label className={labelClass}>English proficiency</Label>
+            <Select
+              value={englishProficiency || "unset"}
+              onValueChange={(v) => setEnglishProficiency(v === "unset" ? "" : String(v))}
+            >
+              <SelectTrigger className="h-11 rounded-xl">
+                <SelectValue placeholder="Not assessed" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="unset">Not assessed</SelectItem>
+                {ENGLISH_PROFICIENCY_LEVELS.map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {level}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label
+              className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 cursor-pointer"
+            >
+              <Checkbox
+                checked={interpreterRequired}
+                onCheckedChange={(checked) => setInterpreterRequired(checked === true)}
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm font-semibold normal-case tracking-normal text-foreground">
+                  Interpreter required
+                </span>
+                <span className="block text-xs font-normal normal-case tracking-normal text-muted-foreground">
+                  Flag if a translator must be booked for this examinee&apos;s session.
+                </span>
+              </span>
+            </Label>
           </div>
         </CardContent>
       </Card>

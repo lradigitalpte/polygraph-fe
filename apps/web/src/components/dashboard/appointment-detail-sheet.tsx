@@ -4,10 +4,12 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   Calendar,
   Clock,
   CreditCard,
   FileText,
+  Languages,
   Loader2,
   User,
   ClipboardList,
@@ -40,6 +42,7 @@ import {
   updateAppointment,
 } from "@/lib/exam-documentation";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { fetchSubject, formatSubjectName, type SubjectRecord } from "@/lib/subjects";
 
 function formatDateTime(iso: string) {
   const date = new Date(iso);
@@ -82,6 +85,7 @@ export function AppointmentDetailSheet({
   const router = useRouter();
   const [detail, setDetail] = React.useState<AppointmentRecord | null>(null);
   const [hasExamRecord, setHasExamRecord] = React.useState(false);
+  const [subject, setSubject] = React.useState<SubjectRecord | null>(null);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [schedulingNotes, setSchedulingNotes] = React.useState("");
@@ -92,13 +96,17 @@ export function AppointmentDetailSheet({
     if (!appointment) return;
     setLoading(true);
     try {
-      const [examData, examinerList] = await Promise.all([
+      const [examData, examinerList, subjectData] = await Promise.all([
         fetchExamByAppointment(appointment.id),
         fetchExaminers(),
+        appointment.subject_id
+          ? fetchSubject(appointment.subject_id).catch(() => null)
+          : Promise.resolve(null),
       ]);
       setDetail(appointment);
       setHasExamRecord(Boolean(examData));
       setExaminers(examinerList);
+      setSubject(subjectData);
       setSchedulingNotes(appointment.notes ?? "");
       setAppointmentStatus(appointment.status ?? "pending");
     } catch (err) {
@@ -221,10 +229,37 @@ export function AppointmentDetailSheet({
                     </span>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">Subject ID</span>
-                    <span className="font-medium">#{detail.subject_id}</span>
+                    <span className="text-muted-foreground">Examinee</span>
+                    <span className="font-medium">
+                      {subject ? formatSubjectName(subject) : `#${detail.subject_id}`}
+                    </span>
                   </div>
                 </div>
+
+                {subject && (
+                  <div
+                    className={
+                      "rounded-lg border p-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm " +
+                      (subject.interpreter_required
+                        ? "border-amber-500/40 bg-amber-500/5"
+                        : "border-border/50 bg-muted/20")
+                    }
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Languages className="h-4 w-4 text-primary" />
+                      <span className="text-muted-foreground">English:</span>
+                      <Badge variant="outline" className="font-medium">
+                        {subject.english_proficiency || "Not assessed"}
+                      </Badge>
+                    </span>
+                    {subject.interpreter_required && (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-amber-700">
+                        <AlertTriangle className="h-4 w-4" />
+                        Interpreter required
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid gap-2">
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">

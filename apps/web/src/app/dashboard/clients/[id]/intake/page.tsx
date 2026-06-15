@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, CheckCircle2, Copy, Eye, FileText, Loader2, Mail, RefreshCcw, Send, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckCircle2, Copy, Eye, FileText, Loader2, Mail, RefreshCcw, Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -403,22 +403,36 @@ export default function SendIntakePage() {
                       </>
                     )}
                     {req.status === "submitted" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1.5"
-                        onClick={() => void handleView(req.id)}
-                        disabled={loadingSubmissionId === req.id}
-                        title="View submitted details"
-                      >
-                        {loadingSubmissionId === req.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Eye className="h-3.5 w-3.5" />
-                        )}
-                        View
-                      </Button>
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5"
+                          onClick={() => void handleView(req.id)}
+                          disabled={loadingSubmissionId === req.id}
+                          title="View submitted details"
+                        >
+                          {loadingSubmissionId === req.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Eye className="h-3.5 w-3.5" />
+                          )}
+                          View
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 gap-1.5"
+                          render={
+                            <Link href={`/dashboard/clients/${clientId}/intake/${req.id}`} />
+                          }
+                          title="Schedule appointments for submitted examinees"
+                        >
+                          <CalendarClock className="h-3.5 w-3.5" />
+                          Schedule
+                        </Button>
+                      </>
                     )}
                   </div>
                 </li>

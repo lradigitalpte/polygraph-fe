@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AppointmentDetailSheet } from "@/components/dashboard/appointment-detail-sheet";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { isOrganizationClient } from "@/lib/client-types";
@@ -124,10 +125,18 @@ function AppointmentRow({
   );
 }
 
+function isUpcoming(a: AppointmentRecord): boolean {
+  const when = new Date(a.scheduled_at).getTime();
+  return when >= Date.now() && a.status.toLowerCase() !== "cancelled";
+}
+
+type ExamFilter = "all" | "upcoming" | "past";
+
 export default function ClientExamHistoryPage() {
   const { client, appointments, loading, error, refresh } = useClientDetail();
   const [selected, setSelected] = React.useState<AppointmentRecord | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [filter, setFilter] = React.useState<ExamFilter>("all");
 
   const openAppointment = (appointment: AppointmentRecord) => {
     setSelected(appointment);
@@ -151,11 +160,19 @@ export default function ClientExamHistoryPage() {
     );
   }
 
-  const upcoming = appointments.filter((a) => {
-    const when = new Date(a.scheduled_at).getTime();
-    return when >= Date.now() && a.status.toLowerCase() !== "cancelled";
-  });
+  const upcoming = appointments.filter(isUpcoming);
+  const past = appointments.filter((a) => !isUpcoming(a));
   const documented = appointments.filter((a) => a.exam_id).length;
+
+  const visible =
+    filter === "upcoming" ? upcoming : filter === "past" ? past : appointments;
+
+  const emptyMessage =
+    filter === "upcoming"
+      ? "No upcoming sessions scheduled."
+      : filter === "past"
+        ? "No past sessions yet."
+        : "No appointments scheduled yet for this client.";
 
   return (
     <div className="space-y-6">
@@ -203,20 +220,27 @@ export default function ClientExamHistoryPage() {
       </div>
 
       <Card className="border-border/50">
-        <CardHeader>
-          <CardTitle>Sessions</CardTitle>
-          <CardDescription>
-            Each appointment can hold booking notes, examination documentation, phase logs, and
-            uploaded charts or reports.
-          </CardDescription>
+        <CardHeader className="gap-4">
+          <div>
+            <CardTitle>Sessions</CardTitle>
+            <CardDescription>
+              Each appointment can hold booking notes, examination documentation, phase logs, and
+              uploaded charts or reports.
+            </CardDescription>
+          </div>
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as ExamFilter)}>
+            <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
+              <TabsTrigger value="all">All ({appointments.length})</TabsTrigger>
+              <TabsTrigger value="upcoming">Upcoming ({upcoming.length})</TabsTrigger>
+              <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </CardHeader>
         <CardContent className="space-y-3">
-          {appointments.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No appointments scheduled yet for this client.
-            </p>
+          {visible.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">{emptyMessage}</p>
           ) : (
-            appointments.map((appointment) => (
+            visible.map((appointment) => (
               <AppointmentRow
                 key={appointment.id}
                 clientId={client.id}

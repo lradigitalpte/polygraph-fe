@@ -350,7 +350,7 @@ export default function BatchIntakePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Bank Transfer", "Card", "Cash", "Cheque"].map((m) => (
+                  {["Bank Transfer", "Credit Card"].map((m) => (
                     <SelectItem key={m} value={m}>{m}</SelectItem>
                   ))}
                 </SelectContent>

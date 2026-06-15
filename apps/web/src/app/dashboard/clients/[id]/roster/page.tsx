@@ -28,12 +28,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
-import { createSubject, formatSubjectCode, formatSubjectName } from "@/lib/subjects";
+import {
+  ENGLISH_PROFICIENCY_LEVELS,
+  createSubject,
+  formatSubjectCode,
+  formatSubjectName,
+} from "@/lib/subjects";
 
 const CSV_TEMPLATE = `first_name,last_name,email,phone,employee_ref
 Jane,Doe,jane@example.com,+1-555-0101,EMP-001
@@ -80,6 +93,8 @@ export default function ExamineeRosterPage() {
     email: "",
     phone: "",
     employee_ref: "",
+    english_proficiency: "",
+    interpreter_required: false,
   });
 
   const load = React.useCallback(async () => {
@@ -107,7 +122,15 @@ export default function ExamineeRosterPage() {
   });
 
   const resetForm = () =>
-    setForm({ first_name: "", last_name: "", email: "", phone: "", employee_ref: "" });
+    setForm({
+      first_name: "",
+      last_name: "",
+      email: "",
+      phone: "",
+      employee_ref: "",
+      english_proficiency: "",
+      interpreter_required: false,
+    });
 
   const handleAdd = async () => {
     if (!form.first_name.trim() || !form.last_name.trim()) {
@@ -123,6 +146,8 @@ export default function ExamineeRosterPage() {
         email: form.email.trim() || undefined,
         phone: form.phone.trim() || undefined,
         employee_ref: form.employee_ref.trim() || undefined,
+        english_proficiency: form.english_proficiency || undefined,
+        interpreter_required: form.interpreter_required,
       });
       toast.success("Examinee added");
       setAddOpen(false);
@@ -395,6 +420,41 @@ export default function ExamineeRosterPage() {
                 onChange={(e) => setForm((f) => ({ ...f, employee_ref: e.target.value }))}
               />
             </div>
+            <div className="space-y-2">
+              <Label>English proficiency</Label>
+              <Select
+                value={form.english_proficiency || "unset"}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, english_proficiency: v === "unset" ? "" : String(v) }))
+                }
+              >
+                <SelectTrigger className="h-11 rounded-xl">
+                  <SelectValue placeholder="Not assessed" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unset">Not assessed</SelectItem>
+                  {ENGLISH_PROFICIENCY_LEVELS.map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 cursor-pointer">
+              <Checkbox
+                checked={form.interpreter_required}
+                onCheckedChange={(checked) =>
+                  setForm((f) => ({ ...f, interpreter_required: checked === true }))
+                }
+              />
+              <span>
+                <span className="block text-sm font-semibold">Interpreter required</span>
+                <span className="block text-xs font-normal text-muted-foreground">
+                  Flag if a translator must be booked for this examinee.
+                </span>
+              </span>
+            </Label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>

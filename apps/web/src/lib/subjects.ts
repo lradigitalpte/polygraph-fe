@@ -12,6 +12,8 @@ export type SubjectRecord = {
   nationality?: string;
   spoken_language?: string;
   written_language?: string;
+  english_proficiency?: string;
+  interpreter_required?: boolean;
   id_number?: string;
   dob?: string;
   created_at: string;
@@ -29,9 +31,19 @@ export type CreateSubjectInput = {
   nationality?: string;
   spoken_language?: string;
   written_language?: string;
+  english_proficiency?: string;
+  interpreter_required?: boolean;
   id_number?: string;
   dob?: string;
 };
+
+export const ENGLISH_PROFICIENCY_LEVELS = [
+  "Native",
+  "Fluent",
+  "Conversational",
+  "Basic",
+  "None",
+] as const;
 
 export function formatSubjectName(subject: Pick<SubjectRecord, "first_name" | "last_name">) {
   return [subject.first_name, subject.last_name].filter(Boolean).join(" ").trim();

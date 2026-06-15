@@ -5,14 +5,22 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   ArrowLeft,
   Calendar,
+  CheckCircle2,
   Clock,
+  FileSignature,
   FileText,
+  Gavel,
+  Languages,
+  ListChecks,
   Loader2,
+  Lock,
   Paperclip,
   PlayCircle,
   Save,
+  ShieldCheck,
   Upload,
   User,
 } from "lucide-react";
@@ -20,6 +28,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -32,14 +48,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import {
   addExamPhase,
+  createExamReport,
   fetchExamByAppointment,
+  fetchExamReport,
   formatAppointmentCode,
   startExamDocumentation,
   updateAppointment,
   updateExam,
   uploadExamDocument,
   type ExamRecord,
+  type ExamReportRecord,
 } from "@/lib/exam-documentation";
+import { fetchSubject, type SubjectRecord } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 
 const EXAM_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"] as const;
@@ -51,6 +71,35 @@ const DOC_TYPES = [
   { value: "other", label: "Other" },
 ] as const;
 const PHASE_PRESETS = ["Pre-Test", "In-Test", "Post-Test"] as const;
+
+const VERDICT_OPTIONS = [
+  { value: "NDI", label: "No Deception Indicated (NDI)" },
+  { value: "DI", label: "Deception Indicated (DI)" },
+  { value: "Inconclusive", label: "Inconclusive" },
+] as const;
+
+const WORKFLOW_STEPS = [
+  {
+    icon: ListChecks,
+    title: "Log each phase",
+    body: "Record Pre-Test, In-Test, and Post-Test phases in the timeline as you run the session.",
+  },
+  {
+    icon: FileText,
+    title: "Write your findings",
+    body: "Capture interview notes, observations, and conclusions in the examiner notes.",
+  },
+  {
+    icon: Upload,
+    title: "Upload test results",
+    body: "Attach charts, consent forms, and audio exported from your polygraph instrument.",
+  },
+  {
+    icon: Gavel,
+    title: "Generate the report",
+    body: "Once documentation is complete, issue the final verdict to close out the exam.",
+  },
+] as const;
 
 function formatDateTime(iso: string) {
   const date = new Date(iso);
@@ -77,6 +126,25 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function verdictMeta(verdict: string) {
+  switch (verdict) {
+    case "NDI":
+      return { label: "No Deception Indicated", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" };
+    case "DI":
+      return { label: "Deception Indicated", className: "bg-red-500/15 text-red-600 border-red-500/30" };
+    default:
+      return { label: "Inconclusive", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" };
+  }
+}
+
+function phaseAccent(name: string) {
+  const n = name.toLowerCase();
+  if (n.includes("pre")) return "bg-sky-500";
+  if (n.includes("post")) return "bg-violet-500";
+  if (n.includes("in")) return "bg-emerald-500";
+  return "bg-primary";
+}
+
 export default function ExaminationDocumentationPage() {
   const params = useParams();
   const clientId = Number(params.id);
@@ -86,6 +154,8 @@ export default function ExaminationDocumentationPage() {
   const appointment = appointments.find((a) => a.id === appointmentId) ?? null;
 
   const [exam, setExam] = React.useState<ExamRecord | null>(null);
+  const [report, setReport] = React.useState<ExamReportRecord | null>(null);
+  const [subject, setSubject] = React.useState<SubjectRecord | null>(null);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [examNotes, setExamNotes] = React.useState("");
@@ -93,9 +163,13 @@ export default function ExaminationDocumentationPage() {
   const [phaseNotes, setPhaseNotes] = React.useState("");
   const [phaseName, setPhaseName] = React.useState<string>(PHASE_PRESETS[0]);
   const [docType, setDocType] = React.useState("chart");
+  const [reportVerdict, setReportVerdict] = React.useState("");
+  const [reportContent, setReportContent] = React.useState("");
   const [starting, setStarting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
+  const [generating, setGenerating] = React.useState(false);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const loadExam = React.useCallback(async () => {
@@ -111,6 +185,12 @@ export default function ExaminationDocumentationPage() {
       if (examData) {
         setExamNotes(examData.notes ?? "");
         setExamStatus(examData.status ?? "in_progress");
+        const existingReport = await fetchExamReport(examData.id).catch(() => null);
+        setReport(existingReport);
+        if (examData.subject_id) {
+          const subj = await fetchSubject(examData.subject_id).catch(() => null);
+          setSubject(subj);
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load examination");
@@ -126,6 +206,13 @@ export default function ExaminationDocumentationPage() {
   const examinerName =
     examiners.find((e) => e.id === appointment?.examiner_id)?.name ??
     (appointment?.examiner_id ? `Examiner #${appointment.examiner_id}` : "—");
+
+  const sortedPhases = React.useMemo(() => {
+    if (!exam?.phases) return [];
+    return [...exam.phases].sort(
+      (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    );
+  }, [exam?.phases]);
 
   const handleStart = async () => {
     setStarting(true);
@@ -198,14 +285,35 @@ export default function ExaminationDocumentationPage() {
     }
   };
 
+  const handleGenerateReport = async () => {
+    if (!exam || !reportVerdict || !reportContent.trim()) return;
+    setGenerating(true);
+    try {
+      await createExamReport({
+        exam_id: exam.id,
+        verdict: reportVerdict,
+        content: reportContent.trim(),
+      });
+      const existingReport = await fetchExamReport(exam.id).catch(() => null);
+      setReport(existingReport);
+      setExamStatus("completed");
+      setExam((prev) => (prev ? { ...prev, status: "completed" } : prev));
+      setConfirmOpen(false);
+      toast.success("Report generated — examination marked complete");
+      void refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate report");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const inputClass = "h-11 rounded-xl";
   const fieldLabel = "text-xs font-bold uppercase tracking-wider text-muted-foreground";
   const backHref = `/dashboard/clients/${clientId}/exams`;
 
   if (!Number.isFinite(clientId) || !Number.isFinite(appointmentId)) {
-    return (
-      <p className="text-destructive py-12 text-center">Invalid session link.</p>
-    );
+    return <p className="text-destructive py-12 text-center">Invalid session link.</p>;
   }
 
   if (!appointment && !loading) {
@@ -220,7 +328,7 @@ export default function ExaminationDocumentationPage() {
   }
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-8 pb-24">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <Button
@@ -233,31 +341,31 @@ export default function ExaminationDocumentationPage() {
           </Button>
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h1 className="text-2xl font-bold tracking-tight">
+              <h1 className="text-3xl font-bold tracking-tight">
                 {formatAppointmentCode(appointmentId)}
               </h1>
               {exam && (
-                <Badge className="bg-primary/15 text-primary border-primary/20 capitalize">
+                <Badge className="bg-primary/15 text-primary border-primary/20 capitalize text-sm px-3 py-0.5">
                   {exam.status.replace(/_/g, " ")}
                 </Badge>
               )}
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-base text-muted-foreground">
               Examination documentation
               {client ? ` · ${client.name}` : ""}
             </p>
             {appointment && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5" />
+              <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3 text-sm text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Calendar className="h-4 w-4" />
                   {formatDateTime(appointment.scheduled_at)}
                 </span>
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" />
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="h-4 w-4" />
                   {formatDuration(appointment.duration)}
                 </span>
-                <span className="inline-flex items-center gap-1">
-                  <User className="h-3.5 w-3.5" />
+                <span className="inline-flex items-center gap-1.5">
+                  <User className="h-4 w-4" />
                   {examinerName}
                 </span>
               </div>
@@ -274,11 +382,11 @@ export default function ExaminationDocumentationPage() {
       ) : !exam ? (
         <Card className="border-dashed border-primary/30 bg-primary/5">
           <CardHeader className="text-center pb-2">
-            <CardTitle>Start examination documentation</CardTitle>
-            <CardDescription className="max-w-md mx-auto">
+            <CardTitle className="text-xl">Start examination documentation</CardTitle>
+            <CardDescription className="max-w-md mx-auto text-base">
               This page is your forensic case file for the session — examiner notes, phase
-              timeline, and uploaded charts or reports. Testing itself runs on your polygraph
-              instrument; this system only stores the documentation.
+              timeline, uploaded charts, and the final report. Testing itself runs on your polygraph
+              instrument; this system stores the documentation.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center pb-8">
@@ -293,198 +401,415 @@ export default function ExaminationDocumentationPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
-            <Card className="border-border/50 shadow-sm bg-card/50">
-              <CardHeader className="bg-muted/30 pb-4">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-primary" />
-                  Examiner notes & findings
-                </CardTitle>
-                <CardDescription>
-                  Pre-test interview, test summary, conclusions, and referral notes.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid gap-2">
-                  <Label className={fieldLabel}>Examination status</Label>
-                  <Select value={examStatus} onValueChange={(v) => setExamStatus(String(v))}>
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXAM_STATUSES.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {statusLabel(s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label className={fieldLabel}>Documentation</Label>
-                  <Textarea
-                    className="min-h-[200px] rounded-xl resize-none text-sm"
-                    placeholder="Record pre-test, in-test observations, post-test, and final findings..."
-                    value={examNotes}
-                    onChange={(e) => setExamNotes(e.target.value)}
-                  />
-                </div>
+        <>
+          {/* Language readiness — so the examiner knows before starting */}
+          {subject && (
+            <Card
+              className={
+                subject.interpreter_required
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-border/50"
+              }
+            >
+              <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 py-4">
+                <span className="inline-flex items-center gap-2">
+                  <Languages className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">English proficiency:</span>
+                  <Badge variant="outline" className="font-medium">
+                    {subject.english_proficiency || "Not assessed"}
+                  </Badge>
+                </span>
+                {subject.interpreter_required && (
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+                    <AlertTriangle className="h-4 w-4" />
+                    Interpreter required
+                  </span>
+                )}
               </CardContent>
             </Card>
+          )}
 
-            <Card className="border-border/50 shadow-sm bg-card/50">
-              <CardHeader className="bg-muted/30 pb-4">
-                <CardTitle className="text-base">Session timeline</CardTitle>
-                <CardDescription>Log pre-test, in-test, and post-test phases.</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                {exam.phases && exam.phases.length > 0 ? (
-                  <ul className="space-y-2">
-                    {exam.phases.map((phase) => (
-                      <li
-                        key={phase.id}
-                        className="rounded-xl border border-border/50 bg-background px-4 py-3"
-                      >
-                        <div className="font-medium text-sm">{phase.name}</div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {formatDateTime(phase.start_time)}
+          {/* Workflow directions */}
+          <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                How to document this session
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Follow these steps from intake to final verdict.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {WORKFLOW_STEPS.map((step, i) => {
+                  const Icon = step.icon;
+                  return (
+                    <li key={step.title} className="flex gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold flex items-center gap-1.5">
+                          <span className="text-muted-foreground">{i + 1}.</span>
+                          {step.title}
                         </div>
-                        {phase.notes && (
-                          <p className="text-xs text-muted-foreground mt-2">{phase.notes}</p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No phases recorded yet.</p>
-                )}
-                <div className="grid gap-3 pt-2 border-t border-border/50">
+                        <p className="text-sm text-muted-foreground mt-0.5 leading-snug">
+                          {step.body}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-6">
+              {/* Examiner notes */}
+              <Card className="border-border/50 shadow-sm">
+                <CardHeader className="bg-muted/30 pb-4">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Examiner notes &amp; findings
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Pre-test interview, test summary, conclusions, and referral notes.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-5">
                   <div className="grid gap-2">
-                    <Label className={fieldLabel}>Phase</Label>
-                    <Select value={phaseName} onValueChange={(v) => setPhaseName(String(v))}>
+                    <Label className={fieldLabel}>Examination status</Label>
+                    <Select value={examStatus} onValueChange={(v) => setExamStatus(String(v))}>
                       <SelectTrigger className={inputClass}>
-                        <SelectValue placeholder="Select phase" />
+                        <SelectValue placeholder="Select status" />
                       </SelectTrigger>
                       <SelectContent>
-                        {PHASE_PRESETS.map((p) => (
-                          <SelectItem key={p} value={p}>
-                            {p}
+                        {EXAM_STATUSES.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {statusLabel(s)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label className={fieldLabel}>Phase notes</Label>
+                    <Label className={fieldLabel}>Documentation</Label>
                     <Textarea
-                      className="min-h-[72px] rounded-xl resize-none text-sm"
-                      placeholder="What happened during this phase..."
-                      value={phaseNotes}
-                      onChange={(e) => setPhaseNotes(e.target.value)}
+                      className="min-h-[260px] rounded-xl resize-y text-base leading-relaxed"
+                      placeholder="Record pre-test, in-test observations, post-test, and final findings..."
+                      value={examNotes}
+                      onChange={(e) => setExamNotes(e.target.value)}
                     />
                   </div>
-                  <Button type="button" variant="secondary" onClick={handleAddPhase}>
-                    Log phase
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            {appointment?.notes && (
-              <Card className="border-border/50 bg-muted/20">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Booking notes</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{appointment.notes}</p>
+                  <div className="flex justify-end">
+                    <Button
+                      className="h-11 rounded-xl font-semibold gap-2"
+                      disabled={saving}
+                      onClick={handleSave}
+                    >
+                      {saving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Save notes
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
-            )}
 
-            <Card className="border-border/50 shadow-sm bg-card/50">
-              <CardHeader className="bg-muted/30 pb-4">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Paperclip className="h-4 w-4 text-primary" />
-                  Attachments
-                </CardTitle>
-                <CardDescription>Charts, consent, reports, audio from instrument.</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                {exam.documents && exam.documents.length > 0 ? (
-                  <ul className="space-y-2">
-                    {exam.documents.map((doc) => (
-                      <li
-                        key={doc.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{doc.name}</div>
-                          <div className="text-[10px] text-muted-foreground capitalize">
-                            {doc.type}
+              {/* Session timeline */}
+              <Card className="border-border/50 shadow-sm">
+                <CardHeader className="bg-muted/30 pb-4">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-primary" />
+                    Session timeline
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Examiner notes captured during each phase of the exam.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-5">
+                  {sortedPhases.length > 0 ? (
+                    <ol className="relative space-y-4 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-border">
+                      {sortedPhases.map((phase) => (
+                        <li key={phase.id} className="relative pl-7">
+                          <span
+                            className={`absolute left-0 top-1.5 h-3.5 w-3.5 rounded-full ring-4 ring-background ${phaseAccent(
+                              phase.name
+                            )}`}
+                          />
+                          <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-semibold text-base">{phase.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatDateTime(phase.start_time)}
+                              </span>
+                            </div>
+                            {phase.notes && (
+                              <p className="text-sm text-muted-foreground mt-2 leading-relaxed whitespace-pre-wrap">
+                                {phase.notes}
+                              </p>
+                            )}
                           </div>
-                        </div>
-                        {doc.url && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            render={<a href={doc.url} target="_blank" rel="noopener noreferrer" />}
-                          >
-                            Open
-                          </Button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No files yet.</p>
-                )}
-                <div className="space-y-2">
-                  <Label className={fieldLabel}>File type</Label>
-                  <Select value={docType} onValueChange={(v) => setDocType(String(v))}>
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue placeholder="Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DOC_TYPES.map((t) => (
-                        <SelectItem key={t.value} value={t.value}>
-                          {t.label}
-                        </SelectItem>
+                        </li>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <input ref={fileRef} type="file" className="hidden" onChange={handleUpload} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2 rounded-xl"
-                  disabled={uploading}
-                  onClick={() => fileRef.current?.click()}
-                >
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    </ol>
                   ) : (
-                    <Upload className="h-4 w-4" />
+                    <p className="text-sm text-muted-foreground rounded-xl border border-dashed py-6 text-center">
+                      No phases recorded yet. Log your first phase below.
+                    </p>
                   )}
-                  Upload file
-                </Button>
-              </CardContent>
-            </Card>
+                  <div className="grid gap-4 pt-4 border-t border-border/50">
+                    <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
+                      <div className="grid gap-2">
+                        <Label className={fieldLabel}>Phase</Label>
+                        <Select value={phaseName} onValueChange={(v) => setPhaseName(String(v))}>
+                          <SelectTrigger className={inputClass}>
+                            <SelectValue placeholder="Select phase" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PHASE_PRESETS.map((p) => (
+                              <SelectItem key={p} value={p}>
+                                {p}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label className={fieldLabel}>Phase notes</Label>
+                        <Textarea
+                          className="min-h-[88px] rounded-xl resize-y text-base leading-relaxed"
+                          placeholder="What happened during this phase..."
+                          value={phaseNotes}
+                          onChange={(e) => setPhaseNotes(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-11 rounded-xl gap-2"
+                        onClick={handleAddPhase}
+                      >
+                        <ListChecks className="h-4 w-4" />
+                        Log phase
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-            <Button
-              className="w-full h-12 rounded-xl font-bold shadow-lg shadow-primary/20 gap-2"
-              disabled={saving}
-              onClick={handleSave}
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save examination record
-            </Button>
+            <div className="space-y-6">
+              {appointment?.notes && (
+                <Card className="border-border/50 bg-muted/20">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Booking notes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      {appointment.notes}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Test results / attachments */}
+              <Card className="border-border/50 shadow-sm">
+                <CardHeader className="bg-muted/30 pb-4">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Paperclip className="h-5 w-5 text-primary" />
+                    Test results &amp; files
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Upload charts, consent forms, reports, and audio exported from the instrument.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  {exam.documents && exam.documents.length > 0 ? (
+                    <ul className="space-y-2">
+                      {exam.documents.map((doc) => (
+                        <li
+                          key={doc.id}
+                          className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm truncate">{doc.name}</div>
+                            <div className="text-xs text-muted-foreground capitalize">
+                              {doc.type}
+                            </div>
+                          </div>
+                          {doc.url && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              render={<a href={doc.url} target="_blank" rel="noopener noreferrer" />}
+                            >
+                              Open
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted-foreground rounded-xl border border-dashed py-5 text-center">
+                      No files yet. Upload your first result below.
+                    </p>
+                  )}
+                  <div className="space-y-2">
+                    <Label className={fieldLabel}>File type</Label>
+                    <Select value={docType} onValueChange={(v) => setDocType(String(v))}>
+                      <SelectTrigger className={inputClass}>
+                        <SelectValue placeholder="Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DOC_TYPES.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>
+                            {t.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <input ref={fileRef} type="file" className="hidden" onChange={handleUpload} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full h-11 gap-2 rounded-xl"
+                    disabled={uploading}
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    Upload test result
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Button
+                variant="secondary"
+                className="w-full h-12 rounded-xl font-bold gap-2"
+                disabled={saving}
+                onClick={handleSave}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save examination record
+              </Button>
+            </div>
           </div>
-        </div>
+
+          {/* Final report */}
+          <Card className="border-primary/30 shadow-sm">
+            <CardHeader className="bg-primary/5 pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileSignature className="h-5 w-5 text-primary" />
+                Final report
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Issue the examiner&apos;s verdict and written conclusion. Generating the report marks
+                the examination complete.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {report ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge className={`${verdictMeta(report.verdict).className} text-sm px-3 py-1`}>
+                      <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                      {verdictMeta(report.verdict).label}
+                    </Badge>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Lock className="h-3.5 w-3.5" />
+                      Issued {formatDateTime(report.created_at)}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border bg-muted/20 px-4 py-4">
+                    <p className="text-base leading-relaxed whitespace-pre-wrap">{report.content}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
+                  <div className="grid gap-2">
+                    <Label className={fieldLabel}>Verdict</Label>
+                    <Select value={reportVerdict} onValueChange={(v) => setReportVerdict(String(v))}>
+                      <SelectTrigger className={inputClass}>
+                        <SelectValue placeholder="Select verdict" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VERDICT_OPTIONS.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
+                            {v.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground leading-snug mt-1">
+                      The verdict is stored with an integrity hash and can be digitally signed and
+                      locked afterward.
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className={fieldLabel}>Report conclusion</Label>
+                    <Textarea
+                      className="min-h-[180px] rounded-xl resize-y text-base leading-relaxed"
+                      placeholder="Write the formal report conclusion the client will receive..."
+                      value={reportContent}
+                      onChange={(e) => setReportContent(e.target.value)}
+                    />
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        className="h-11 rounded-xl font-bold gap-2 shadow-lg shadow-primary/20"
+                        disabled={!reportVerdict || !reportContent.trim()}
+                        onClick={() => setConfirmOpen(true)}
+                      >
+                        <Gavel className="h-4 w-4" />
+                        Generate report
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate final report?</DialogTitle>
+            <DialogDescription>
+              This issues the verdict{" "}
+              <span className="font-semibold text-foreground">
+                {reportVerdict ? verdictMeta(reportVerdict).label : ""}
+              </span>{" "}
+              and marks the examination complete. The report is hashed for integrity and can later be
+              signed and locked.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={generating}>
+              Cancel
+            </Button>
+            <Button className="gap-2" onClick={handleGenerateReport} disabled={generating}>
+              {generating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Gavel className="h-4 w-4" />
+              )}
+              Generate report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

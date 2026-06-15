@@ -22,12 +22,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { DocumentVaultTabs } from "@/components/dashboard/document-vault-tabs";
+import {
+  DocumentVaultTabs,
+  type VaultDocument,
+} from "@/components/dashboard/document-vault-tabs";
+import { DocumentSharesPanel } from "@/components/dashboard/document-shares-panel";
 import { FormRequestsPanel } from "@/components/dashboard/form-requests-panel";
 import { SendFormDialog } from "@/components/dashboard/send-form-dialog";
+import {
+  SendDocumentDialog,
+  type SendDocumentTarget,
+} from "@/components/dashboard/send-document-dialog";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { isOrganizationClient } from "@/lib/client-types";
 import { fetchClientFormRequests, type FormRequestRecord } from "@/lib/forms";
+import { fetchDocumentShares, type DocumentShareRecord } from "@/lib/document-shares";
 import { submitClientFormDocument, uploadClientDocument } from "@/lib/clients";
 import { Loader2, Send, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -39,6 +48,11 @@ export default function ClientDocumentsPage() {
   const [uploading, setUploading] = React.useState(false);
   const [savingForm, setSavingForm] = React.useState(false);
   const [uploadType, setUploadType] = React.useState("upload");
+  const [shares, setShares] = React.useState<DocumentShareRecord[]>([]);
+  const [sharesLoading, setSharesLoading] = React.useState(true);
+  const [sendOpen, setSendOpen] = React.useState(false);
+  const [sendTarget, setSendTarget] = React.useState<SendDocumentTarget | null>(null);
+  const sendAfterUploadRef = React.useRef(false);
   const [formOpen, setFormOpen] = React.useState(false);
   const [formName, setFormName] = React.useState("Client intake form");
   const [formType, setFormType] = React.useState("intake_form");
@@ -62,22 +76,45 @@ export default function ClientDocumentsPage() {
     }
   }, [clientId]);
 
+  const loadShares = React.useCallback(async () => {
+    setSharesLoading(true);
+    try {
+      setShares(await fetchDocumentShares({ client_id: clientId }));
+    } catch {
+      setShares([]);
+    } finally {
+      setSharesLoading(false);
+    }
+  }, [clientId]);
+
   React.useEffect(() => {
     void loadFormRequests();
-  }, [loadFormRequests]);
+    void loadShares();
+  }, [loadFormRequests, loadShares]);
 
   const handleFormSent = async () => {
     await Promise.all([refreshDocuments(), loadFormRequests()]);
   };
 
+  const handleSendDocument = (doc: VaultDocument) => {
+    setSendTarget({ documentId: doc.id, documentName: doc.name });
+    setSendOpen(true);
+  };
+
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const thenSend = sendAfterUploadRef.current;
+    sendAfterUploadRef.current = false;
     setUploading(true);
     try {
-      await uploadClientDocument(clientId, file, uploadType);
+      const created = await uploadClientDocument(clientId, file, uploadType);
       toast.success("File saved to vault");
       await refreshDocuments();
+      if (thenSend) {
+        setSendTarget({ documentId: created.id, documentName: created.name });
+        setSendOpen(true);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -150,6 +187,14 @@ export default function ClientDocumentsPage() {
         clientName={client.name}
         documents={vaultDocs}
         pendingCount={pendingForms}
+        onSendDocument={handleSendDocument}
+        sharesPanel={
+          <DocumentSharesPanel
+            shares={shares}
+            loading={sharesLoading}
+            onRefresh={() => void loadShares()}
+          />
+        }
         sendTab={
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3">
@@ -199,18 +244,35 @@ export default function ClientDocumentsPage() {
                 </Select>
               </div>
               <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
-              <Button
-                className="w-full"
-                disabled={uploading}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4 mr-2" />
-                )}
-                Choose file to upload
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  className="flex-1"
+                  disabled={uploading}
+                  onClick={() => {
+                    sendAfterUploadRef.current = false;
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  {uploading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4 mr-2" />
+                  )}
+                  Choose file to upload
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  disabled={uploading}
+                  onClick={() => {
+                    sendAfterUploadRef.current = true;
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <Send className="h-4 w-4" />
+                  Upload &amp; send
+                </Button>
+              </div>
             </CardContent>
           </Card>
         }
@@ -299,6 +361,17 @@ export default function ClientDocumentsPage() {
             </DialogContent>
           </Dialog>
         }
+      />
+
+      <SendDocumentDialog
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        scope="client"
+        clientId={clientId}
+        target={sendTarget}
+        defaultEmail={client.email}
+        defaultName={client.name}
+        onSent={() => void loadShares()}
       />
     </div>
   );

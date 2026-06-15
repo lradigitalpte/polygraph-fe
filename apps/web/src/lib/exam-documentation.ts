@@ -36,6 +36,14 @@ export type ExamRecord = {
   phases?: ExamPhaseRecord[];
 };
 
+export type ExamReportRecord = {
+  id: number;
+  exam_id: number;
+  verdict: string;
+  content: string;
+  created_at: string;
+};
+
 export async function fetchAppointment(id: number): Promise<AppointmentRecord> {
   const response = await authenticatedFetch(`/api/appointments/${id}`);
   if (!response.ok) {
@@ -149,6 +157,32 @@ export async function uploadExamDocument(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to upload document (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function fetchExamReport(examId: number): Promise<ExamReportRecord | null> {
+  const response = await authenticatedFetch(`/api/reports/${examId}`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to load report (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function createExamReport(input: {
+  exam_id: number;
+  verdict: string;
+  content: string;
+}): Promise<{ id: number; exam_id: number; verdict: string }> {
+  const response = await authenticatedFetch("/api/reports", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to create report (${response.status})`);
   }
   return response.json();
 }

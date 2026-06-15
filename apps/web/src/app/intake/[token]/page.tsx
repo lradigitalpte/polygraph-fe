@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ENGLISH_PROFICIENCY_LEVELS } from "@/lib/subjects";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,11 @@ type SubjectRow = {
   employee_ref: string;
   nationality: string;
   gender: string;
+  id_number: string;
+  english_proficiency: string;
+  interpreter_required: boolean;
+  preferred_date: string;
+  preferred_time: string;
 };
 
 function emptyRow(): SubjectRow {
@@ -47,6 +53,11 @@ function emptyRow(): SubjectRow {
     employee_ref: "",
     nationality: "",
     gender: "",
+    id_number: "",
+    english_proficiency: "",
+    interpreter_required: false,
+    preferred_date: "",
+    preferred_time: "",
   };
 }
 
@@ -74,6 +85,19 @@ async function submitIntakeForm(
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? "Submission failed");
   return data;
+}
+
+// ─── Small helpers ──────────────────────────────────────────────────────────
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </Label>
+      {children}
+    </div>
+  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -109,7 +133,7 @@ export default function PublicIntakePage() {
     setRows((prev) => (prev.length > 1 ? prev.filter((r) => r._key !== key) : prev));
   }
 
-  function update(key: string, field: keyof SubjectRow, value: string) {
+  function update(key: string, field: keyof SubjectRow, value: string | boolean) {
     setRows((prev) => prev.map((r) => (r._key === key ? { ...r, [field]: value } : r)));
   }
 
@@ -120,6 +144,21 @@ export default function PublicIntakePage() {
     const valid = rows.filter((r) => r.first_name.trim() || r.last_name.trim());
     if (valid.length === 0) {
       setSubmitError("Please add at least one person before submitting.");
+      return;
+    }
+
+    const incomplete = valid.findIndex(
+      (r) =>
+        !r.first_name.trim() ||
+        !r.last_name.trim() ||
+        !r.gender.trim() ||
+        !r.preferred_date.trim() ||
+        !r.preferred_time.trim()
+    );
+    if (incomplete !== -1) {
+      setSubmitError(
+        `Person ${incomplete + 1}: first name, last name, gender, and a preferred date & time are required.`
+      );
       return;
     }
 
@@ -235,82 +274,143 @@ export default function PublicIntakePage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">People to be examined</CardTitle>
-              <CardDescription>Add one row per individual.</CardDescription>
+              <CardDescription>
+                Add one section per individual. Fields marked * are required.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-
-              {/* Column labels */}
-              <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1.5fr_1fr_1fr_1fr_1fr_2.5rem] gap-2 px-1">
-                {["First name *", "Last name *", "Email", "Phone", "Ref / ID", "Nationality", "Gender", ""].map((h) => (
-                  <span key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {h}
-                  </span>
-                ))}
-              </div>
-
+            <CardContent className="space-y-5">
               {rows.map((row, i) => (
                 <div
                   key={row._key}
-                  className="grid gap-2 sm:grid-cols-[1fr_1fr_1.5fr_1fr_1fr_1fr_1fr_2.5rem] items-center"
+                  className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-4"
                 >
-                  <div className="sm:hidden text-xs font-semibold text-muted-foreground mt-2">
-                    Person {i + 1}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">Person {i + 1}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeRow(row._key)}
+                      disabled={rows.length === 1}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove
+                    </Button>
                   </div>
-                  <Input
-                    placeholder="First name *"
-                    value={row.first_name}
-                    onChange={(e) => update(row._key, "first_name", e.target.value)}
-                  />
-                  <Input
-                    placeholder="Last name *"
-                    value={row.last_name}
-                    onChange={(e) => update(row._key, "last_name", e.target.value)}
-                  />
-                  <Input
-                    type="email"
-                    placeholder="Email"
-                    value={row.email}
-                    onChange={(e) => update(row._key, "email", e.target.value)}
-                  />
-                  <Input
-                    placeholder="Phone"
-                    value={row.phone}
-                    onChange={(e) => update(row._key, "phone", e.target.value)}
-                  />
-                  <Input
-                    placeholder="Employee ref / ID"
-                    value={row.employee_ref}
-                    onChange={(e) => update(row._key, "employee_ref", e.target.value)}
-                  />
-                  <Input
-                    placeholder="Nationality"
-                    value={row.nationality}
-                    onChange={(e) => update(row._key, "nationality", e.target.value)}
-                  />
-                  <Select
-                    value={row.gender}
-                    onValueChange={(v) => update(row._key, "gender", String(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Gender" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                      <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => removeRow(row._key)}
-                    disabled={rows.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="First name *">
+                      <Input
+                        placeholder="First name"
+                        value={row.first_name}
+                        onChange={(e) => update(row._key, "first_name", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Last name *">
+                      <Input
+                        placeholder="Last name"
+                        value={row.last_name}
+                        onChange={(e) => update(row._key, "last_name", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Email">
+                      <Input
+                        type="email"
+                        placeholder="name@example.com"
+                        value={row.email}
+                        onChange={(e) => update(row._key, "email", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Phone">
+                      <Input
+                        placeholder="+971…"
+                        value={row.phone}
+                        onChange={(e) => update(row._key, "phone", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Employee ref / ID">
+                      <Input
+                        placeholder="EMP-001"
+                        value={row.employee_ref}
+                        onChange={(e) => update(row._key, "employee_ref", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="ID / passport number">
+                      <Input
+                        placeholder="ID or passport no."
+                        value={row.id_number}
+                        onChange={(e) => update(row._key, "id_number", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Nationality">
+                      <Input
+                        placeholder="Nationality"
+                        value={row.nationality}
+                        onChange={(e) => update(row._key, "nationality", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Gender *">
+                      <Select
+                        value={row.gender}
+                        onValueChange={(v) => update(row._key, "gender", String(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Male">Male</SelectItem>
+                          <SelectItem value="Female">Female</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                          <SelectItem value="Prefer not to say">Prefer not to say</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="English proficiency">
+                      <Select
+                        value={row.english_proficiency}
+                        onValueChange={(v) => update(row._key, "english_proficiency", String(v))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="How well do they speak English?" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ENGLISH_PROFICIENCY_LEVELS.map((level) => (
+                            <SelectItem key={level} value={level}>
+                              {level}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Preferred date *">
+                      <Input
+                        type="date"
+                        value={row.preferred_date}
+                        min={new Date().toISOString().slice(0, 10)}
+                        onChange={(e) => update(row._key, "preferred_date", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Preferred time *">
+                      <Input
+                        type="time"
+                        value={row.preferred_time}
+                        onChange={(e) => update(row._key, "preferred_time", e.target.value)}
+                      />
+                    </Field>
+                  </div>
+
+                  <label className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2.5 cursor-pointer">
+                    <Checkbox
+                      checked={row.interpreter_required}
+                      onCheckedChange={(checked) =>
+                        update(row._key, "interpreter_required", checked === true)
+                      }
+                    />
+                    <span className="text-sm">
+                      This person needs an interpreter for the examination
+                    </span>
+                  </label>
                 </div>
               ))}
 

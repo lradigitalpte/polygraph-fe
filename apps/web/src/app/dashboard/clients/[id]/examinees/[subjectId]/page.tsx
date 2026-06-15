@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSubjectDetail } from "@/components/dashboard/subject-detail-context";
 import { formatAppointmentCode } from "@/lib/exam-documentation";
-import { Activity, Clock, FileText, Loader2 } from "lucide-react";
+import { Activity, AlertTriangle, Clock, FileText, Languages, Loader2 } from "lucide-react";
 
 export default function ExamineeOverviewPage() {
   const { clientId, subject, appointments, loading, error } = useSubjectDetail();
@@ -40,6 +40,24 @@ export default function ExamineeOverviewPage() {
           Forensic record for this person under the account.
         </p>
       </div>
+
+      <Card className={subject.interpreter_required ? "border-amber-500/40 bg-amber-500/5" : undefined}>
+        <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-2 py-4">
+          <div className="flex items-center gap-2">
+            <Languages className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">English proficiency:</span>
+            <Badge variant="outline" className="font-medium">
+              {subject.english_proficiency || "Not assessed"}
+            </Badge>
+          </div>
+          {subject.interpreter_required && (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-700">
+              <AlertTriangle className="h-4 w-4" />
+              Interpreter required
+            </span>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

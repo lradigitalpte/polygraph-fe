@@ -117,7 +117,7 @@ export default function ClientOverviewPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Recent Exams</CardTitle>
@@ -158,34 +158,6 @@ export default function ClientOverviewPage() {
             >
               View Full History
             </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Biometric Baseline</CardTitle>
-            <CardDescription>Standard physiological responses detected during rest.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[200px] flex items-end gap-2 px-2 py-4">
-              {[40, 70, 45, 90, 65, 80, 50, 85, 60, 75].map((h, i) => (
-                <div 
-                  key={i} 
-                  className="flex-1 bg-primary/20 rounded-t-sm transition-all hover:bg-primary/40 group relative"
-                  style={{ height: `${h}%` }}
-                >
-                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-[8px] font-bold bg-primary text-primary-foreground px-1 rounded">
-                     {h}
-                   </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-between text-[10px] text-muted-foreground mt-2 px-2">
-              <span>HR</span>
-              <span>GSR</span>
-              <span>RESP</span>
-              <span>BVP</span>
-            </div>
           </CardContent>
         </Card>
       </div>

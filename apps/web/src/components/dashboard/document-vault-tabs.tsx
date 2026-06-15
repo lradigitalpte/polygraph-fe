@@ -13,6 +13,7 @@ import {
   Link2,
   Mail,
   PenLine,
+  Send,
   Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,9 +71,16 @@ function formPreview(formData?: string) {
   }
 }
 
-export function VaultDocumentRow({ doc }: { doc: VaultDocument }) {
+export function VaultDocumentRow({
+  doc,
+  onSend,
+}: {
+  doc: VaultDocument;
+  onSend?: (doc: VaultDocument) => void;
+}) {
   const isForm = doc.source === "online_form";
   const preview = isForm ? formPreview(doc.form_data) : null;
+  const canSend = Boolean(onSend && doc.url && !isForm);
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card/50 hover:bg-muted/30 transition-colors">
@@ -112,6 +120,12 @@ export function VaultDocumentRow({ doc }: { doc: VaultDocument }) {
             Open
           </Button>
         )}
+        {canSend && (
+          <Button variant="outline" size="sm" onClick={() => onSend?.(doc)}>
+            <Send className="h-4 w-4 mr-1" />
+            Send to client
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -125,6 +139,8 @@ type DocumentVaultTabsProps = {
   manualTab: React.ReactNode;
   pendingCount: number;
   showManualTab?: boolean;
+  onSendDocument?: (doc: VaultDocument) => void;
+  sharesPanel?: React.ReactNode;
 };
 
 export function DocumentVaultTabs({
@@ -135,6 +151,8 @@ export function DocumentVaultTabs({
   manualTab,
   pendingCount,
   showManualTab = true,
+  onSendDocument,
+  sharesPanel,
 }: DocumentVaultTabsProps) {
   const [filter, setFilter] = React.useState<"all" | "forms" | "files">("all");
 
@@ -169,10 +187,12 @@ export function DocumentVaultTabs({
           <Upload className="h-4 w-4 shrink-0" />
           Upload file
         </TabsTrigger>
-        <TabsTrigger value="manual" className="gap-2 py-2.5 text-xs sm:text-sm">
-          <PenLine className="h-4 w-4 shrink-0" />
-          Paper / staff entry
-        </TabsTrigger>
+        {showManualTab && (
+          <TabsTrigger value="manual" className="gap-2 py-2.5 text-xs sm:text-sm">
+            <PenLine className="h-4 w-4 shrink-0" />
+            Paper / staff entry
+          </TabsTrigger>
+        )}
       </TabsList>
 
       <TabsContent value="send" className="space-y-4 mt-0 outline-none">
@@ -243,14 +263,17 @@ export function DocumentVaultTabs({
                     : "Nothing stored yet. Send a form link or upload a file."}
               </p>
             ) : (
-              filtered.map((doc) => <VaultDocumentRow key={doc.id} doc={doc} />)
+              filtered.map((doc) => (
+                <VaultDocumentRow key={doc.id} doc={doc} onSend={onSendDocument} />
+              ))
             )}
           </CardContent>
         </Card>
       </TabsContent>
 
-      <TabsContent value="upload" className="mt-0 outline-none">
+      <TabsContent value="upload" className="mt-0 outline-none space-y-6">
         {uploadTab}
+        {sharesPanel}
       </TabsContent>
 
       {showManualTab && (

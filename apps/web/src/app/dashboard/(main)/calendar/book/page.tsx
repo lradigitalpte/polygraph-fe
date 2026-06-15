@@ -10,6 +10,7 @@ import {
   Clock,
   CreditCard,
   Info,
+  Languages,
   Loader2,
   Search,
   Shield,
@@ -41,18 +42,18 @@ import {
   type BusyPeriodRecord,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
-import { createSubject, fetchSubjects, type SubjectRecord } from "@/lib/subjects";
+import {
+  ENGLISH_PROFICIENCY_LEVELS,
+  createSubject,
+  fetchSubjects,
+  updateSubject,
+  type SubjectRecord,
+} from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { convertQuotation } from "@/lib/quotations";
 import { cn } from "@/lib/utils";
 
-const paymentTypes = [
-  "Corporate Account",
-  "Private Pay (Credit/Debit)",
-  "Insurance Claim",
-  "Government Contract",
-  "Retainer Balance",
-];
+const paymentTypes = ["Bank Transfer", "Credit Card"];
 
 const baseTimeSlots = ["08:30", "10:00", "11:30", "13:00", "14:30", "16:00"];
 
@@ -63,6 +64,10 @@ function BookAppointmentPageContent() {
   const searchParams = useSearchParams();
   const presetClientId = searchParams.get("clientId");
   const presetSubjectId = searchParams.get("subjectId");
+  const presetExamTypeId = searchParams.get("examTypeId");
+  const presetExaminerId = searchParams.get("examinerId");
+  const presetDate = searchParams.get("date");
+  const presetTime = searchParams.get("time");
   const convertQuotationId = searchParams.get("quotationId");
   const [step, setStep] = React.useState(1);
   const [isBooking, setIsBooking] = React.useState(false);
@@ -74,6 +79,9 @@ function BookAppointmentPageContent() {
   const [showSubjectResults, setShowSubjectResults] = React.useState(false);
   const [useClientAsSubject, setUseClientAsSubject] = React.useState(true);
   const [selectedClientRecord, setSelectedClientRecord] = React.useState<ClientRecord | null>(null);
+  const [selectedSubjectRecord, setSelectedSubjectRecord] = React.useState<SubjectRecord | null>(null);
+  const [englishProficiency, setEnglishProficiency] = React.useState("");
+  const [interpreterRequired, setInterpreterRequired] = React.useState(false);
   const [clients, setClients] = React.useState<ClientRecord[]>([]);
   const [subjects, setSubjects] = React.useState<SubjectRecord[]>([]);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
@@ -137,6 +145,18 @@ function BookAppointmentPageContent() {
         setExaminers(initialExaminers);
         setExamTypes(initialExamTypes.filter((item) => item.active));
 
+        // Prefill from the pending-appointments handoff (exam type / examiner / date).
+        // The requested time is shown as a hint in step 2 rather than force-selected, so
+        // the admin still picks a slot the examiner is actually free for.
+        if (presetExamTypeId || presetExaminerId || presetDate) {
+          setFormData((prev) => ({
+            ...prev,
+            ...(presetExamTypeId ? { examTypeId: presetExamTypeId } : {}),
+            ...(presetExaminerId ? { examinerId: presetExaminerId } : {}),
+            ...(presetDate ? { date: presetDate } : {}),
+          }));
+        }
+
         if (presetClientId) {
           const match = initialClients.find((c) => c.id === Number(presetClientId));
           if (match) {
@@ -158,6 +178,9 @@ function BookAppointmentPageContent() {
                 if (sub) {
                   const fullName = `${sub.first_name} ${sub.last_name}`.trim();
                   setSubjectSearch(fullName);
+                  setSelectedSubjectRecord(sub);
+                  setEnglishProficiency(sub.english_proficiency ?? "");
+                  setInterpreterRequired(sub.interpreter_required ?? false);
                   setFormData((prev) => ({
                     ...prev,
                     subjectId: String(sub.id),
@@ -325,7 +348,33 @@ function BookAppointmentPageContent() {
     if (org) {
       setSubjectSearch("");
     }
+    setSelectedSubjectRecord(null);
+    setEnglishProficiency("");
+    setInterpreterRequired(false);
     setShowClientResults(false);
+  };
+
+  const resetLanguageFields = () => {
+    setSelectedSubjectRecord(null);
+    setEnglishProficiency("");
+    setInterpreterRequired(false);
+  };
+
+  const handleClearClient = () => {
+    setSelectedClientRecord(null);
+    setClientSearch("");
+    setShowClientResults(false);
+    setSubjectSearch("");
+    setShowSubjectResults(false);
+    setUseClientAsSubject(true);
+    resetLanguageFields();
+    setFormData((prev) => ({
+      ...prev,
+      clientId: "",
+      clientName: "",
+      subjectId: "",
+      subjectName: "",
+    }));
   };
 
   const handleSelectSubject = (subject: SubjectRecord) => {
@@ -334,6 +383,9 @@ function BookAppointmentPageContent() {
     setSubjectSearch(fullName);
     setUseClientAsSubject(false);
     setShowSubjectResults(false);
+    setSelectedSubjectRecord(subject);
+    setEnglishProficiency(subject.english_proficiency ?? "");
+    setInterpreterRequired(subject.interpreter_required ?? false);
   };
 
   const selectedExaminer = examiners.find((item) => item.id === Number(formData.examinerId));
@@ -416,6 +468,7 @@ function BookAppointmentPageContent() {
     setIsBooking(true);
     try {
       let subjectID = Number(formData.subjectId);
+      let createdNewSubject = false;
       if (useClientAsSubject) {
         const existingMatch = subjects.find((subject) => {
           const fullName = `${subject.first_name} ${subject.last_name}`.trim().toLowerCase();
@@ -432,14 +485,41 @@ function BookAppointmentPageContent() {
             client_id: selectedClientRecord?.id,
             first_name: firstName,
             last_name: lastName,
+            english_proficiency: englishProficiency || undefined,
+            interpreter_required: interpreterRequired,
           });
           subjectID = createdSubject.id;
+          createdNewSubject = true;
         }
       }
 
       if (!subjectID) {
         toast.error("Please select a subject");
         return;
+      }
+
+      // Persist the language/interpreter info onto the examinee so it travels with the
+      // person and the examiner can see it. New subjects already carry it from createSubject;
+      // for existing ones, send the full record so the partial update doesn't clear other fields.
+      if (!createdNewSubject && (englishProficiency || interpreterRequired)) {
+        const rec =
+          subjects.find((s) => s.id === subjectID) ??
+          (selectedSubjectRecord?.id === subjectID ? selectedSubjectRecord : null);
+        if (rec) {
+          await updateSubject(subjectID, {
+            first_name: rec.first_name,
+            last_name: rec.last_name,
+            email: rec.email,
+            phone: rec.phone,
+            employee_ref: rec.employee_ref,
+            gender: rec.gender,
+            nationality: rec.nationality,
+            spoken_language: rec.spoken_language,
+            written_language: rec.written_language,
+            english_proficiency: englishProficiency,
+            interpreter_required: interpreterRequired,
+          });
+        }
       }
 
       // Calculate payment status based on collected amount
@@ -573,8 +653,18 @@ function BookAppointmentPageContent() {
                           {isOrgBooking && formData.clientId ? "Account (organization)" : "Search client"}
                         </Label>
                         {isOrgBooking && formData.clientId ? (
-                          <div className="h-11 sm:h-12 rounded-xl border border-primary/30 bg-muted/20 px-4 flex items-center font-semibold text-sm">
-                            {formData.clientName}
+                          <div className="h-11 sm:h-12 rounded-xl border border-primary/30 bg-muted/20 pl-4 pr-2 flex items-center justify-between gap-2">
+                            <span className="font-semibold text-sm truncate">{formData.clientName}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={handleClearClient}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" />
+                              Change
+                            </Button>
                           </div>
                         ) : (
                         <div className="relative" ref={clientSearchRef}>
@@ -698,6 +788,54 @@ function BookAppointmentPageContent() {
                         ) : null}
                       </div>
 
+                      {formData.clientId && (useClientAsSubject || formData.subjectId) && (
+                        <div className="space-y-3 rounded-xl border border-border/50 bg-muted/10 p-3 sm:p-4">
+                          <div className="flex items-center gap-2">
+                            <Languages className="h-4 w-4 text-primary" />
+                            <Label className="text-xs font-semibold">
+                              Language &amp; interpreter
+                              <span className="ml-1 font-normal text-muted-foreground">
+                                — shown to the examiner for this appointment
+                              </span>
+                            </Label>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                                English proficiency
+                              </Label>
+                              <Select
+                                value={englishProficiency || "unset"}
+                                onValueChange={(v) =>
+                                  setEnglishProficiency(v === "unset" ? "" : String(v))
+                                }
+                              >
+                                <SelectTrigger className="h-10 rounded-xl border-border/50 bg-muted/20 sm:h-11">
+                                  <SelectValue placeholder="Not assessed" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unset">Not assessed</SelectItem>
+                                  {ENGLISH_PROFICIENCY_LEVELS.map((level) => (
+                                    <SelectItem key={level} value={level}>
+                                      {level}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <label className="flex items-center gap-3 rounded-xl border border-border/50 bg-muted/10 p-3 cursor-pointer self-end">
+                              <Checkbox
+                                checked={interpreterRequired}
+                                onCheckedChange={(checked) =>
+                                  setInterpreterRequired(checked === true)
+                                }
+                              />
+                              <span className="text-sm">Interpreter required</span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="space-y-2">
                         <Label>Examination Protocol</Label>
                         <Select value={formData.examTypeId} onValueChange={(value) => handleInputChange("examTypeId", value as string)}>
@@ -816,6 +954,12 @@ function BookAppointmentPageContent() {
 
                         <div className="space-y-3">
                           <Label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Available Slots</Label>
+                          {presetTime && (
+                            <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] font-semibold text-primary">
+                              <Clock className="h-3 w-3" />
+                              Client requested {presetTime} — pick the closest open slot.
+                            </div>
+                          )}
                           {!formData.date || !formData.examinerId || isDateBlocked ? (
                             <div className="flex h-30 items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/5 p-4 text-center">
                               <p className="text-[10px] leading-relaxed text-muted-foreground">
@@ -1027,9 +1171,9 @@ function BookAppointmentPageContent() {
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
-      <span className="text-right text-sm font-semibold text-foreground">{value}</span>
+    <div className="min-w-0 space-y-0.5">
+      <span className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="block text-sm font-semibold text-foreground break-words">{value}</span>
     </div>
   );
 }

@@ -261,7 +261,6 @@ export default function NewClientPage() {
                     <SelectContent>
                       <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                       <SelectItem value="Credit Card">Credit Card</SelectItem>
-                      <SelectItem value="Cash">Cash</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
