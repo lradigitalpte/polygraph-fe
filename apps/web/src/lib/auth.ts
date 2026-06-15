@@ -18,6 +18,25 @@ function logoUrl() {
   return `${base.replace(/\/$/, "")}/logo.png`;
 }
 
+// Idempotency guard: prevents the same reset/set-password email from being sent
+// twice in quick succession (double-submit, create-user + a manual resend, etc.).
+// Every reset trigger funnels through sendResetPassword, so guarding here covers
+// all paths. Keyed by email; entries expire after the window.
+const RESET_DEDUPE_MS = 90_000;
+const recentResetSends = new Map<string, number>();
+
+function shouldSkipResetEmail(email: string): boolean {
+  const key = email.trim().toLowerCase();
+  const now = Date.now();
+  for (const [k, t] of recentResetSends) {
+    if (now - t > RESET_DEDUPE_MS) recentResetSends.delete(k);
+  }
+  const last = recentResetSends.get(key);
+  if (last !== undefined && now - last < RESET_DEDUPE_MS) return true;
+  recentResetSends.set(key, now);
+  return false;
+}
+
 // brandedEmail wraps content in the same premium template the backend uses:
 // a dark logo banner over a clean white card.
 function brandedEmail(opts: {
@@ -56,8 +75,11 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     sendResetPassword: async ({ user, url }) => {
+      // Skip if we just sent a reset email to this address (prevents duplicates).
+      if (shouldSkipResetEmail(user.email)) return;
       const name = user.name ?? user.email;
-      await transporter.sendMail({
+      try {
+        await transporter.sendMail({
         from: process.env.SMTP_FROM ?? process.env.FROM_ADDRESS ?? "noreply@polygraph.ae",
         to: user.email,
         subject: "Set your Polygraph password",
@@ -70,7 +92,12 @@ export const auth = betterAuth({
           buttonUrl: url,
           footnote: "If you did not request this, you can safely ignore this email.",
         }),
-      });
+        });
+      } catch (e) {
+        // Send failed — clear the dedupe entry so a retry isn't blocked.
+        recentResetSends.delete(user.email.trim().toLowerCase());
+        throw e;
+      }
     },
   },
   session: {
