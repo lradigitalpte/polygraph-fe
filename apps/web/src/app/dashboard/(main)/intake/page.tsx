@@ -260,7 +260,9 @@ export default function BatchIntakePage() {
               <Label htmlFor="client">Organisation / Client *</Label>
               <Select value={clientId} onValueChange={(v) => setClientId(String(v))}>
                 <SelectTrigger id="client">
-                  <SelectValue placeholder="Select client…" />
+                  <SelectValue placeholder="Select client…">
+                    {clients.find((c) => String(c.id) === clientId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {clients.map((c) => (
@@ -280,7 +282,9 @@ export default function BatchIntakePage() {
               <Label htmlFor="examiner">Examiner *</Label>
               <Select value={examinerId} onValueChange={(v) => setExaminerId(String(v))}>
                 <SelectTrigger id="examiner">
-                  <SelectValue placeholder="Select examiner…" />
+                  <SelectValue placeholder="Select examiner…">
+                    {examiners.find((e) => String(e.id) === examinerId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {examiners.map((e) => (

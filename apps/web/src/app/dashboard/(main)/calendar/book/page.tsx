@@ -68,6 +68,7 @@ function BookAppointmentPageContent() {
   const presetExaminerId = searchParams.get("examinerId");
   const presetDate = searchParams.get("date");
   const presetTime = searchParams.get("time");
+  const returnTo = searchParams.get("returnTo");
   const convertQuotationId = searchParams.get("quotationId");
   const [step, setStep] = React.useState(1);
   const [isBooking, setIsBooking] = React.useState(false);
@@ -561,7 +562,10 @@ function BookAppointmentPageContent() {
           description: `Invoice for $${selectedExamType.price.toFixed(2)} added to Financial Hub.`,
         });
       }
-      router.push("/dashboard/payments");
+      // Return to the originating page (e.g. pending appointments) when provided, so the
+      // admin can keep booking the rest of the list; otherwise go to Payments as before.
+      const safeReturn = returnTo && returnTo.startsWith("/dashboard/") ? returnTo : "/dashboard/payments";
+      router.push(safeReturn);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create appointment");
     } finally {
@@ -1173,7 +1177,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 space-y-0.5">
       <span className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
-      <span className="block text-sm font-semibold text-foreground break-words">{value}</span>
+      <span className="block text-sm font-semibold text-foreground wrap-break-word">{value}</span>
     </div>
   );
 }

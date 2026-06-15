@@ -212,7 +212,9 @@ export default function NewUserPage() {
               <Label htmlFor="role">Assigned Role</Label>
               <Select value={roleId} onValueChange={(v) => setRoleId(String(v))} disabled={rolesLoading}>
                 <SelectTrigger id="role">
-                  <SelectValue placeholder={rolesLoading ? "Loading roles..." : "Select a role"} />
+                  <SelectValue placeholder={rolesLoading ? "Loading roles..." : "Select a role"}>
+                    {selectedRole?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {roles.map((role) => (

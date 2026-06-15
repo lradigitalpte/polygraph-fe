@@ -142,6 +142,8 @@ export default function PendingAppointmentsPage() {
       qs.set("date", parts.date);
       qs.set("time", parts.time);
     }
+    // Return here after booking so the admin can run straight down the list.
+    qs.set("returnTo", `/dashboard/clients/${clientId}/intake/${requestId}`);
     router.push(`/dashboard/calendar/book?${qs.toString()}`);
   };
 
@@ -257,7 +259,9 @@ export default function PendingAppointmentsPage() {
                         onValueChange={(v) => setPick(ex.subject_id, "examTypeId", String(v))}
                       >
                         <SelectTrigger className="h-11 rounded-xl">
-                          <SelectValue placeholder="Select exam type" />
+                          <SelectValue placeholder="Select exam type">
+                            {examTypes.find((t) => String(t.id) === pick.examTypeId)?.name}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {examTypes.map((t) => (
@@ -277,7 +281,9 @@ export default function PendingAppointmentsPage() {
                         onValueChange={(v) => setPick(ex.subject_id, "examinerId", String(v))}
                       >
                         <SelectTrigger className="h-11 rounded-xl">
-                          <SelectValue placeholder="Select examiner" />
+                          <SelectValue placeholder="Select examiner">
+                            {examiners.find((e) => String(e.id) === pick.examinerId)?.name}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {examiners.map((e) => (

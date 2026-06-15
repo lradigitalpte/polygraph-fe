@@ -139,7 +139,9 @@ export function SendFormDialog({
             ) : (
               <Select value={templateId} onValueChange={(value) => setTemplateId(String(value))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select form" />
+                  <SelectValue placeholder="Select form">
+                    {templates.find((t) => String(t.id) === templateId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {templates.map((t) => (

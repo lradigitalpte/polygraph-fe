@@ -233,6 +233,8 @@ function formatIp(ip: string | null | undefined): string {
 export default function AuditLogsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterState>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
@@ -267,10 +269,10 @@ export default function AuditLogsPage() {
     void loadLogs(false);
   }, []);
 
-  // Reset to the first page whenever the filter or search changes.
+  // Reset to the first page whenever the filter, search, or date range changes.
   useEffect(() => {
     setPage(1);
-  }, [query, filter]);
+  }, [query, filter, dateFrom, dateTo]);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -297,9 +299,19 @@ export default function AuditLogsPage() {
 
   const filteredLogs = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
     return logs.filter((log) => {
       const tone = statusTone(log.status);
       if (filter !== "all" && tone !== filter) return false;
+
+      if (fromTime !== null || toTime !== null) {
+        const logTime = new Date(log.createdAt).getTime();
+        if (Number.isNaN(logTime)) return false;
+        if (fromTime !== null && logTime < fromTime) return false;
+        if (toTime !== null && logTime > toTime) return false;
+      }
+
       if (!normalized) return true;
       const user = renderUser(log).toLowerCase();
       const { method, path } = splitAction(log.action);
@@ -311,7 +323,7 @@ export default function AuditLogsPage() {
         log.ip.toLowerCase().includes(normalized)
       );
     });
-  }, [filter, logs, query]);
+  }, [filter, logs, query, dateFrom, dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -369,14 +381,14 @@ export default function AuditLogsPage() {
               Every action taken in your organization - in plain English.
             </CardDescription>
           </div>
-          <div className="flex flex-col gap-3 md:flex-row">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by user, action, or IP..."
-              className="md:max-w-md"
+              className="lg:max-w-xs"
             />
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {(["all", "success", "warning", "error"] as const).map((tone) => (
                 <Button
                   key={tone}
@@ -388,6 +400,37 @@ export default function AuditLogsPage() {
                   {tone}
                 </Button>
               ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-auto"
+                aria-label="From date"
+              />
+              <span className="text-sm text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-auto"
+                aria-label="To date"
+              />
+              {(dateFrom || dateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                >
+                  Clear dates
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>

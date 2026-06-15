@@ -256,7 +256,9 @@ export default function UserDetailPage() {
                     <label className="text-sm font-medium">Assigned Role</label>
                     <Select value={String(user.role_id)} onValueChange={(value) => void handleRoleChange(String(value))} disabled={saving}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select role" />
+                        <SelectValue placeholder="Select role">
+                          {roles.find((r) => r.id === user.role_id)?.name}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {roles.map((role) => (
