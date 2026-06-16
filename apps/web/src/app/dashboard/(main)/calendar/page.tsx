@@ -20,11 +20,6 @@ import {
   FileText,
   Info,
   ShieldCheck,
-  CreditCard,
-  DollarSign,
-  Wallet,
-  Mail,
-  Download,
   Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,20 +31,11 @@ import {
   SheetTitle,
   SheetDescription
 } from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import Link from "next/link";
 import { toast } from "sonner";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
-import { fetchQuotations, type QuotationRecord } from "@/lib/quotations";
+import { resolveAppointmentParties } from "@/lib/appointment-display";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
-import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { fetchExamByAppointment, type ExamPhaseRecord } from "@/lib/exam-documentation";
 
 const timeSlots = [
@@ -73,7 +59,11 @@ type CalendarExaminer = {
 type CalendarAppointment = {
   id: number;
   clientId: number;
+  subjectId?: number;
+  /** Examinee or client name shown on the grid. */
   client: string;
+  /** Billing organization when the session is under a corporate account. */
+  accountName?: string;
   examinerId: string;
   time: string;
   duration: string;
@@ -92,8 +82,6 @@ type CalendarAppointment = {
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-purple-600", "bg-amber-600", "bg-rose-600", "bg-cyan-600"];
 
 export default function CalendarPage() {
-  const { can } = useCurrentUser();
-  const canViewPayments = can("payment:view");
   const [view, setView] = React.useState<"month" | "week" | "day">("week");
   const [cursorDate, setCursorDate] = React.useState<Date>(() => startOfDay(new Date()));
   const [selectedExaminers, setSelectedExaminers] = React.useState<string[]>([]);
@@ -101,11 +89,8 @@ export default function CalendarPage() {
   const [timelinePhases, setTimelinePhases] = React.useState<ExamPhaseRecord[]>([]);
   const [timelineLoading, setTimelineLoading] = React.useState(false);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
-  const [paymentStep, setPaymentStep] = React.useState<'billing' | 'collection' | 'confirmed'>('billing');
   const [examiners, setExaminers] = React.useState<CalendarExaminer[]>([]);
   const [appointments, setAppointments] = React.useState<CalendarAppointment[]>([]);
-  const [quotations, setQuotations] = React.useState<QuotationRecord[]>([]);
   // Load the real session timeline (exam phases) for the selected appointment.
   React.useEffect(() => {
     const appointmentId = selectedAppointment?.id;
@@ -145,10 +130,9 @@ export default function CalendarPage() {
 
     async function loadCalendarData() {
       try {
-        const [examinerRows, appointmentRows, quotationRows] = await Promise.all([
+        const [examinerRows, appointmentRows] = await Promise.all([
           fetchExaminers(),
           fetchAppointments(),
-          fetchQuotations(),
         ]);
         if (cancelled) {
           return;
@@ -159,7 +143,6 @@ export default function CalendarPage() {
 
         setExaminers(mappedExaminers);
         setAppointments(mappedAppointments);
-        setQuotations(quotationRows);
         setSelectedExaminers(mappedExaminers.map((item) => item.id));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to load calendar data");
@@ -214,37 +197,6 @@ export default function CalendarPage() {
     }
     return cursorDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   }, [cursorDate, view, weekDays]);
-
-  const billingSummary = React.useMemo(() => {
-    if (!selectedAppointment) {
-      return { total: 0, paid: 0, balance: 0, hasQuotation: false };
-    }
-
-    const quotation =
-      quotations.find((item) => item.appointment_id === selectedAppointment.id) ||
-      quotations.find((item) => item.client_id === selectedAppointment.clientId && Number(item.amount || 0) > 0);
-
-    if (quotation) {
-      const total = Number(quotation.amount || 0);
-      const paid = Number(quotation.collected_amount || 0);
-      return {
-        total,
-        paid,
-        balance: Math.max(0, total - paid),
-        hasQuotation: true,
-      };
-    }
-
-    const total = Number(selectedAppointment.examFee || 0);
-    const status = selectedAppointment.paymentStatus.toLowerCase();
-    const paid = status === "paid" || status === "full" || status === "completed" ? total : 0;
-    return {
-      total,
-      paid,
-      balance: Math.max(0, total - paid),
-      hasQuotation: false,
-    };
-  }, [quotations, selectedAppointment]);
 
   return (
     <div className="space-y-6 max-w-[1800px] mx-auto pb-10 w-full">
@@ -438,7 +390,7 @@ export default function CalendarPage() {
                           >
                             <div className="relative z-10 flex flex-col gap-1">
                               <div className="flex items-center justify-between">
-                                <span className="truncate pr-1 uppercase tracking-tight">{app.client}</span>
+                                <span className="truncate pr-1 tracking-tight">{app.client}</span>
                                 <div className="flex items-center gap-1">
                                   <div className={cn(
                                     "w-1.5 h-1.5 rounded-full",
@@ -451,6 +403,9 @@ export default function CalendarPage() {
                                   <span className="opacity-60 text-[8px] font-black">{app.time}</span>
                                 </div>
                               </div>
+                              {app.accountName && (
+                                <span className="truncate text-[8px] opacity-60">{app.accountName}</span>
+                              )}
                             </div>
                             <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
                           </motion.button>
@@ -565,6 +520,9 @@ export default function CalendarPage() {
                                   </div>
 
                                   <h3 className="text-xs font-black truncate text-foreground mb-0.5 leading-tight">{app.client}</h3>
+                                  {app.accountName && (
+                                    <p className="text-[8px] font-bold opacity-50 truncate leading-tight">{app.accountName}</p>
+                                  )}
                                   <p className="text-[9px] font-bold opacity-60 line-clamp-1">{app.type}</p>
 
                                   <div className="mt-auto pt-1.5 border-t border-black/5 flex items-center gap-1.5">
@@ -604,6 +562,9 @@ export default function CalendarPage() {
                     {selectedAppointment.status}
                   </Badge>
                   <h2 className="text-3xl font-black tracking-tighter leading-tight">{selectedAppointment.client}</h2>
+                  {selectedAppointment.accountName && (
+                    <p className="text-sm font-semibold text-white/70">{selectedAppointment.accountName}</p>
+                  )}
                   <div className="flex items-center gap-3 text-[11px] font-bold text-white/50">
                     <span className="flex items-center gap-1.5 uppercase">
                       <Clock className="h-3.5 w-3.5" />
@@ -616,49 +577,21 @@ export default function CalendarPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-card/50">
-                <div className="p-5 rounded-2xl bg-primary/[0.03] border border-primary/20 flex items-center justify-between group">
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="p-2 rounded-xl bg-primary/10 text-primary shadow-inner group-hover:scale-105 transition-transform">
-                      <Wallet className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground leading-none">
-                          {canViewPayments ? "Invoice" : "Payment Status"}
-                        </p>
-                        <Badge className={cn(
-                          "text-[8px] font-black uppercase tracking-widest px-2 py-0.5",
-                          selectedAppointment?.paymentStatus?.toLowerCase() === "paid"
-                            ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/20"
-                            : selectedAppointment?.paymentStatus?.toLowerCase() === "partial"
-                              ? "bg-amber-500/10 text-amber-700 border-amber-500/20"
-                              : "bg-rose-500/10 text-rose-700 border-rose-500/20"
-                        )}>
-                          {selectedAppointment?.paymentStatus || "Unpaid"}
-                        </Badge>
-                      </div>
-                      {canViewPayments && (
-                        <>
-                          <p className="text-base font-black text-foreground">${billingSummary.total.toFixed(2)}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground">
-                            Paid ${billingSummary.paid.toFixed(2)} • Balance ${billingSummary.balance.toFixed(2)}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5 col-span-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Examinee</p>
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-primary shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-black truncate">{selectedAppointment.client}</p>
+                        {selectedAppointment.accountName && (
+                          <p className="text-[10px] font-medium text-muted-foreground truncate">
+                            Billed to {selectedAppointment.accountName}
                           </p>
-                        </>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
-                  {canViewPayments && (
-                    <Button
-                      onClick={() => setIsPaymentOpen(true)}
-                      size="sm"
-                      className="h-8 px-4 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground font-black text-[9px] uppercase tracking-widest shadow-md shadow-primary/10 transition-all shrink-0 ml-2"
-                    >
-                      Pay Now
-                    </Button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Specialist</p>
                     <div className="flex items-center gap-2">
@@ -723,14 +656,27 @@ export default function CalendarPage() {
                       <Link href={`/dashboard/clients/${selectedAppointment.clientId}/exams/${selectedAppointment.id}`} />
                     }
                   >
-                    Open Case Console
+                    Open session documentation
                   </Button>
+                  {selectedAppointment.subjectId ? (
+                    <Button
+                      variant="outline"
+                      className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
+                      render={
+                        <Link
+                          href={`/dashboard/clients/${selectedAppointment.clientId}/examinees/${selectedAppointment.subjectId}`}
+                        />
+                      }
+                    >
+                      Open examinee profile
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/50"
                     render={<Link href={`/dashboard/clients/${selectedAppointment.clientId}`} />}
                   >
-                    Open Client Page
+                    Open billing account
                   </Button>
                 </div>
               </div>
@@ -738,173 +684,6 @@ export default function CalendarPage() {
           )}
         </SheetContent>
       </Sheet>
-
-      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
-        <DialogContent className="sm:max-w-xl bg-card/95 backdrop-blur-3xl border border-border/50 shadow-2xl p-0 overflow-hidden rounded-[2.5rem]">
-          <DialogHeader className="p-10 pb-0 shrink-0 relative overflow-hidden bg-neutral-950 text-white">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-transparent z-10" />
-            <div className="absolute top-0 right-0 p-10 opacity-10">
-              <CreditCard className="h-32 w-32" />
-            </div>
-            <div className="relative z-20 space-y-2">
-              <div className="flex items-center gap-2">
-                <Badge className="bg-primary/20 text-primary border-none px-2 py-0.5 font-black text-[9px] uppercase tracking-[0.2em]">
-                  Billing Step {paymentStep === 'billing' ? '1' : paymentStep === 'collection' ? '2' : '3'}
-                </Badge>
-                {paymentStep === 'confirmed' && <CheckCircle2 className="h-4 w-4 text-emerald-500 animate-in zoom-in" />}
-              </div>
-              <DialogTitle className="text-4xl font-black tracking-tighter">
-                {paymentStep === 'billing' ? "Invoice Console" : paymentStep === 'collection' ? "Authorize Charge" : "Billing Success"}
-              </DialogTitle>
-              <DialogDescription className="text-white/60 font-bold text-sm">
-                {paymentStep === 'billing' ? "Dispatch forensic billing documents." :
-                 paymentStep === 'collection' ? "Finalize clinical transaction." :
-                 "Transaction #TXN-9021 recorded."}
-              </DialogDescription>
-            </div>
-          </DialogHeader>
-
-          <div className="p-10 pt-8 space-y-8 bg-card/50">
-            {paymentStep === 'billing' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="flex items-center justify-between p-7 rounded-[2rem] bg-primary/[0.03] border border-primary/20 shadow-inner group">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Examination Fee</p>
-                    <p className="text-4xl font-black text-foreground tracking-tighter">${billingSummary.total.toFixed(2)}</p>
-                    <p className="text-[10px] font-bold text-muted-foreground">Collected ${billingSummary.paid.toFixed(2)} • Balance ${billingSummary.balance.toFixed(2)}</p>
-                  </div>
-                  <div className="flex flex-col gap-2 items-end">
-                    <Button variant="ghost" size="sm" className="h-7 rounded-lg font-black text-[8px] uppercase tracking-widest text-primary hover:bg-primary/10">
-                      Edit Line Items
-                    </Button>
-                    <Badge className="bg-emerald-500/10 text-emerald-500 border-none px-3 py-1 font-black text-[9px] uppercase tracking-widest">
-                      Tax Exempt
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Button
-                    variant="outline"
-                    className="h-24 rounded-[2rem] border-border/50 bg-card/50 hover:border-primary/30 hover:bg-primary/[0.02] flex flex-col gap-2 group transition-all shadow-sm"
-                  >
-                    <div className="p-2 rounded-xl bg-muted/20 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                      <Mail className="h-5 w-5" />
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-widest leading-none">Email Invoice</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-24 rounded-[2rem] border-border/50 bg-card/50 hover:border-primary/30 hover:bg-primary/[0.02] flex flex-col gap-2 group transition-all shadow-sm"
-                  >
-                    <div className="p-2 rounded-xl bg-muted/20 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                      <Download className="h-5 w-5" />
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-widest leading-none">Download PDF</span>
-                  </Button>
-                </div>
-
-                <div className="pt-2">
-                  <Button
-                    onClick={() => setPaymentStep('collection')}
-                    className="w-full h-16 rounded-[2rem] font-black text-sm shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:scale-[1.01] transition-all"
-                  >
-                    Proceed to Collection
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {paymentStep === 'collection' && (
-              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="space-y-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Secure Channel</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { name: "Credit Card", icon: CreditCard },
-                      { name: "Bank Wire", icon: DollarSign },
-                      { name: "Direct Bill", icon: Zap }
-                    ].map((method) => (
-                      <button
-                        key={method.name}
-                        className="flex flex-col items-center justify-center gap-4 p-6 rounded-[2rem] border-2 border-border/50 hover:border-primary/50 hover:bg-primary/[0.02] transition-all group shadow-sm bg-card/30"
-                      >
-                        <method.icon className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
-                        <span className="text-[9px] font-black text-center leading-tight group-hover:text-primary transition-colors uppercase tracking-[0.1em]">{method.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="pt-2 space-y-4">
-                  <Button
-                    onClick={() => setPaymentStep('confirmed')}
-                    className="w-full h-16 rounded-[2rem] font-black text-sm shadow-xl shadow-primary/20 bg-primary text-primary-foreground hover:scale-[1.01] transition-all"
-                  >
-                    Capture ${billingSummary.balance.toFixed(2)} Charge
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setPaymentStep('billing')}
-                    className="w-full h-10 font-black text-[9px] uppercase tracking-[0.2em] text-muted-foreground hover:bg-muted/50 rounded-xl"
-                  >
-                    ← Review Billing Console
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {paymentStep === 'confirmed' && (
-              <div className="space-y-8 py-6 animate-in fade-in zoom-in-95 duration-500 text-center">
-                <div className="flex flex-col items-center gap-6">
-                  <div className="h-28 w-28 rounded-full bg-emerald-500/10 flex items-center justify-center border-8 border-emerald-500/5 shadow-2xl shadow-emerald-500/10">
-                    <div className="h-16 w-16 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                      <CheckCircle2 className="h-8 w-8 text-white" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-2xl font-black text-foreground tracking-tighter leading-none">Charge Captured</p>
-                    <p className="text-xs font-bold text-muted-foreground max-w-[300px] mx-auto leading-relaxed">
-                      Transaction authorized successfully. Forensic data has been updated in the master ledger.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-[2rem] bg-blue-500/[0.03] border border-blue-500/20 space-y-4 shadow-inner">
-                  <div className="flex items-center gap-4 text-left">
-                    <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-500 shadow-sm">
-                      <Mail className="h-5 w-5" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-[10px] font-black text-foreground uppercase tracking-widest">Confirmation Dispatched</p>
-                      <p className="text-[10px] font-bold text-muted-foreground leading-snug">The "Payment Confirmed" automated template has been sent to the client's email.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <Button
-                    onClick={() => {
-                      setIsPaymentOpen(false);
-                      setTimeout(() => setPaymentStep('billing'), 500);
-                    }}
-                    className="w-full h-14 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] border border-border/50 shadow-sm hover:bg-muted/50 transition-all"
-                  >
-                    Close Billing Console
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {paymentStep !== 'confirmed' && (
-              <p className="text-center text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground/30 flex items-center justify-center gap-2">
-                <ShieldCheck className="h-3 w-3" />
-                PCI-DSS L1 Secure
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -928,11 +707,14 @@ function mapAppointments(appointments: AppointmentRecord[]): CalendarAppointment
     const durationHours = appointment.duration / 60;
     const parsedNotes = parseNotes(appointment.notes);
     const tone = getStatusTone(appointment.status);
+    const parties = resolveAppointmentParties(appointment);
 
     return {
       id: appointment.id,
       clientId: appointment.client_id,
-      client: appointment.client?.name || `Client #${appointment.client_id}`,
+      subjectId: parties.subjectId,
+      client: parties.primaryName,
+      accountName: parties.accountName,
       examinerId: String(appointment.examiner_id),
       time: `${hours}:${minutes}`,
       duration: `${durationHours % 1 === 0 ? durationHours.toFixed(0) : durationHours.toFixed(1)}h`,
