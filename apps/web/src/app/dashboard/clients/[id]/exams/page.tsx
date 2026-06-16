@@ -11,12 +11,14 @@ import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { isOrganizationClient } from "@/lib/client-types";
 import { formatAppointmentCode } from "@/lib/exam-documentation";
 import type { AppointmentRecord } from "@/lib/exam-booking";
+import { formatSubjectName } from "@/lib/subjects";
 import {
   Calendar,
   ChevronRight,
   Clock,
   FileText,
   Loader2,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -49,17 +51,33 @@ function statusVariant(status: string): "default" | "secondary" | "outline" | "d
   return "outline";
 }
 
+function examTypeFromNotes(notes?: string): string | undefined {
+  if (!notes?.trim()) return undefined;
+  return notes.trim().split(/\n/)[0]?.trim() || undefined;
+}
+
+function examineeLabel(appointment: AppointmentRecord): string {
+  if (appointment.subject) {
+    return formatSubjectName(appointment.subject);
+  }
+  return `Examinee #${appointment.subject_id}`;
+}
+
 function AppointmentRow({
   appointment,
   clientId,
+  showExaminee,
   onSelect,
 }: {
   appointment: AppointmentRecord;
   clientId: number;
+  showExaminee: boolean;
   onSelect: () => void;
 }) {
   const docHref = `/dashboard/clients/${clientId}/exams/${appointment.id}`;
   const hasDoc = Boolean(appointment.exam_id);
+  const examType = examTypeFromNotes(appointment.notes);
+  const examinee = examineeLabel(appointment);
 
   return (
     <button
@@ -77,6 +95,15 @@ function AppointmentRow({
         <div className="space-y-1.5 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold">{formatAppointmentCode(appointment.id)}</span>
+            {showExaminee && (
+              <>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-sm font-semibold text-foreground inline-flex items-center gap-1">
+                  <User className="h-3.5 w-3.5 text-primary shrink-0" />
+                  {examinee}
+                </span>
+              </>
+            )}
             {hasDoc && (
               <Badge variant="outline" className="text-[10px] h-5 border-primary/30 text-primary">
                 Documented
@@ -92,10 +119,8 @@ function AppointmentRow({
               <Clock className="h-3 w-3" />
               {formatDuration(appointment.duration)}
             </span>
+            {examType && <span className="font-medium text-foreground/80">{examType}</span>}
           </div>
-          {appointment.notes && (
-            <p className="text-xs text-muted-foreground line-clamp-2">{appointment.notes}</p>
-          )}
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0 self-center sm:self-auto">
@@ -166,6 +191,8 @@ export default function ClientExamHistoryPage() {
 
   const visible =
     filter === "upcoming" ? upcoming : filter === "past" ? past : appointments;
+
+  const showExaminee = isOrganizationClient(client);
 
   const emptyMessage =
     filter === "upcoming"
@@ -244,6 +271,7 @@ export default function ClientExamHistoryPage() {
               <AppointmentRow
                 key={appointment.id}
                 clientId={client.id}
+                showExaminee={showExaminee}
                 appointment={appointment}
                 onSelect={() => openAppointment(appointment)}
               />

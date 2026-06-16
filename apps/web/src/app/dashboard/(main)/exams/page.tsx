@@ -10,12 +10,11 @@ import {
   CreditCard,
   Download,
   FileText,
-  Filter,
   Plus,
   Search,
   ShieldCheck,
   UserCheck,
-  Wallet,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,22 +23,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { isOrganizationClient } from "@/lib/client-types";
 import {
   deleteAppointment,
   fetchAppointments,
   rescheduleAppointment,
-  updateAppointmentPayment,
   type AppointmentRecord,
 } from "@/lib/exam-booking";
+import { formatSubjectName } from "@/lib/subjects";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -48,7 +41,11 @@ type LedgerRow = {
   id: number;
   code: string;
   clientId: number;
+  subjectId?: number;
+  /** Primary name shown in the table — examinee when billed to an organization. */
   client: string;
+  /** Organization or billing account name, when different from client. */
+  accountName?: string;
   examiner: string;
   examinerInitials: string;
   examinerColor: string;
@@ -64,6 +61,41 @@ type LedgerRow = {
   duration: number;
 };
 
+type DatePreset = "all" | "today" | "week" | "month" | "custom";
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function presetRange(preset: DatePreset): { from?: Date; to?: Date } {
+  if (preset === "all") return {};
+  const now = new Date();
+  const from = startOfDay(now);
+  const to = endOfDay(now);
+  if (preset === "today") return { from, to };
+  if (preset === "week") {
+    const weekStart = new Date(from);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return { from: weekStart, to: endOfDay(weekEnd) };
+  }
+  if (preset === "month") {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: monthStart, to: endOfDay(monthEnd) };
+  }
+  return {};
+}
+
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-amber-600", "bg-purple-600", "bg-rose-600", "bg-cyan-600"];
 
 export default function ExamsPage() {
@@ -71,13 +103,13 @@ export default function ExamsPage() {
   const canViewPayments = can("payment:view");
   const canManageAppointments = can("appointment:manage");
   const [searchQuery, setSearchQuery] = React.useState("");
+  const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [rows, setRows] = React.useState<LedgerRow[]>([]);
   const [selectedExam, setSelectedExam] = React.useState<LedgerRow | null>(null);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  const [paymentStatus, setPaymentStatus] = React.useState("");
-  const [examFee, setExamFee] = React.useState("");
-  const [savingPayment, setSavingPayment] = React.useState(false);
   const [rescheduleDate, setRescheduleDate] = React.useState("");
   const [rescheduleTime, setRescheduleTime] = React.useState("");
   const [savingReschedule, setSavingReschedule] = React.useState(false);
@@ -111,14 +143,39 @@ export default function ExamsPage() {
   }, []);
 
   const filteredRows = React.useMemo(() => {
+    let result = rows;
+
+    if (datePreset !== "all") {
+      let from: Date | undefined;
+      let to: Date | undefined;
+      if (datePreset === "custom") {
+        if (dateFrom) from = startOfDay(new Date(`${dateFrom}T00:00:00`));
+        if (dateTo) to = endOfDay(new Date(`${dateTo}T00:00:00`));
+      } else {
+        const range = presetRange(datePreset);
+        from = range.from;
+        to = range.to;
+      }
+      result = result.filter((row) => {
+        const when = new Date(row.scheduledAt);
+        if (Number.isNaN(when.getTime())) return false;
+        if (from && when < from) return false;
+        if (to && when > to) return false;
+        return true;
+      });
+    }
+
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) =>
-      row.client.toLowerCase().includes(q) ||
-      row.code.toLowerCase().includes(q) ||
-      row.examiner.toLowerCase().includes(q),
+    if (!q) return result;
+    return result.filter(
+      (row) =>
+        row.client.toLowerCase().includes(q) ||
+        (row.accountName?.toLowerCase().includes(q) ?? false) ||
+        row.code.toLowerCase().includes(q) ||
+        row.examiner.toLowerCase().includes(q) ||
+        row.type.toLowerCase().includes(q),
     );
-  }, [rows, searchQuery]);
+  }, [rows, searchQuery, datePreset, dateFrom, dateTo]);
 
   const stats = React.useMemo(() => {
     const pending = rows.filter((row) => row.status === "Pending").length;
@@ -134,8 +191,6 @@ export default function ExamsPage() {
 
   const openDetails = (row: LedgerRow) => {
     setSelectedExam(row);
-    setPaymentStatus(row.payment);
-    setExamFee(String(row.amount));
     const d = new Date(row.scheduledAt);
     if (!Number.isNaN(d.getTime())) {
       // Local date/time strings for the date & time inputs.
@@ -193,51 +248,6 @@ export default function ExamsPage() {
     }
   };
 
-  const handleSavePayment = async () => {
-    if (!selectedExam) return;
-    const amount = Number(examFee);
-    if (!Number.isFinite(amount) || amount < 0) {
-      toast.error("Amount must be zero or greater");
-      return;
-    }
-
-    setSavingPayment(true);
-    try {
-      await updateAppointmentPayment(selectedExam.id, {
-        payment_status: paymentStatus,
-        exam_fee: amount,
-      });
-
-      setRows((current) =>
-        current.map((row) =>
-          row.id === selectedExam.id
-            ? {
-                ...row,
-                payment: paymentStatus,
-                amount,
-              }
-            : row,
-        ),
-      );
-
-      setSelectedExam((current) =>
-        current
-          ? {
-              ...current,
-              payment: paymentStatus,
-              amount,
-            }
-          : null,
-      );
-
-      toast.success("Payment updated");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update payment");
-    } finally {
-      setSavingPayment(false);
-    }
-  };
-
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto pb-10">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -286,20 +296,78 @@ export default function ExamsPage() {
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="relative w-full sm:w-96 group">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
-            <Input
-              placeholder="Search by ID, client, or expert..."
-              className="h-11 pl-10 pr-4 rounded-xl bg-card border-border/50 focus:border-primary/50 focus:ring-primary/10 transition-all shadow-sm"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="relative w-full lg:max-w-md group">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+              <Input
+                placeholder="Search by ID, examinee, organization, or expert..."
+                className="h-11 pl-10 pr-4 rounded-xl bg-card border-border/50 focus:border-primary/50 focus:ring-primary/10 transition-all shadow-sm"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { value: "all", label: "All dates" },
+                  { value: "today", label: "Today" },
+                  { value: "week", label: "This week" },
+                  { value: "month", label: "This month" },
+                  { value: "custom", label: "Custom" },
+                ] as const
+              ).map((preset) => (
+                <Button
+                  key={preset.value}
+                  type="button"
+                  variant={datePreset === preset.value ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl h-9"
+                  onClick={() => setDatePreset(preset.value)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+              {(datePreset !== "all" || dateFrom || dateTo) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-xl h-9 gap-1"
+                  onClick={() => {
+                    setDatePreset("all");
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
-          <Button variant="outline" className="h-11 px-4 rounded-xl border-border/50 bg-card hover:bg-muted/50 gap-2 flex-1 sm:flex-none" disabled>
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="font-semibold">Filter Results</span>
-          </Button>
+          {datePreset === "custom" && (
+            <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/50 bg-card/50 p-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs text-muted-foreground">From</Label>
+                <Input
+                  type="date"
+                  className="h-10 w-40 rounded-lg"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs text-muted-foreground">To</Label>
+                <Input
+                  type="date"
+                  className="h-10 w-40 rounded-lg"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-2xl border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
@@ -309,7 +377,7 @@ export default function ExamsPage() {
                 <tr className="bg-muted/30 border-b border-border/50">
                   <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
                     <div className="flex items-center gap-2">
-                      Exam ID / Client
+                      Exam ID / Examinee
                       <ArrowUpDown className="h-3 w-3 opacity-50" />
                     </div>
                   </th>
@@ -338,6 +406,11 @@ export default function ExamsPage() {
                         <div className="flex flex-col gap-0.5">
                           <span className="text-[10px] font-black text-primary uppercase tracking-tighter">{row.code}</span>
                           <span className="font-extrabold text-foreground text-sm">{row.client}</span>
+                          {row.accountName && (
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {row.accountName}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-5">
@@ -421,6 +494,9 @@ export default function ExamsPage() {
                     {selectedExam.status}
                   </Badge>
                   <h2 className="text-3xl font-black tracking-tighter leading-tight">{selectedExam.client}</h2>
+                  {selectedExam.accountName && (
+                    <p className="text-sm font-semibold text-white/70">{selectedExam.accountName}</p>
+                  )}
                   <p className="text-xs font-bold text-white/60">{selectedExam.code} • {selectedExam.type}</p>
                 </div>
               </div>
@@ -436,55 +512,28 @@ export default function ExamsPage() {
                   <p className="mt-1 text-sm italic text-foreground/80">"{selectedExam.reason}"</p>
                 </div>
 
-                <div className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-                  {canViewPayments && (
-                    <>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Collect / Edit Payment</p>
-
-                      <div className="grid grid-cols-3 gap-2 text-center">
-                        <div className="rounded-xl bg-muted/30 p-2.5">
-                          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Total</p>
-                          <p className="text-sm font-black">${selectedExam.amount.toFixed(2)}</p>
-                        </div>
-                        <div className="rounded-xl bg-emerald-500/10 p-2.5">
-                          <p className="text-[8px] font-black uppercase tracking-widest text-emerald-600">Collected</p>
-                          <p className="text-sm font-black text-emerald-600">${selectedExam.collected.toFixed(2)}</p>
-                        </div>
-                        <div className="rounded-xl bg-rose-500/10 p-2.5">
-                          <p className="text-[8px] font-black uppercase tracking-widest text-rose-600">Balance</p>
-                          <p className="text-sm font-black text-rose-600">${Math.max(0, selectedExam.amount - selectedExam.collected).toFixed(2)}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <Label>Payment Status</Label>
-                        <Select value={paymentStatus} onValueChange={(value) => setPaymentStatus(String(value ?? ""))}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select payment status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Paid">Paid</SelectItem>
-                            <SelectItem value="Partial">Partial</SelectItem>
-                            <SelectItem value="Unpaid">Unpaid</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <Label>Amount</Label>
-                        <Input type="number" min={0} step={0.01} value={examFee} onChange={(event) => setExamFee(event.target.value)} />
-                      </div>
-
-                      <Button className="w-full gap-2" onClick={() => void handleSavePayment()} disabled={savingPayment || !paymentStatus}>
-                        <Wallet className="h-4 w-4" />
-                        {savingPayment ? "Saving..." : "Save Payment"}
-                      </Button>
-                    </>
-                  )}
-
+                <div className="space-y-2 rounded-2xl border border-border/50 bg-card p-4">
+                  {selectedExam.subjectId ? (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      render={
+                        <Link
+                          href={`/dashboard/clients/${selectedExam.clientId}/examinees/${selectedExam.subjectId}`}
+                        />
+                      }
+                    >
+                      Open examinee profile
+                    </Button>
+                  ) : null}
                   <Button variant="outline" className="w-full" render={<Link href={`/dashboard/clients/${selectedExam.clientId}`} />}>
-                    Open Client Page
+                    Open billing account
                   </Button>
+                  {canViewPayments && (
+                    <Button variant="outline" className="w-full" render={<Link href="/dashboard/payments" />}>
+                      Manage payment on Payments
+                    </Button>
+                  )}
                 </div>
 
                 {canManageAppointments && (
@@ -546,12 +595,39 @@ function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): Le
     const examiner = examinerMap.get(appointment.examiner_id);
     const date = new Date(appointment.scheduled_at);
     const parsed = parseNotes(appointment.notes);
+    const accountName = appointment.client?.name || `Client #${appointment.client_id}`;
+    const examineeName = appointment.subject
+      ? formatSubjectName(appointment.subject)
+      : undefined;
+    const isOrg = isOrganizationClient(
+      appointment.client
+        ? {
+            id: appointment.client.id,
+            name: appointment.client.name,
+            client_type: appointment.client.client_type ?? "Individual",
+            email: appointment.client.email ?? "",
+            created_at: "",
+            updated_at: "",
+          }
+        : null,
+    );
+
+    let displayName = accountName;
+    let billingAccount: string | undefined;
+    if (isOrg && examineeName) {
+      displayName = examineeName;
+      billingAccount = accountName;
+    } else if (examineeName) {
+      displayName = examineeName;
+    }
 
     return {
       id: appointment.id,
       code: `EX-${String(appointment.id).padStart(4, "0")}`,
       clientId: appointment.client_id,
-      client: appointment.client?.name || `Client #${appointment.client_id}`,
+      subjectId: appointment.subject?.id ?? appointment.subject_id,
+      client: displayName,
+      accountName: billingAccount,
       examiner: examiner?.name || `Examiner #${appointment.examiner_id}`,
       examinerInitials: initials(examiner?.name || `E${appointment.examiner_id}`),
       examinerColor: examiner?.color || "bg-slate-600",

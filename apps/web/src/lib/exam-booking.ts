@@ -71,6 +71,14 @@ export type AppointmentRecord = {
     id: number;
     name: string;
     email?: string;
+    client_type?: string;
+  };
+  subject?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email?: string;
+    employee_ref?: string;
   };
 };
 

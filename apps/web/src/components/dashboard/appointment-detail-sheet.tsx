@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   Calendar,
   Clock,
-  CreditCard,
   FileText,
   Languages,
   Loader2,
@@ -197,12 +196,6 @@ export function AppointmentDetailSheet({
                     <User className="h-3.5 w-3.5" />
                     {examinerName}
                   </span>
-                  {detail.exam_fee != null && detail.exam_fee > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <CreditCard className="h-3.5 w-3.5" />
-                      ${detail.exam_fee.toFixed(2)}
-                    </span>
-                  )}
                 </div>
               </SheetDescription>
             </SheetHeader>
