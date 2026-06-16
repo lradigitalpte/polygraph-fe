@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { formatClientCode, getClientInitials } from "@/lib/clients";
-import { isOrganizationClient } from "@/lib/client-types";
+import { getOrganizationAccountSubtitle, isOrganizationClient } from "@/lib/client-types";
 
 export function ClientSidebar() {
   const pathname = usePathname();
@@ -31,6 +31,7 @@ export function ClientSidebar() {
   const displayName = client?.name ?? (loading ? "Loading..." : `Client ${id}`);
   const initials = client ? getClientInitials(client.name) : "--";
   const isOrg = isOrganizationClient(client);
+  const orgSubtitle = client && isOrg ? getOrganizationAccountSubtitle(client) : undefined;
 
   const individualNav = [
     { name: "Client Overview", href: `/dashboard/clients/${id}`, icon: LayoutDashboard },
@@ -84,9 +85,14 @@ export function ClientSidebar() {
               {client ? formatClientCode(client.id) : "Active Record"}
             </p>
             {isOrg && (
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">
-                Organization account
-              </p>
+              <>
+                {orgSubtitle && (
+                  <p className="text-[10px] text-foreground/80 truncate mt-0.5">{orgSubtitle}</p>
+                )}
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">
+                  Organization account
+                </p>
+              </>
             )}
           </div>
         </div>

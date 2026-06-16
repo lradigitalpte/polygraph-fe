@@ -6,7 +6,11 @@ export type ExamineeRosterEntry = {
   subject: SubjectRecord;
   session_count: number;
   completed_count: number;
+  upcoming_count: number;
   last_scheduled_at?: string;
+  next_scheduled_at?: string;
+  next_appointment_status?: string;
+  next_examiner_name?: string;
 };
 
 export type ClientRecord = {

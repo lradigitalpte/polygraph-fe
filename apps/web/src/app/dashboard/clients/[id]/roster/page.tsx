@@ -40,7 +40,9 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
+import { formatOrganizationAccountLabel, isOrganizationClient } from "@/lib/client-types";
 import {
   ENGLISH_PROFICIENCY_LEVELS,
   createSubject,
@@ -80,6 +82,11 @@ export default function ExamineeRosterPage() {
   const router = useRouter();
   const clientId = Number(params.id);
   const { client } = useClientDetail();
+  const accountLabel = client
+    ? isOrganizationClient(client)
+      ? formatOrganizationAccountLabel(client)
+      : client.name
+    : "this account";
   const [entries, setEntries] = React.useState<ExamineeRosterEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
@@ -197,8 +204,8 @@ export default function ExamineeRosterPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Examinee roster</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            People tested under {client?.name ?? "this account"}. Add or import, then book each
-            person individually — examiner availability is checked when you pick a time slot.
+            People tested under {accountLabel}. Add or import, then book each person individually
+            — examiner availability is checked when you pick a time slot.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -215,7 +222,7 @@ export default function ExamineeRosterPage() {
 
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">How booking works for {client?.name}</CardTitle>
+          <CardTitle className="text-base">How booking works for {accountLabel}</CardTitle>
           <CardDescription>One appointment = one examinee + one time slot + one available examiner.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -236,7 +243,7 @@ export default function ExamineeRosterPage() {
               <div>
                 <p className="font-semibold">Book per person</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Click <strong>Book session</strong> — account stays {client?.name ?? "the firm"}.
+                  Click <strong>Book session</strong> — billing stays under {accountLabel}.
                 </p>
               </div>
             </li>
@@ -330,13 +337,14 @@ export default function ExamineeRosterPage() {
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2 mt-2">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {entry.session_count} session{entry.session_count === 1 ? "" : "s"}
-                    </Badge>
-                    {entry.last_scheduled_at && (
-                      <span className="text-[10px] text-muted-foreground">
-                        Last: {new Date(entry.last_scheduled_at).toLocaleDateString()}
-                      </span>
+                    <ExamineeBookingStatus entry={entry} />
+                    {entry.session_count > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {entry.session_count} session{entry.session_count === 1 ? "" : "s"}
+                        {entry.completed_count > 0
+                          ? ` · ${entry.completed_count} done`
+                          : ""}
+                      </Badge>
                     )}
                   </div>
                 </Link>
@@ -373,7 +381,7 @@ export default function ExamineeRosterPage() {
           <DialogHeader>
             <DialogTitle>Add examinee</DialogTitle>
             <DialogDescription>
-              Register someone under {client?.name}. You will book appointments for them one at a
+              Register someone under {accountLabel}. You will book appointments for them one at a
               time.
             </DialogDescription>
           </DialogHeader>

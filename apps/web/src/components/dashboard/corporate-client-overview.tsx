@@ -16,7 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
+import { formatOrganizationAccountLabel } from "@/lib/client-types";
 import { formatSubjectCode, formatSubjectName } from "@/lib/subjects";
 
 function toRelativeTime(iso?: string): string {
@@ -77,12 +79,13 @@ export function CorporateClientOverview() {
             <h2 className="text-2xl font-bold tracking-tight">Account overview</h2>
           </div>
           <p className="text-sm text-muted-foreground">
-            {client.name} — billing and scheduling account. Examinee records and test results live
-            under each person in the roster.
+            {formatOrganizationAccountLabel(client)} — billing and scheduling account. Examinee
+            records and test results live under each person in the roster.
           </p>
           {client.contact_person && (
             <p className="text-xs text-muted-foreground mt-2">
-              Contact: <span className="font-medium text-foreground">{client.contact_person}</span>
+              Primary contact:{" "}
+              <span className="font-medium text-foreground">{client.contact_person}</span>
             </p>
           )}
         </div>
@@ -185,12 +188,12 @@ export function CorporateClientOverview() {
                     href={`/dashboard/clients/${client.id}/examinees/${entry.subject.id}`}
                     className="flex items-center justify-between py-3 hover:bg-muted/30 -mx-2 px-2 rounded-lg transition-colors"
                   >
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="font-medium text-sm">{formatSubjectName(entry.subject)}</p>
                       <p className="text-[10px] text-muted-foreground font-mono">
-                        {formatSubjectCode(entry.subject.id)} · {entry.session_count} session
-                        {entry.session_count === 1 ? "" : "s"}
+                        {formatSubjectCode(entry.subject.id)}
                       </p>
+                      <ExamineeBookingStatus entry={entry} compact className="mt-1" />
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </Link>
