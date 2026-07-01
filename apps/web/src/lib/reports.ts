@@ -36,10 +36,12 @@ export type ConsolidatedReportStats = {
 export async function fetchSecureShares(filters?: {
   search?: string;
   client_id?: number;
+  subject_id?: number;
 }): Promise<SecureReportShare[]> {
   const params = new URLSearchParams();
   if (filters?.search) params.append("search", filters.search);
   if (filters?.client_id) params.append("client_id", String(filters.client_id));
+  if (filters?.subject_id) params.append("subject_id", String(filters.subject_id));
 
   const response = await authenticatedFetch(`/api/reports/shares?${params.toString()}`);
   if (!response.ok) {
@@ -97,4 +99,52 @@ export async function fetchPublicSharedReport(token: string): Promise<SecureRepo
     throw new Error(data?.error || `Unable to load shared report (${response.status})`);
   }
   return data as SecureReportShare;
+}
+
+export type StructuredReportData = {
+  purpose: string;
+  instrument: string;
+  pre_test_notes: string;
+  questions: {
+    text: string;
+    answer: string;
+    evaluation: string;
+  }[];
+  post_test_notes: string;
+  conclusion: string;
+};
+
+export async function fetchReport(examId: number): Promise<{
+  id: number;
+  exam_id: number;
+  verdict: string;
+  content: string;
+  created_at: string;
+} | null> {
+  const response = await authenticatedFetch(`/api/reports/${examId}`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Failed to fetch report (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function saveDetailedReport(
+  examId: number,
+  verdict: string,
+  data: StructuredReportData
+): Promise<any> {
+  const response = await authenticatedFetch("/api/reports", {
+    method: "POST",
+    body: JSON.stringify({
+      exam_id: examId,
+      verdict,
+      content: JSON.stringify(data),
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Failed to save report (${response.status})`);
+  }
+  return payload;
 }

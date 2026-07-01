@@ -16,24 +16,38 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
-  XCircle,
   HelpCircle,
-  User,
+  ClipboardList,
+  Lock,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import {
   fetchSecureShares,
+  createSecureShare,
   regenerateSecureShare,
   fetchConsolidatedStats,
   type SecureReportShare,
   type ConsolidatedReportStats,
 } from "@/lib/reports";
+import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
+import { formatSubjectName } from "@/lib/subjects";
+import { ReportEditorDialog } from "@/components/dashboard/report-editor-dialog";
 
 export default function ReportsDashboard() {
   const router = useRouter();
@@ -47,22 +61,35 @@ export default function ReportsDashboard() {
   }, [userLoading, can, router]);
 
   const [shares, setShares] = React.useState<SecureReportShare[]>([]);
+  const [appointments, setAppointments] = React.useState<AppointmentRecord[]>([]);
   const [stats, setStats] = React.useState<ConsolidatedReportStats | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [revealedPasswords, setRevealedPasswords] = React.useState<Record<number, boolean>>({});
 
+  // Share Dialog states
+  const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
+  const [recipientEmail, setRecipientEmail] = React.useState("");
+  const [sharing, setSharing] = React.useState(false);
+
+  // Report Builder states
+  const [reportEditorOpen, setReportEditorOpen] = React.useState(false);
+  const [reportEditorExamId, setReportEditorExamId] = React.useState<number | null>(null);
+  const [reportEditorSubjectName, setReportEditorSubjectName] = React.useState("");
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sharesData, statsData] = await Promise.all([
+      const [sharesData, statsData, apptsData] = await Promise.all([
         fetchSecureShares({ search }),
         fetchConsolidatedStats(),
+        fetchAppointments(),
       ]);
       setShares(sharesData);
       setStats(statsData);
+      setAppointments(apptsData);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load report shares");
+      toast.error(err instanceof Error ? err.message : "Failed to load report data");
     } finally {
       setLoading(false);
     }
@@ -71,6 +98,35 @@ export default function ReportsDashboard() {
   React.useEffect(() => {
     void loadData();
   }, [search]);
+
+  const handleOpenShare = (examId: number, initialEmail?: string) => {
+    setSelectedExamId(examId);
+    setRecipientEmail(initialEmail || "");
+  };
+
+  const handleCreateShare = async () => {
+    if (!selectedExamId || !recipientEmail.trim()) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
+    setSharing(true);
+    try {
+      await createSecureShare(null, recipientEmail.trim(), selectedExamId);
+      toast.success("Secure PDF encrypted and sent successfully!");
+      setSelectedExamId(null);
+      void loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate secure share");
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleOpenReportEditor = (examId: number, subjectName: string) => {
+    setReportEditorExamId(examId);
+    setReportEditorSubjectName(subjectName);
+    setReportEditorOpen(true);
+  };
 
   const handleCopyLink = (token: string) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -87,7 +143,6 @@ export default function ReportsDashboard() {
       const updated = await regenerateSecureShare(id);
       toast.success("Secure share link rotated successfully! A new notification email was sent.");
       setShares((prev) => prev.map((s) => (s.id === id ? updated : s)));
-      // Reload stats
       const statsData = await fetchConsolidatedStats();
       setStats(statsData);
     } catch (err) {
@@ -101,6 +156,11 @@ export default function ReportsDashboard() {
       [id]: !prev[id],
     }));
   };
+
+  // Filter appointments that have active exams
+  const completedExams = React.useMemo(() => {
+    return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
+  }, [appointments]);
 
   if (userLoading) {
     return (
@@ -173,6 +233,92 @@ export default function ReportsDashboard() {
           </Card>
         ))}
       </div>
+
+      {/* Sessions Ready for Report Building */}
+      <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-[2.5rem] overflow-hidden shadow-xl">
+        <CardHeader className="px-8 pt-8">
+          <CardTitle className="text-base flex items-center gap-2 font-bold">
+            <ClipboardList className="h-5 w-5 text-primary" />
+            Sessions Ready for Report Customization
+          </CardTitle>
+          <CardDescription>
+            Exams that have active documentation records. Build their detailed template reports before secure sharing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left border-collapse">
+              <thead>
+                <tr className="bg-muted/30 border-b border-border/50 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <th className="px-8 py-4">Examinee</th>
+                  <th className="px-8 py-4">Requesting Client</th>
+                  <th className="px-8 py-4">Date</th>
+                  <th className="px-8 py-4">Status</th>
+                  <th className="px-8 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/20">
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="px-8 py-8 text-center text-muted-foreground italic">
+                      Loading sessions...
+                    </td>
+                  </tr>
+                ) : completedExams.length > 0 ? (
+                  completedExams.map((appt) => {
+                    const examineeName = appt.subject
+                      ? formatSubjectName(appt.subject)
+                      : `Examinee #${appt.subject_id}`;
+                    return (
+                      <tr key={appt.id} className="hover:bg-primary/[0.02] transition-colors">
+                        <td className="px-8 py-4 font-semibold text-foreground">
+                          {examineeName}
+                        </td>
+                        <td className="px-8 py-4 text-xs font-medium text-foreground/80">
+                          {appt.client?.name || "Corporate"}
+                        </td>
+                        <td className="px-8 py-4 text-xs text-muted-foreground">
+                          {new Date(appt.scheduled_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-8 py-4">
+                          <Badge variant={appt.status === "completed" ? "default" : "outline"}>
+                            {appt.status.replace(/_/g, " ")}
+                          </Badge>
+                        </td>
+                        <td className="px-8 py-4 text-right space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl text-xs gap-1.5 font-semibold"
+                            onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
+                          >
+                            <FileSignature className="h-3.5 w-3.5" />
+                            Write / Edit Report
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="rounded-xl text-xs gap-1.5 font-bold"
+                            onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
+                          >
+                            <Mail className="h-3.5 w-3.5" />
+                            Email Secure Report
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-8 py-12 text-center text-muted-foreground italic">
+                      No active sessions found. Ensure session documentation is started or completed.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Filter and Table */}
       <div className="space-y-6">
@@ -298,7 +444,7 @@ export default function ReportsDashboard() {
                             onClick={() => void handleRegenerate(share.id)}
                             title="Regenerate / Rotate Link"
                           >
-                            <RefreshCw className="h-4 w-4 animate-spin-hover" />
+                            <RefreshCw className="h-4 w-4" />
                           </Button>
                           <a
                             href={`/shared/report/${share.token}`}
@@ -330,6 +476,78 @@ export default function ReportsDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Share Dialog */}
+      <Dialog open={selectedExamId !== null} onOpenChange={(open) => !open && setSelectedExamId(null)}>
+        <DialogContent className="rounded-3xl border-border/50 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSignature className="h-5 w-5 text-primary" />
+              Secure Document Share
+            </DialogTitle>
+            <DialogDescription>
+              Generate a password-encrypted PDF of the forensic report and send it to the recipient.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="recipient-email">Recipient Email Address</Label>
+              <Input
+                id="recipient-email"
+                type="email"
+                placeholder="client@company.com"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                An email will be sent containing the encrypted report PDF as an attachment, with a separate secure link they can use to unlock the document.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setSelectedExamId(null)}
+              disabled={sharing}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="rounded-xl gap-2 font-bold"
+              onClick={() => void handleCreateShare()}
+              disabled={sharing}
+            >
+              {sharing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="h-4 w-4" />
+                  Generate & Share
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detailed Report Builder */}
+      {reportEditorExamId && (
+        <ReportEditorDialog
+          open={reportEditorOpen}
+          onOpenChange={setReportEditorOpen}
+          examId={reportEditorExamId}
+          subjectName={reportEditorSubjectName}
+          onSaveSuccess={() => {
+            void loadData();
+          }}
+        />
+      )}
     </div>
   );
 }

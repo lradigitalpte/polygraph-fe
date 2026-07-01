@@ -38,6 +38,7 @@ import {
   type SecureReportShare,
 } from "@/lib/reports";
 import { formatSubjectName } from "@/lib/subjects";
+import { ReportEditorDialog } from "@/components/dashboard/report-editor-dialog";
 
 export default function ClientReportsPage() {
   const params = useParams();
@@ -52,6 +53,17 @@ export default function ClientReportsPage() {
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
   const [sharing, setSharing] = React.useState(false);
+
+  // Report builder modal states
+  const [reportEditorOpen, setReportEditorOpen] = React.useState(false);
+  const [reportEditorExamId, setReportEditorExamId] = React.useState<number | null>(null);
+  const [reportEditorSubjectName, setReportEditorSubjectName] = React.useState("");
+
+  const handleOpenReportEditor = (examId: number, subjectName: string) => {
+    setReportEditorExamId(examId);
+    setReportEditorSubjectName(subjectName);
+    setReportEditorOpen(true);
+  };
 
   const loadShares = async () => {
     if (!Number.isFinite(clientId)) return;
@@ -183,7 +195,16 @@ export default function ClientReportsPage() {
                             {appt.status.replace(/_/g, " ")}
                           </Badge>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-right space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl text-xs gap-1.5 font-semibold"
+                            onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
+                          >
+                            <FileSignature className="h-3.5 w-3.5" />
+                            Write / Edit Report
+                          </Button>
                           <Button
                             size="sm"
                             className="rounded-xl text-xs gap-1.5 font-bold"
@@ -368,6 +389,18 @@ export default function ClientReportsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {reportEditorExamId && (
+        <ReportEditorDialog
+          open={reportEditorOpen}
+          onOpenChange={setReportEditorOpen}
+          examId={reportEditorExamId}
+          subjectName={reportEditorSubjectName}
+          onSaveSuccess={() => {
+            void loadShares();
+          }}
+        />
+      )}
     </div>
   );
 }

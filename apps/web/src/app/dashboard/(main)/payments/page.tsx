@@ -244,7 +244,7 @@ export default function PaymentsPage() {
 
   // Pagination State
   const [currentPage, setCurrentPage] = React.useState(1);
-  const itemsPerPage = 5;
+  const itemsPerPage = 10;
 
   // Modal states
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = React.useState(false);
@@ -344,10 +344,52 @@ export default function PaymentsPage() {
   const [paymentAmount, setPaymentAmount] = React.useState<string>("");
   const [recordingPayment, setRecordingPayment] = React.useState(false);
 
-  const filteredInvoices = invoices.filter(inv => 
-    inv.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    inv.code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [statusFilter, setStatusFilter] = React.useState<string>("All");
+  const [clientFilter, setClientFilter] = React.useState<string>("All");
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
+
+  const filteredInvoices = React.useMemo(() => {
+    const res = invoices.filter(inv => {
+      const matchesSearch = inv.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inv.code.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === "All" || inv.status === statusFilter;
+      const matchesClient = clientFilter === "All" || inv.client === clientFilter;
+      return matchesSearch && matchesStatus && matchesClient;
+    });
+
+    // Sort latest first (descending by id / date)
+    return res.sort((a, b) => b.id - a.id);
+  }, [invoices, searchQuery, statusFilter, clientFilter]);
+
+  const handleExportCSV = () => {
+    const headers = ["Invoice Code", "Client", "Source", "Status", "Date", "Total Amount", "Paid Amount", "Balance Due", "Currency"];
+    const rows = filteredInvoices.map((inv) => {
+      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      return [
+        inv.code,
+        inv.client,
+        inv.source === "quote" ? "Quotation" : "Invoice",
+        inv.status,
+        inv.date || "—",
+        convertedTotal.toFixed(2),
+        convertedPaid.toFixed(2),
+        (convertedTotal - convertedPaid).toFixed(2),
+        orgCurrency,
+      ];
+    });
+
+    const csvContent = [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Polygraph_Transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Transactions exported to CSV in " + orgCurrency);
+  };
 
   // Pagination Logic
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / itemsPerPage));
@@ -551,11 +593,20 @@ export default function PaymentsPage() {
             />
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" className="h-12 rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm px-6 gap-2 hover:bg-muted/50 transition-all">
+            <Button
+              variant="outline"
+              className="h-12 rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm px-6 gap-2 hover:bg-muted/50 transition-all"
+              onClick={() => setFiltersOpen(true)}
+            >
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Filters</span>
             </Button>
-            <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl border border-border/50 hover:bg-muted/50">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-12 w-12 rounded-2xl border border-border/50 hover:bg-muted/50"
+              onClick={handleExportCSV}
+            >
                 <Download className="h-5 w-5" />
             </Button>
           </div>
@@ -581,72 +632,82 @@ export default function PaymentsPage() {
                     </td>
                   </tr>
                 ) : paginatedInvoices.length > 0 ? (
-                  paginatedInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-primary/[0.03] transition-all group">
-                      <td className="px-8 py-6">
-                        <div className="flex flex-col gap-1">
-                          <span className="font-black text-base leading-none text-foreground">{inv.client}</span>
-                          <span className="flex items-center gap-2">
-                            <span className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">{inv.code}</span>
-                            <span className={cn(
-                              "rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest",
-                              inv.source === "quote" ? "bg-violet-500/10 text-violet-600" : "bg-muted text-muted-foreground",
-                            )}>
-                              {inv.source === "quote" ? "Quotation" : "Invoice"}
+                  paginatedInvoices.map((inv) => {
+                    const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
+                    const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+                    const convertedBalance = convertedTotal - convertedPaid;
+
+                    return (
+                      <tr key={inv.id} className="hover:bg-primary/[0.03] transition-all group">
+                        <td className="px-8 py-6">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-black text-base leading-none text-foreground">{inv.client}</span>
+                            <span className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">{inv.code}</span>
+                              <span className={cn(
+                                "rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest",
+                                inv.source === "quote" ? "bg-violet-500/10 text-violet-600" : "bg-muted text-muted-foreground",
+                              )}>
+                                {inv.source === "quote" ? "Quotation" : "Invoice"}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
+                                <Calendar className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+                                {inv.date || "—"}
+                              </span>
                             </span>
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6">
-                        <Badge 
-                          variant="outline"
-                          className={cn(
-                            "rounded-full px-3 py-1 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                            inv.status === "Completed" ? "bg-emerald-500/10 text-emerald-600" : 
-                            inv.status === "Pending" ? "bg-amber-500/10 text-amber-600" : 
-                            inv.status === "Sent" ? "bg-cyan-500/10 text-cyan-600" : 
-                            inv.status === "Partial" ? "bg-blue-500/10 text-blue-600" : 
-                            "bg-rose-500/10 text-rose-600"
-                          )}
-                        >
-                          {inv.status}
-                        </Badge>
-                      </td>
-                      <td className="px-8 py-6">
-                        <div className="space-y-2">
-                          <div className="w-32 h-1.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">
-                            <div 
-                              className={cn(
-                                "h-full transition-all duration-1000 ease-out rounded-full",
-                                inv.status === "Completed" ? "bg-emerald-500" : 
-                                inv.status === "Partial" ? "bg-blue-500" : "bg-primary/20"
-                              )}
-                              style={{ width: `${(inv.paidAmount / inv.totalAmount) * 100}%` }}
-                            />
                           </div>
-                          <p className="text-[9px] font-black text-muted-foreground/60 uppercase tracking-widest">
-                            {formatMoney(inv.paidAmount, inv.currency || orgCurrency)} Collected
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 text-right font-black text-lg tracking-tighter">
-                        {formatMoney(inv.totalAmount - inv.paidAmount, inv.currency || orgCurrency)}
-                      </td>
-                      <td className="px-8 py-6 text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-10 w-10 rounded-2xl hover:bg-primary/10 hover:text-primary transition-all group-hover:translate-x-1"
-                          onClick={() => {
-                            setSelectedInvoice(inv);
-                            setIsSheetOpen(true);
-                          }}
-                        >
-                          <ChevronRight className="h-6 w-6" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="px-8 py-6">
+                          <Badge 
+                            variant="outline"
+                            className={cn(
+                              "rounded-full px-3 py-1 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
+                              inv.status === "Completed" ? "bg-emerald-500/10 text-emerald-600" : 
+                              inv.status === "Pending" ? "bg-amber-500/10 text-amber-600" : 
+                              inv.status === "Sent" ? "bg-cyan-500/10 text-cyan-600" : 
+                              inv.status === "Partial" ? "bg-blue-500/10 text-blue-600" : 
+                              "bg-rose-500/10 text-rose-600"
+                            )}
+                          >
+                            {inv.status}
+                          </Badge>
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="space-y-2">
+                            <div className="w-32 h-1.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">
+                              <div 
+                                className={cn(
+                                  "h-full transition-all duration-1000 ease-out rounded-full",
+                                  inv.status === "Completed" ? "bg-emerald-500" : 
+                                  inv.status === "Partial" ? "bg-blue-500" : "bg-primary/20"
+                                )}
+                                style={{ width: `${(convertedPaid / (convertedTotal || 1)) * 100}%` }}
+                              />
+                            </div>
+                            <p className="text-[9px] font-black text-muted-foreground/60 uppercase tracking-widest">
+                              {formatMoney(convertedPaid, orgCurrency)} Collected
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-right font-black text-lg tracking-tighter">
+                          {formatMoney(convertedBalance, orgCurrency)}
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 rounded-2xl hover:bg-primary/10 hover:text-primary transition-all group-hover:translate-x-1"
+                            onClick={() => {
+                              setSelectedInvoice(inv);
+                              setIsSheetOpen(true);
+                            }}
+                          >
+                            <ChevronRight className="h-6 w-6" />
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
@@ -1173,6 +1234,73 @@ export default function PaymentsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Filters Drawer Sheet */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent className="rounded-l-[2rem] border-border/50 max-w-sm">
+          <div className="space-y-6 py-6">
+            <div>
+              <h3 className="text-lg font-black flex items-center gap-2">
+                <Filter className="h-5 w-5 text-primary" /> Filter Transactions
+              </h3>
+              <p className="text-xs text-muted-foreground">Narrow down the list by client or payment status.</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={statusFilter} onValueChange={(val) => setStatusFilter(String(val))}>
+                  <SelectTrigger className="rounded-xl h-11 bg-background">
+                    <SelectValue placeholder="All status" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="All">All Statuses</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Partial">Partial</SelectItem>
+                    <SelectItem value="Overdue">Overdue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Client Account</Label>
+                <Select value={clientFilter} onValueChange={(val) => setClientFilter(String(val))}>
+                  <SelectTrigger className="rounded-xl h-11 bg-background">
+                    <SelectValue placeholder="All clients" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="All">All Clients</SelectItem>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="pt-6 flex gap-2">
+              <Button
+                variant="outline"
+                className="w-full rounded-xl"
+                onClick={() => {
+                  setStatusFilter("All");
+                  setClientFilter("All");
+                  setFiltersOpen(false);
+                }}
+              >
+                Reset
+              </Button>
+              <Button
+                className="w-full rounded-xl"
+                onClick={() => setFiltersOpen(false)}
+              >
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
