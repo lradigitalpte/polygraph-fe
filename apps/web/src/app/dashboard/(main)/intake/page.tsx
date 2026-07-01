@@ -16,6 +16,7 @@ import {
   Map,
   BadgeAlert,
   Coins,
+  FileSpreadsheet,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -254,6 +255,10 @@ export default function BatchIntakePage() {
   const [csvText, setCsvText] = React.useState("");
   const [showCsvImport, setShowCsvImport] = React.useState(false);
 
+  // File Upload refs & state
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = React.useState(false);
+
   // Load clients, examiners and exam types on mount
   React.useEffect(() => {
     Promise.all([fetchClients(), fetchExaminers(), fetchExamTypes()])
@@ -309,22 +314,20 @@ export default function BatchIntakePage() {
     }
   }
 
-  function handleCsvImport() {
+  // Parses and populates CSV text into corresponding layout rows
+  const handleParseAndLoad = (text: string, filename?: string) => {
     if (isHistoricalMode) {
-      const parsedRaw = parseRawHistoricalCsv(csvText);
+      const parsedRaw = parseRawHistoricalCsv(text);
       if (parsedRaw.length === 0) {
-        toast.error("Paste CSV containing columns like NAME and POSITION");
+        toast.error("No valid entries found. Verify columns like NAME, DATE and POSITION");
         return;
       }
 
-      // Identify unique positions
       const positions = Array.from(new Set(parsedRaw.map((r) => r.position))).filter(Boolean);
       setUniquePositions(positions);
 
-      // Setup default mapping to active exam types
       const initialMap: Record<string, { examTypeId: string; price: string }> = {};
       positions.forEach((pos) => {
-        // Try to match position text to an existing exam type
         const match = examTypes.find((t) =>
           t.name.toLowerCase().includes(pos.split(" ")[0].toLowerCase())
         ) || examTypes[0];
@@ -336,7 +339,6 @@ export default function BatchIntakePage() {
       });
       setPositionMapping(initialMap);
 
-      // Convert raw rows to rows with parsed datetime objects
       const convertedRows: HistoricalExamineeRow[] = parsedRaw.map((r, idx) => {
         let scheduledAt = new Date().toISOString();
         try {
@@ -384,9 +386,13 @@ export default function BatchIntakePage() {
       setHistRows(convertedRows);
       setCsvText("");
       setShowCsvImport(false);
-      toast.success(`Loaded ${convertedRows.length} rows. Please map positions and price below.`);
+      toast.success(
+        filename
+          ? `Successfully loaded ${convertedRows.length} rows from ${filename}!`
+          : `Loaded ${convertedRows.length} rows. Map positions below.`
+      );
     } else {
-      const parsed = parseCsvRows(csvText);
+      const parsed = parseCsvRows(text);
       if (parsed.length === 0) {
         toast.error("Paste CSV with standard header row and examinees");
         return;
@@ -394,11 +400,55 @@ export default function BatchIntakePage() {
       setRows(parsed);
       setCsvText("");
       setShowCsvImport(false);
-      toast.success(`Loaded ${parsed.length} rows from CSV`);
+      toast.success(
+        filename
+          ? `Successfully loaded ${parsed.length} rows from ${filename}!`
+          : `Loaded ${parsed.length} rows from CSV`
+      );
     }
-  }
+  };
 
-  function downloadTemplate() {
+  const handleCsvImport = () => {
+    handleParseAndLoad(csvText);
+  };
+
+  // ── Drag & Drop / File Select Handlers ─────────────────────────────────────
+
+  const handleFile = (file: File) => {
+    if (!file.name.endsWith(".csv")) {
+      toast.error("Please upload a valid .csv file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      handleParseAndLoad(text, file.name);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const downloadTemplate = () => {
     const templateContent = isHistoricalMode ? HISTORICAL_CSV_TEMPLATE : CSV_TEMPLATE;
     const blob = new Blob([templateContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -407,13 +457,11 @@ export default function BatchIntakePage() {
     a.download = isHistoricalMode ? "historical-import-template.csv" : "batch-intake-template.csv";
     a.click();
     URL.revokeObjectURL(url);
-  }
+  };
 
   const handleMappingChange = (position: string, field: "examTypeId" | "price", value: string) => {
     setPositionMapping((prev) => {
       const current = prev[position] || { examTypeId: "", price: "" };
-      
-      // If examTypeId changes, default price should also auto-update to that exam type's price
       let price = current.price;
       if (field === "examTypeId") {
         const et = examTypes.find((t) => String(t.id) === value);
@@ -451,7 +499,6 @@ export default function BatchIntakePage() {
           return;
         }
 
-        // Verify all mapped items have an exam type selected
         const unmapped = uniquePositions.filter((p) => !positionMapping[p]?.examTypeId);
         if (unmapped.length > 0) {
           toast.error(`Please map all spreadsheet positions to system exam types (Missing: ${unmapped.join(", ")})`);
@@ -814,7 +861,7 @@ export default function BatchIntakePage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="gap-1.5 text-xs rounded-xl"
+                  className="gap-1.5 text-xs rounded-xl border-primary text-primary hover:bg-primary/[0.05]"
                   onClick={() => setShowCsvImport((v) => !v)}
                 >
                   <Upload className="h-3.5 w-3.5" />
@@ -823,19 +870,55 @@ export default function BatchIntakePage() {
               </div>
             </div>
 
-            {/* CSV Import text area */}
+            {/* CSV Import Drop Zone & Textarea */}
             {showCsvImport && (
-              <div className="mt-4 space-y-2">
+              <div className="mt-4 space-y-4 rounded-2xl border border-border/40 p-4 bg-card/30">
+                <input
+                  type="file"
+                  accept=".csv"
+                  ref={fileInputRef}
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                
+                {/* Drag and Drop Zone */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${
+                    dragOver
+                      ? "border-primary bg-primary/[0.05]"
+                      : "border-border hover:border-primary/50 hover:bg-muted/10"
+                  }`}
+                >
+                  <FileSpreadsheet className="h-10 w-10 text-primary mb-2 animate-pulse" />
+                  <p className="text-sm font-black">Drag & drop your CSV file here</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    or click to <span className="text-primary font-bold underline">browse files</span> on your computer (Desktop, etc.)
+                  </p>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border/40" />
+                  </div>
+                  <div className="relative flex justify-center text-[10px] uppercase font-bold text-muted-foreground">
+                    <span className="bg-background px-2.5">Or paste raw text below</span>
+                  </div>
+                </div>
+
                 <Textarea
-                  rows={6}
+                  rows={5}
                   placeholder={isHistoricalMode ? HISTORICAL_CSV_TEMPLATE : CSV_TEMPLATE}
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
-                  className="font-mono text-xs rounded-2xl"
+                  className="font-mono text-xs rounded-2xl bg-background"
                 />
                 <div className="flex gap-2">
                   <Button type="button" size="sm" onClick={handleCsvImport} className="rounded-xl">
-                    Load rows
+                    Load rows from text
                   </Button>
                   <Button
                     type="button"
@@ -951,7 +1034,7 @@ export default function BatchIntakePage() {
                   <BadgeAlert className="h-8 w-8 text-amber-500 mb-2" />
                   <p className="text-sm font-semibold">No examinee data loaded yet</p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                    Click "Import CSV" at the top right to paste or upload your Excel database sheet records.
+                    Click "Import CSV" at the top right to select a file or paste your spreadsheet records.
                   </p>
                 </div>
               ) : (
