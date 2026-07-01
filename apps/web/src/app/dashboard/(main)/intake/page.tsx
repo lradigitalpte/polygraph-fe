@@ -59,7 +59,7 @@ const HISTORICAL_CSV_TEMPLATE = `SN,NAME,PHONE NUMBER,POSITION,GENDER,EXPERIENCE
 2,Omar Gaber,+995557543627,Retention with exp,Male,Yes,English,9-Jan-2026,1030hrs,SENT,Completed,Failed,DXB0194/2026
 3,Lesi Yuliasari,+905445469424,Conversion with exp,Female,Yes,English,20-Feb-2026,1100hrs,-,no show,-,-`;
 
-// ─── CSV helpers ────────────────────────────────────────────────────────────
+// ─── CSV/TSV helpers ────────────────────────────────────────────────────────
 
 function parseCsvRows(text: string): ExamineeRow[] {
   const lines = text
@@ -67,18 +67,44 @@ function parseCsvRows(text: string): ExamineeRow[] {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  if (lines.length < 2) return [];
-  const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
+  if (lines.length === 0) return [];
+
+  // Detect separator: comma, tab (copy/paste from Excel), or semicolon
+  let separator = ",";
+  const sampleLine = lines[0];
+  if (sampleLine.includes("\t")) {
+    separator = "\t";
+  } else if (sampleLine.includes(";")) {
+    separator = ";";
+  }
+
+  const headerLine = lines[0].toLowerCase();
+  const hasHeader = headerLine.includes("first_name") || headerLine.includes("name") || headerLine.includes("first");
+  
+  let header: string[] = [];
+  let startIndex = 0;
+  if (hasHeader) {
+    header = lines[0].toLowerCase().split(separator).map((h) => h.trim());
+    startIndex = 1;
+  }
+
   const idx = (n: string) => header.indexOf(n);
-  return lines.slice(1).map((line, i) => {
-    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  return lines.slice(startIndex).map((line, i) => {
+    const cols = line.split(separator).map((c) => c.trim().replace(/^"|"$/g, ""));
+    const getCol = (name: string, defaultIdx: number) => {
+      const colIndex = idx(name);
+      if (colIndex !== -1 && colIndex < cols.length) return cols[colIndex];
+      if (defaultIdx < cols.length) return cols[defaultIdx];
+      return "";
+    };
+
     return {
       _key: `csv-${i}-${Date.now()}`,
-      first_name: cols[idx("first_name")] ?? cols[0] ?? "",
-      last_name: cols[idx("last_name")] ?? cols[1] ?? "",
-      email: cols[idx("email")] ?? "",
-      phone: cols[idx("phone")] ?? "",
-      employee_ref: cols[idx("employee_ref")] ?? "",
+      first_name: getCol("first_name", 0),
+      last_name: getCol("last_name", 1),
+      email: getCol("email", 2),
+      phone: getCol("phone", 3),
+      employee_ref: getCol("employee_ref", 4),
       offset_minutes: 0,
     };
   });
@@ -89,7 +115,7 @@ interface RawHistoricalRow {
   last_name: string;
   phone: string;
   employee_ref: string;
-  position: string; // "Conversion with exp" etc
+  position: string;
   date_str: string;
   time_str: string;
   status: string;
@@ -103,34 +129,58 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
     .filter(Boolean);
   if (lines.length === 0) return [];
 
+  // Detect separator: tab (Excel copy/paste), comma, or semicolon
+  let separator = ",";
+  const sampleLine = lines[0];
+  if (sampleLine.includes("\t")) {
+    separator = "\t";
+  } else if (sampleLine.includes(";")) {
+    separator = ";";
+  }
+
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.trim().toLowerCase());
-    if (cols.includes("name")) {
+    const cols = lines[i].split(separator).map((c) => c.trim().toLowerCase());
+    if (cols.includes("name") || cols.some(c => c.includes("name"))) {
       headerIndex = i;
       break;
     }
   }
 
-  if (headerIndex === -1) headerIndex = 0;
+  let headers: string[] = [];
+  if (headerIndex !== -1) {
+    headers = lines[headerIndex].split(separator).map((h) => h.trim().toLowerCase());
+  }
 
-  const headers = lines[headerIndex].split(",").map((h) => h.trim().toLowerCase());
-  const nameIdx = headers.indexOf("name");
-  const phoneIdx = headers.findIndex(h => h.includes("phone"));
-  const positionIdx = headers.indexOf("position");
-  const dateIdx = headers.indexOf("date");
-  const timeIdx = headers.indexOf("time");
-  const statusIdx = headers.indexOf("status");
-  const resultsIdx = headers.indexOf("results");
-  const remarkIdx = headers.indexOf("remark");
+  let nameIdx = headers.indexOf("name");
+  let phoneIdx = headers.findIndex(h => h && h.includes("phone"));
+  let positionIdx = headers.indexOf("position");
+  let dateIdx = headers.indexOf("date");
+  let timeIdx = headers.indexOf("time");
+  let statusIdx = headers.indexOf("status");
+  let resultsIdx = headers.indexOf("results");
+  let remarkIdx = headers.indexOf("remark");
+
+  // Smart Fallback Mapping if no header row was detected (i.e. copy-pasted only data rows)
+  if (nameIdx === -1) {
+    nameIdx = 1;
+    phoneIdx = 2;
+    positionIdx = 3;
+    dateIdx = 7;
+    timeIdx = 8;
+    statusIdx = 10;
+    resultsIdx = 11;
+    remarkIdx = 12;
+    headerIndex = -1; // start parsing from the very first line (row 0)
+  }
 
   const results: RawHistoricalRow[] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const rawLine = lines[i];
-    const cols = rawLine.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    const cols = rawLine.split(separator).map((c) => c.trim().replace(/^"|"$/g, ""));
     if (cols.length < 2) continue;
 
-    const fullName = nameIdx !== -1 ? cols[nameIdx] : "";
+    const fullName = (nameIdx !== -1 && nameIdx < cols.length) ? cols[nameIdx] : "";
     const parts = fullName.trim().split(/\s+/);
     if (parts.length === 0 || !parts[0]) continue;
 
@@ -149,13 +199,13 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       continue;
     }
 
-    const phone = phoneIdx !== -1 ? cols[phoneIdx] : "";
-    const position = positionIdx !== -1 ? cols[positionIdx] : "General Screening";
-    const dateStr = dateIdx !== -1 ? cols[dateIdx] : "";
-    const timeStr = timeIdx !== -1 ? cols[timeIdx] : "";
-    const statusVal = statusIdx !== -1 ? cols[statusIdx] : "Completed";
-    const resultVal = resultsIdx !== -1 ? cols[resultsIdx] : "AVAILABLE";
-    const remarkVal = remarkIdx !== -1 ? cols[remarkIdx] : "";
+    const phone = (phoneIdx !== -1 && phoneIdx < cols.length) ? cols[phoneIdx] : "";
+    const position = (positionIdx !== -1 && positionIdx < cols.length) ? cols[positionIdx] : "General Screening";
+    const dateStr = (dateIdx !== -1 && dateIdx < cols.length) ? cols[dateIdx] : "";
+    const timeStr = (timeIdx !== -1 && timeIdx < cols.length) ? cols[timeIdx] : "";
+    const statusVal = (statusIdx !== -1 && statusIdx < cols.length) ? cols[statusIdx] : "Completed";
+    const resultVal = (resultsIdx !== -1 && resultsIdx < cols.length) ? cols[resultsIdx] : "AVAILABLE";
+    const remarkVal = (remarkIdx !== -1 && remarkIdx < cols.length) ? cols[remarkIdx] : "";
 
     let verdict = "NDI";
     if (resultVal.toLowerCase().includes("fail")) {
@@ -169,10 +219,10 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       last_name: lastName,
       phone,
       employee_ref: remarkVal,
-      position,
+      position: position || "General Screening",
       date_str: dateStr,
       time_str: timeStr,
-      status: statusVal,
+      status: statusVal || "Completed",
       verdict,
     });
   }
@@ -286,7 +336,7 @@ export default function BatchIntakePage() {
           scheduled_at: new Date().toISOString(),
           status: "Completed",
           verdict: "NDI",
-          position: "Conversion with exp",
+          position: uniquePositions[0] || "General Screening",
         },
       ]);
     } else {
@@ -314,7 +364,7 @@ export default function BatchIntakePage() {
     }
   }
 
-  // Parses and populates CSV text into corresponding layout rows
+  // Parses and populates CSV/TSV text into corresponding layout rows safely
   const handleParseAndLoad = (text: string, filename?: string) => {
     if (isHistoricalMode) {
       const parsedRaw = parseRawHistoricalCsv(text);
@@ -328,11 +378,15 @@ export default function BatchIntakePage() {
 
       const initialMap: Record<string, { examTypeId: string; price: string }> = {};
       positions.forEach((pos) => {
+        const cleanPos = (pos || "General Screening").trim();
+        const firstWord = cleanPos.split(" ")[0]?.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").toLowerCase() || "";
+
+        // Try to match position text to an existing exam type
         const match = examTypes.find((t) =>
-          t.name.toLowerCase().includes(pos.split(" ")[0].toLowerCase())
+          t.name.toLowerCase().includes(firstWord)
         ) || examTypes[0];
 
-        initialMap[pos] = {
+        initialMap[cleanPos] = {
           examTypeId: match ? String(match.id) : "",
           price: match ? String(match.price) : "1300",
         };
@@ -415,10 +469,6 @@ export default function BatchIntakePage() {
   // ── Drag & Drop / File Select Handlers ─────────────────────────────────────
 
   const handleFile = (file: File) => {
-    if (!file.name.endsWith(".csv")) {
-      toast.error("Please upload a valid .csv file");
-      return;
-    }
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -865,7 +915,7 @@ export default function BatchIntakePage() {
                   onClick={() => setShowCsvImport((v) => !v)}
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  Import CSV
+                  Import CSV / TSV File
                 </Button>
               </div>
             </div>
@@ -875,7 +925,7 @@ export default function BatchIntakePage() {
               <div className="mt-4 space-y-4 rounded-2xl border border-border/40 p-4 bg-card/30">
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.tsv,.txt"
                   ref={fileInputRef}
                   className="hidden"
                   onChange={handleFileChange}
@@ -894,7 +944,7 @@ export default function BatchIntakePage() {
                   }`}
                 >
                   <FileSpreadsheet className="h-10 w-10 text-primary mb-2 animate-pulse" />
-                  <p className="text-sm font-black">Drag & drop your CSV file here</p>
+                  <p className="text-sm font-black">Drag & drop your CSV / TSV file here</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     or click to <span className="text-primary font-bold underline">browse files</span> on your computer (Desktop, etc.)
                   </p>
@@ -905,7 +955,7 @@ export default function BatchIntakePage() {
                     <span className="w-full border-t border-border/40" />
                   </div>
                   <div className="relative flex justify-center text-[10px] uppercase font-bold text-muted-foreground">
-                    <span className="bg-background px-2.5">Or paste raw text below</span>
+                    <span className="bg-background px-2.5">Or paste raw spreadsheet columns (Tab or Comma separated)</span>
                   </div>
                 </div>
 
@@ -948,8 +998,8 @@ export default function BatchIntakePage() {
               </div>
             ) : (
               histRows.length > 0 && (
-                <div className="hidden sm:grid grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1fr_1fr_1fr_2.5rem] gap-2 px-1">
-                  {["First name", "Last name", "Phone", "Ref / SN", "Scheduled Time", "Position", "Status", "Verdict", ""].map(
+                <div className="hidden sm:grid grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1.2fr_1fr_1fr_2.5rem] gap-2 px-1">
+                  {["First name", "Last name", "Phone", "Ref / SN", "Scheduled Time", "Position Label", "Status", "Verdict", ""].map(
                     (h) => (
                       <span key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                         {h}
@@ -1034,14 +1084,14 @@ export default function BatchIntakePage() {
                   <BadgeAlert className="h-8 w-8 text-amber-500 mb-2" />
                   <p className="text-sm font-semibold">No examinee data loaded yet</p>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                    Click "Import CSV" at the top right to select a file or paste your spreadsheet records.
+                    Click "Import CSV / TSV File" at the top right to select a file or paste your spreadsheet records.
                   </p>
                 </div>
               ) : (
                 histRows.map((row, i) => (
                   <div
                     key={row._key}
-                    className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1fr_1fr_1fr_2.5rem] items-center text-xs"
+                    className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1.2fr_1fr_1fr_2.5rem] items-center text-xs"
                   >
                     <Input
                       placeholder="First"
@@ -1073,7 +1123,7 @@ export default function BatchIntakePage() {
                       onChange={(e) => updateRow(row._key, "scheduled_at", e.target.value)}
                       className="h-10 rounded-xl font-mono text-[9px] pl-1.5 pr-1.5"
                     />
-                    <div className="font-semibold text-amber-700 dark:text-amber-400 max-w-[80px] truncate" title={row.position}>
+                    <div className="font-semibold text-amber-700 dark:text-amber-400 max-w-[120px] truncate" title={row.position}>
                       {row.position}
                     </div>
                     <Select
