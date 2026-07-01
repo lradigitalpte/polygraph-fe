@@ -120,6 +120,10 @@ interface RawHistoricalRow {
   time_str: string;
   status: string;
   verdict: string;
+  gender: string;
+  experience: string;
+  language: string;
+  email: string;
 }
 
 function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
@@ -138,10 +142,16 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
     separator = ";";
   }
 
+  // Look for a header row containing typical words
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i++) {
     const cols = lines[i].split(separator).map((c) => c.trim().toLowerCase());
-    if (cols.includes("name") || cols.some(c => c.includes("name"))) {
+    if (
+      cols.includes("name") ||
+      cols.includes("first name") ||
+      cols.includes("position") ||
+      cols.includes("phone number")
+    ) {
       headerIndex = i;
       break;
     }
@@ -152,22 +162,33 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
     headers = lines[headerIndex].split(separator).map((h) => h.trim().toLowerCase());
   }
 
+  let firstNameIdx = headers.findIndex((h) => h.includes("first"));
+  let lastNameIdx = headers.findIndex((h) => h.includes("last"));
   let nameIdx = headers.indexOf("name");
-  let phoneIdx = headers.findIndex(h => h && h.includes("phone"));
-  let positionIdx = headers.indexOf("position");
-  let dateIdx = headers.indexOf("date");
-  let timeIdx = headers.indexOf("time");
-  let statusIdx = headers.indexOf("status");
-  let resultsIdx = headers.indexOf("results");
-  let remarkIdx = headers.indexOf("remark");
+  let phoneIdx = headers.findIndex((h) => h.includes("phone") || h.includes("mobile"));
+  let positionIdx = headers.findIndex((h) => h.includes("position") || h.includes("job") || h.includes("role"));
+  let genderIdx = headers.findIndex((h) => h.includes("gender") || h.includes("sex"));
+  let experienceIdx = headers.findIndex((h) => h.includes("experience") || h.includes("exp"));
+  let languageIdx = headers.findIndex((h) => h.includes("language") || h.includes("lang"));
+  let dateIdx = headers.findIndex((h) => h.includes("date"));
+  let timeIdx = headers.findIndex((h) => h.includes("time"));
+  let mailIdx = headers.findIndex((h) => h.includes("mail") || h.includes("email"));
+  let statusIdx = headers.findIndex((h) => h.includes("status"));
+  let resultsIdx = headers.findIndex((h) => h.includes("result") || h.includes("verdict") || h.includes("avail"));
+  let remarkIdx = headers.findIndex((h) => h.includes("remark") || h.includes("ref") || h.includes("reference"));
 
-  // Smart Fallback Mapping if no header row was detected (i.e. copy-pasted only data rows)
-  if (nameIdx === -1) {
-    nameIdx = 1;
+  // Fallback Mapping if no header row was detected (i.e. copy-pasted only data rows starting with First Name)
+  if (firstNameIdx === -1 && nameIdx === -1) {
+    firstNameIdx = 0;
+    lastNameIdx = 1;
     phoneIdx = 2;
     positionIdx = 3;
+    genderIdx = 4;
+    experienceIdx = 5;
+    languageIdx = 6;
     dateIdx = 7;
     timeIdx = 8;
+    mailIdx = 9;
     statusIdx = 10;
     resultsIdx = 11;
     remarkIdx = 12;
@@ -180,29 +201,61 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
     const cols = rawLine.split(separator).map((c) => c.trim().replace(/^"|"$/g, ""));
     if (cols.length < 2) continue;
 
-    const fullName = (nameIdx !== -1 && nameIdx < cols.length) ? cols[nameIdx] : "";
-    const parts = fullName.trim().split(/\s+/);
-    if (parts.length === 0 || !parts[0]) continue;
+    // Determine First Name and Last Name
+    let firstName = "";
+    let lastName = "";
 
-    const firstName = parts[0];
-    const lastName = parts.slice(1).join(" ") || "Subject";
+    if (firstNameIdx !== -1 && firstNameIdx < cols.length) {
+      firstName = cols[firstNameIdx];
+      if (lastNameIdx !== -1 && lastNameIdx < cols.length) {
+        lastName = cols[lastNameIdx];
+      }
+    } else if (nameIdx !== -1 && nameIdx < cols.length) {
+      const fullName = cols[nameIdx];
+      const parts = fullName.trim().split(/\s+/);
+      firstName = parts[0] || "";
+      lastName = parts.slice(1).join(" ") || "Subject";
+    }
 
-    // Skip legends/dividers/date titles
+    if (!firstName && !lastName) continue;
+
+    // Skip legends, headers or date separators
+    const rawLower = rawLine.toLowerCase();
     if (
       firstName.toLowerCase().includes("legend") ||
       firstName.toLowerCase().includes("colour") ||
-      rawLine.toLowerCase().includes("january") ||
-      rawLine.toLowerCase().includes("february") ||
-      rawLine.toLowerCase().includes("march") ||
-      rawLine.toLowerCase().includes("april")
+      firstName.toLowerCase().includes("name") ||
+      firstName.toLowerCase().includes("position") ||
+      firstName.toLowerCase().includes("first") ||
+      rawLower.includes("january") ||
+      rawLower.includes("february") ||
+      rawLower.includes("march") ||
+      rawLower.includes("april") ||
+      rawLower.includes("may") ||
+      rawLower.includes("june") ||
+      rawLower.includes("july") ||
+      rawLower.includes("august") ||
+      rawLower.includes("september") ||
+      rawLower.includes("october") ||
+      rawLower.includes("november") ||
+      rawLower.includes("december")
     ) {
+      continue;
+    }
+
+    // Skip if first column is date-like indicator (e.g. "12th", "16th")
+    if (/^\d+(st|nd|rd|th)$/i.test(firstName) || /^\d+(st|nd|rd|th)$/i.test(cols[0] || "")) {
       continue;
     }
 
     const phone = (phoneIdx !== -1 && phoneIdx < cols.length) ? cols[phoneIdx] : "";
     const position = (positionIdx !== -1 && positionIdx < cols.length) ? cols[positionIdx] : "General Screening";
+    const gender = (genderIdx !== -1 && genderIdx < cols.length) ? cols[genderIdx] : "";
+    const experience = (experienceIdx !== -1 && experienceIdx < cols.length) ? cols[experienceIdx] : "";
+    const language = (languageIdx !== -1 && languageIdx < cols.length) ? cols[languageIdx] : "";
     const dateStr = (dateIdx !== -1 && dateIdx < cols.length) ? cols[dateIdx] : "";
     const timeStr = (timeIdx !== -1 && timeIdx < cols.length) ? cols[timeIdx] : "";
+    const email = (mailIdx !== -1 && mailIdx < cols.length) ? cols[mailIdx] : "";
     const statusVal = (statusIdx !== -1 && statusIdx < cols.length) ? cols[statusIdx] : "Completed";
     const resultVal = (resultsIdx !== -1 && resultsIdx < cols.length) ? cols[resultsIdx] : "AVAILABLE";
     const remarkVal = (remarkIdx !== -1 && remarkIdx < cols.length) ? cols[remarkIdx] : "";
@@ -224,6 +277,10 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       time_str: timeStr,
       status: statusVal || "Completed",
       verdict,
+      gender,
+      experience,
+      language,
+      email,
     });
   }
 
@@ -252,6 +309,10 @@ type HistoricalExamineeRow = {
   status: string;
   verdict: string;
   position: string;
+  gender: string;
+  experience: string;
+  language: string;
+  email: string;
 };
 
 function emptyRow(): ExamineeRow {
@@ -337,6 +398,10 @@ export default function BatchIntakePage() {
           status: "Completed",
           verdict: "NDI",
           position: uniquePositions[0] || "General Screening",
+          gender: "Male",
+          experience: "Yes",
+          language: "English",
+          email: "",
         },
       ]);
     } else {
@@ -434,6 +499,10 @@ export default function BatchIntakePage() {
           status: r.status,
           verdict: r.verdict,
           position: r.position,
+          gender: r.gender,
+          experience: r.experience,
+          language: r.language,
+          email: r.email,
         };
       });
 
@@ -577,6 +646,10 @@ export default function BatchIntakePage() {
               verdict: r.verdict,
               exam_type_id: mapping.examTypeId ? Number(mapping.examTypeId) : undefined,
               price: mapping.price ? Number(mapping.price) : undefined,
+              gender: r.gender.trim() || undefined,
+              spoken_language: r.language.trim() || undefined,
+              experience: r.experience.trim() || undefined,
+              email: r.email.trim() || undefined,
             };
           }),
         };
@@ -998,14 +1071,26 @@ export default function BatchIntakePage() {
               </div>
             ) : (
               histRows.length > 0 && (
-                <div className="hidden sm:grid grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1.2fr_1fr_1fr_2.5rem] gap-2 px-1">
-                  {["First name", "Last name", "Phone", "Ref / SN", "Scheduled Time", "Position Label", "Status", "Verdict", ""].map(
-                    (h) => (
-                      <span key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {h}
-                      </span>
-                    )
-                  )}
+                <div className="hidden sm:grid grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_1.2fr_0.8fr_0.8fr_2.5rem] gap-1 px-1">
+                  {[
+                    "First name",
+                    "Last name",
+                    "Phone",
+                    "Ref / SN",
+                    "Scheduled Time",
+                    "Position Label",
+                    "Gender",
+                    "Language",
+                    "Experience",
+                    "Email",
+                    "Status",
+                    "Verdict",
+                    "",
+                  ].map((h) => (
+                    <span key={h} className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground truncate" title={h}>
+                      {h}
+                    </span>
+                  ))}
                 </div>
               )
             )}
@@ -1091,46 +1176,70 @@ export default function BatchIntakePage() {
                 histRows.map((row, i) => (
                   <div
                     key={row._key}
-                    className="grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr_1.2fr_1.8fr_1.2fr_1fr_1fr_2.5rem] items-center text-xs"
+                    className="grid gap-1 sm:grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_1.2fr_0.8fr_0.8fr_2.5rem] items-center text-[10px]"
                   >
                     <Input
                       placeholder="First"
                       value={row.first_name}
                       onChange={(e) => updateRow(row._key, "first_name", e.target.value)}
-                      className="h-10 rounded-xl"
+                      className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Input
                       placeholder="Last"
                       value={row.last_name}
                       onChange={(e) => updateRow(row._key, "last_name", e.target.value)}
-                      className="h-10 rounded-xl"
+                      className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Input
                       placeholder="Phone"
                       value={row.phone}
                       onChange={(e) => updateRow(row._key, "phone", e.target.value)}
-                      className="h-10 rounded-xl"
+                      className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Input
                       placeholder="Ref"
                       value={row.employee_ref}
                       onChange={(e) => updateRow(row._key, "employee_ref", e.target.value)}
-                      className="h-10 rounded-xl"
+                      className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Input
                       placeholder="ISO Timestamp"
                       value={row.scheduled_at}
                       onChange={(e) => updateRow(row._key, "scheduled_at", e.target.value)}
-                      className="h-10 rounded-xl font-mono text-[9px] pl-1.5 pr-1.5"
+                      className="h-9 rounded-xl font-mono text-[8px] px-1"
                     />
-                    <div className="font-semibold text-amber-700 dark:text-amber-400 max-w-[120px] truncate" title={row.position}>
+                    <div className="font-semibold text-amber-700 dark:text-amber-400 max-w-[100px] truncate text-[9px]" title={row.position}>
                       {row.position}
                     </div>
+                    <Input
+                      placeholder="Gender"
+                      value={row.gender}
+                      onChange={(e) => updateRow(row._key, "gender", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2"
+                    />
+                    <Input
+                      placeholder="Language"
+                      value={row.language}
+                      onChange={(e) => updateRow(row._key, "language", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2"
+                    />
+                    <Input
+                      placeholder="Exp"
+                      value={row.experience}
+                      onChange={(e) => updateRow(row._key, "experience", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2"
+                    />
+                    <Input
+                      placeholder="Email"
+                      value={row.email}
+                      onChange={(e) => updateRow(row._key, "email", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2 font-mono text-[8px]"
+                    />
                     <Select
                       value={row.status}
                       onValueChange={(v) => updateRow(row._key, "status", String(v))}
                     >
-                      <SelectTrigger className="h-10 rounded-xl text-[10px] bg-background">
+                      <SelectTrigger className="h-9 rounded-xl text-[9px] bg-background px-1.5">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
@@ -1142,7 +1251,7 @@ export default function BatchIntakePage() {
                       value={row.verdict}
                       onValueChange={(v) => updateRow(row._key, "verdict", String(v))}
                     >
-                      <SelectTrigger className="h-10 rounded-xl text-[10px] bg-background">
+                      <SelectTrigger className="h-9 rounded-xl text-[9px] bg-background px-1.5">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
@@ -1155,12 +1264,12 @@ export default function BatchIntakePage() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="text-muted-foreground hover:text-destructive rounded-lg"
+                      className="text-muted-foreground hover:text-destructive rounded-lg h-8 w-8"
                       onClick={() => removeRow(row._key)}
                       disabled={histRows.length === 1}
                       aria-label="Remove row"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 ))

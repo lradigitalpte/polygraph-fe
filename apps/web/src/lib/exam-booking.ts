@@ -338,6 +338,12 @@ export type BulkImportHistoricalRow = {
   scheduled_at: string;
   status: string;
   verdict: string;
+  exam_type_id?: number;
+  price?: number;
+  gender?: string;
+  spoken_language?: string;
+  experience?: string;
+  email?: string;
 };
 
 export async function bulkImportHistorical(input: {
