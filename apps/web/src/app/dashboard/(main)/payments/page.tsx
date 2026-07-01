@@ -38,10 +38,18 @@ import {
   sendQuotationEmail,
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
-import { collectAppointmentPayment } from "@/lib/client-account";
+import { collectAppointmentPayment, formatMoney, convertCurrency } from "@/lib/client-account";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { fetchOrganizationSettings } from "@/lib/settings";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Sheet, 
   SheetContent, 
@@ -66,6 +74,11 @@ type Invoice = FinancialInvoice & {
 // ---------- helper: generate + open printable PDF for a quotation ----------
 function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) {
   const balance = inv.totalAmount - inv.paidAmount;
+  const currency = inv.currency || "USD";
+  const formattedBalance = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(balance);
+  const formattedTotal = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.totalAmount);
+  const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -95,7 +108,7 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
 <div class="logo">Polygraph Services</div>
 <div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
 
-<h1>$${balance.toFixed(2)}</h1>
+<h1>${formattedBalance}</h1>
 <div class="meta">Balance Due • <span class="badge">${inv.status}</span></div>
 
 <div class="grid">
@@ -110,10 +123,13 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
 <table>
   <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
   <tbody>
-    ${inv.items.map((item) => `<tr><td>${item.description}</td><td class="amount">$${item.amount.toFixed(2)}</td></tr>`).join("")}
-    <tr class="total-row"><td>Total</td><td class="amount">$${inv.totalAmount.toFixed(2)}</td></tr>
-    <tr><td style="color:#888;font-size:12px">Collected</td><td class="amount" style="color:#22c55e">-$${inv.paidAmount.toFixed(2)}</td></tr>
-    <tr class="total-row"><td>Balance Due</td><td class="amount">$${balance.toFixed(2)}</td></tr>
+    ${inv.items.map((item) => {
+      const itemAmt = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(item.amount);
+      return `<tr><td>${item.description}</td><td class="amount">${itemAmt}</td></tr>`;
+    }).join("")}
+    <tr class="total-row"><td>Total</td><td class="amount">${formattedTotal}</td></tr>
+    <tr><td style="color:#888;font-size:12px">Collected</td><td class="amount" style="color:#22c55e">-${formattedPaid}</td></tr>
+    <tr class="total-row"><td>Balance Due</td><td class="amount">${formattedBalance}</td></tr>
   </tbody>
 </table>
 
@@ -137,6 +153,10 @@ function isPaidInFull(status: string): boolean {
 // ---------- helper: printable PAID receipt (shown once an invoice is settled) ----------
 function downloadReceiptPDF(inv: Invoice) {
   const receiptNo = inv.code.replace(/^INV-/, "RCPT-");
+  const currency = inv.currency || "USD";
+  const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
+  const formattedZero = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(0);
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -167,7 +187,7 @@ function downloadReceiptPDF(inv: Invoice) {
 <div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
 
 <div class="paid">✓ Paid in Full</div>
-<h1>$${inv.paidAmount.toFixed(2)}</h1>
+<h1>${formattedPaid}</h1>
 <div class="meta">Amount Received</div>
 
 <div class="grid">
@@ -180,9 +200,12 @@ function downloadReceiptPDF(inv: Invoice) {
 <table>
   <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
   <tbody>
-    ${inv.items.map((item) => `<tr><td>${item.description}</td><td class="amount">$${item.amount.toFixed(2)}</td></tr>`).join("")}
-    <tr class="total-row"><td>Total Paid</td><td class="amount">$${inv.paidAmount.toFixed(2)}</td></tr>
-    <tr><td style="color:#888;font-size:12px">Balance Due</td><td class="amount">$0.00</td></tr>
+    ${inv.items.map((item) => {
+      const itemAmt = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(item.amount);
+      return `<tr><td>${item.description}</td><td class="amount">${itemAmt}</td></tr>`;
+    }).join("")}
+    <tr class="total-row"><td>Total Paid</td><td class="amount">${formattedPaid}</td></tr>
+    <tr><td style="color:#888;font-size:12px">Balance Due</td><td class="amount">${formattedZero}</td></tr>
   </tbody>
 </table>
 
@@ -229,6 +252,8 @@ export default function PaymentsPage() {
   const [isSendQuoteOpen, setIsSendQuoteOpen] = React.useState(false);
   const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "" });
   const [sendingSaving, setSendingSaving] = React.useState(false);
+  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "USD" });
+  const orgCurrency = orgSettings?.currency || "USD";
 
   // New quotation form state
   const [form, setForm] = React.useState<{
@@ -242,6 +267,7 @@ export default function PaymentsPage() {
     showClientList: boolean;
     showExamTypeList: boolean;
     showExaminerList: boolean;
+    currency: string;
   }>({
     client: null,
     examType: null,
@@ -253,6 +279,7 @@ export default function PaymentsPage() {
     showClientList: false,
     showExamTypeList: false,
     showExaminerList: false,
+    currency: "USD",
   });
 
   const filteredFormClients = clients.filter((c) =>
@@ -271,6 +298,7 @@ export default function PaymentsPage() {
       client: null, examType: null, examiner: null, extraItems: [],
       clientSearch: "", examTypeSearch: "", examinerSearch: "",
       showClientList: false, showExamTypeList: false, showExaminerList: false,
+      currency: orgCurrency,
     });
   };
 
@@ -281,12 +309,17 @@ export default function PaymentsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ledger, clientRows, examTypeRows, examinerRows] = await Promise.all([
+      const [ledger, clientRows, examTypeRows, examinerRows, org] = await Promise.all([
         fetchBillingLedger(),
         fetchClients(),
         fetchExamTypes(),
         fetchExaminers(),
+        fetchOrganizationSettings().catch(() => ({ currency: "USD" })),
       ]);
+
+      if (org) {
+        setOrgSettings(org);
+      }
 
       setInvoices(
         ledger.entries.map((entry) => {
@@ -332,18 +365,33 @@ export default function PaymentsPage() {
   );
 
   const stats = {
-    total: invoices.reduce((acc, inv) => acc + inv.totalAmount, 0),
-    collected: invoices.reduce((acc, inv) => acc + inv.paidAmount, 0),
-    pending: invoices.reduce((acc, inv) => acc + (inv.totalAmount - inv.paidAmount), 0),
-    overdue: invoices.filter(inv => inv.status === "Overdue").reduce((acc, inv) => acc + (inv.totalAmount - inv.paidAmount), 0)
+    total: invoices.reduce((acc, inv) => {
+      const converted = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      return acc + converted;
+    }, 0),
+    collected: invoices.reduce((acc, inv) => {
+      const converted = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      return acc + converted;
+    }, 0),
+    pending: invoices.reduce((acc, inv) => {
+      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      return acc + (convertedTotal - convertedPaid);
+    }, 0),
+    overdue: invoices.filter(inv => inv.status === "Overdue").reduce((acc, inv) => {
+      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      return acc + (convertedTotal - convertedPaid);
+    }, 0)
   };
 
   const handleCreateInvoice = async () => {
     if (!form.client) { toast.error("Select a client"); return; }
     if (!form.examType) { toast.error("Select an exam type"); return; }
 
+    const convertedBasePrice = convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings);
     const lineItems: { description: string; amount: number }[] = [
-      { description: form.examType.name, amount: form.examType.price },
+      { description: form.examType.name, amount: convertedBasePrice },
       ...form.extraItems.filter((item) => item.description.trim() && item.amount > 0),
     ];
     const total = lineItems.reduce((acc, item) => acc + item.amount, 0);
@@ -351,7 +399,7 @@ export default function PaymentsPage() {
 
     const title = [form.examType.name, form.examiner ? `— ${form.examiner.name}` : ""].filter(Boolean).join(" ");
     const description = lineItems
-      .map((item) => `${item.description}: $${item.amount.toFixed(2)}`)
+      .map((item) => `${item.description}: ${formatMoney(item.amount, form.currency)}`)
       .join("\n");
 
     try {
@@ -360,6 +408,7 @@ export default function PaymentsPage() {
         title,
         description,
         amount: total,
+        currency: form.currency,
       });
       await loadData();
       setIsNewInvoiceOpen(false);
@@ -480,7 +529,7 @@ export default function PaymentsPage() {
                 </div>
                 <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground/60">{stat.label}</p>
               </div>
-              <p className="text-3xl font-black tracking-tighter">${stat.value.toFixed(0)}</p>
+              <p className="text-3xl font-black tracking-tighter">{formatMoney(stat.value, orgCurrency)}</p>
             </CardContent>
           </Card>
         ))}
@@ -576,12 +625,12 @@ export default function PaymentsPage() {
                             />
                           </div>
                           <p className="text-[9px] font-black text-muted-foreground/60 uppercase tracking-widest">
-                            ${inv.paidAmount.toFixed(0)} Collected
+                            {formatMoney(inv.paidAmount, inv.currency || orgCurrency)} Collected
                           </p>
                         </div>
                       </td>
                       <td className="px-8 py-6 text-right font-black text-lg tracking-tighter">
-                        ${(inv.totalAmount - inv.paidAmount).toFixed(2)}
+                        {formatMoney(inv.totalAmount - inv.paidAmount, inv.currency || orgCurrency)}
                       </td>
                       <td className="px-8 py-6 text-right">
                         <Button 
@@ -672,7 +721,7 @@ export default function PaymentsPage() {
                     {selectedInvoice.status}
                   </Badge>
                   <div className="space-y-1">
-                    <h2 className="text-5xl font-black tracking-tighter leading-none">${(selectedInvoice.totalAmount - selectedInvoice.paidAmount).toFixed(2)}</h2>
+                    <h2 className="text-5xl font-black tracking-tighter leading-none">{formatMoney(selectedInvoice.totalAmount - selectedInvoice.paidAmount, selectedInvoice.currency || orgCurrency)}</h2>
                     <p className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em] pl-1">Balance Due</p>
                   </div>
                 </div>
@@ -704,7 +753,7 @@ export default function PaymentsPage() {
                     {selectedInvoice.items.map((item, idx) => (
                       <div key={idx} className="flex justify-between items-center p-4 border border-border/30 rounded-2xl bg-card shadow-sm transition-all hover:border-primary/20">
                         <span className="text-xs font-black text-foreground/80 uppercase tracking-tight">{item.description}</span>
-                        <span className="text-sm font-black text-foreground">${item.amount.toFixed(2)}</span>
+                        <span className="text-sm font-black text-foreground">{formatMoney(item.amount, selectedInvoice.currency || orgCurrency)}</span>
                       </div>
                     ))}
                   </div>
@@ -752,7 +801,7 @@ export default function PaymentsPage() {
                         setSendEmail({
                           toEmail: selectedInvoice.clientEmail || "",
                           subject: `${selectedInvoice.code} Quotation`,
-                          body: `Hello ${selectedInvoice.client},\n\nPlease find your quotation ${selectedInvoice.code} for $${selectedInvoice.totalAmount.toFixed(2)}.`,
+                          body: `Hello ${selectedInvoice.client},\n\nPlease find your quotation ${selectedInvoice.code} for ${formatMoney(selectedInvoice.totalAmount, selectedInvoice.currency || orgCurrency)}.`,
                         });
                         setIsSendQuoteOpen(true);
                       }}
@@ -857,7 +906,7 @@ export default function PaymentsPage() {
                 <div className="flex items-center justify-between h-12 px-4 rounded-xl border border-border bg-muted/20">
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-sm">{form.examType.name}</span>
-                    <Badge variant="outline" className="text-[9px] font-black">${form.examType.price.toFixed(2)}</Badge>
+                    <Badge variant="outline" className="text-[9px] font-black">{formatMoney(form.examType.price, form.currency)}</Badge>
                   </div>
                   <button onClick={() => setForm((f) => ({ ...f, examType: null, examTypeSearch: "" }))} className="text-muted-foreground hover:text-foreground">
                     <X className="h-4 w-4" />
@@ -882,7 +931,7 @@ export default function PaymentsPage() {
                           onClick={() => setForm((f) => ({ ...f, examType: et, examTypeSearch: "", showExamTypeList: false }))}
                         >
                           <span>{et.name}</span>
-                          <span className="text-xs font-black text-primary">${et.price.toFixed(2)}</span>
+                          <span className="text-xs font-black text-primary">{formatMoney(et.price, form.currency)}</span>
                         </button>
                       ))}
                     </div>
@@ -931,6 +980,22 @@ export default function PaymentsPage() {
               )}
             </div>
 
+            {/* Currency picker */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">Currency</Label>
+              <Select value={form.currency} onValueChange={(val) => setForm((f) => ({ ...f, currency: val as string }))}>
+                <SelectTrigger className="h-12 rounded-xl">
+                  <SelectValue placeholder="Select currency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USD">USD ($)</SelectItem>
+                  <SelectItem value="AED">AED (AED)</SelectItem>
+                  <SelectItem value="GBP">GBP (£)</SelectItem>
+                  <SelectItem value="EUR">EUR (€)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Fee preview / extra items */}
             {form.examType && (
               <div className="space-y-3">
@@ -938,7 +1003,12 @@ export default function PaymentsPage() {
                 <div className="rounded-xl border border-border overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 bg-muted/20">
                     <span className="text-xs font-bold">{form.examType.name}</span>
-                    <span className="text-sm font-black text-primary">${form.examType.price.toFixed(2)}</span>
+                    <span className="text-sm font-black text-primary">
+                      {formatMoney(
+                        convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings),
+                        form.currency
+                      )}
+                    </span>
                   </div>
                   {form.extraItems.map((item, idx) => (
                     <div key={idx} className="flex items-center gap-2 px-4 py-2 border-t border-border/50">
@@ -953,7 +1023,6 @@ export default function PaymentsPage() {
                         }}
                       />
                       <div className="relative w-24">
-                        <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                         <Input
                           type="number"
                           className="h-9 pl-6 text-xs"
@@ -965,6 +1034,7 @@ export default function PaymentsPage() {
                             setForm((f) => ({ ...f, extraItems: next }));
                           }}
                         />
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground">{form.currency}</span>
                       </div>
                       <button
                         className="text-muted-foreground hover:text-rose-500 transition-colors"
@@ -984,7 +1054,11 @@ export default function PaymentsPage() {
                 <div className="flex justify-between items-center px-1 pt-1">
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total</span>
                   <span className="text-lg font-black text-foreground">
-                    ${(form.examType.price + form.extraItems.reduce((s, i) => s + i.amount, 0)).toFixed(2)}
+                    {formatMoney(
+                      convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings) +
+                        form.extraItems.reduce((s, i) => s + i.amount, 0),
+                      form.currency
+                    )}
                   </span>
                 </div>
               </div>
@@ -1054,9 +1128,8 @@ export default function PaymentsPage() {
             </div>
 
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Collection Amount ($)</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Collection Amount ({selectedInvoice?.currency || orgCurrency})</label>
               <div className="relative">
-                <DollarSign className="absolute left-5 top-1/2 -translate-y-1/2 h-6 w-6 text-primary" />
                 <Input 
                   placeholder="0.00" 
                   className="h-20 pl-14 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
@@ -1064,6 +1137,7 @@ export default function PaymentsPage() {
                   onChange={e => setPaymentAmount(e.target.value)}
                   disabled={recordingPayment}
                 />
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-primary">{selectedInvoice?.currency || orgCurrency}</span>
               </div>
               <div className="grid grid-cols-3 gap-3 pt-2">
                     {[100, 250, 500].map(val => (
@@ -1074,7 +1148,7 @@ export default function PaymentsPage() {
                             disabled={recordingPayment}
                             onClick={() => setPaymentAmount(val.toString())}
                         >
-                            +${val}
+                            +{selectedInvoice?.currency || orgCurrency} {val}
                         </Button>
                     ))}
               </div>

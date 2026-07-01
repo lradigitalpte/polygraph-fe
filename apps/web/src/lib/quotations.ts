@@ -15,6 +15,7 @@ export type QuotationRecord = {
   email_subject?: string;
   email_body?: string;
   created_at: string;
+  currency?: string;
   client?: {
     id: number;
     name: string;
@@ -40,6 +41,7 @@ export async function createQuotation(input: {
   title: string;
   description?: string;
   amount: number;
+  currency?: string;
 }): Promise<QuotationRecord> {
   const response = await authenticatedFetch("/api/quotations", {
     method: "POST",

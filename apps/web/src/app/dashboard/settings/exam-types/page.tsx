@@ -26,6 +26,8 @@ import {
   updateExamType,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
+import { formatMoney } from "@/lib/client-account";
+import { fetchOrganizationSettings } from "@/lib/settings";
 
 type FormState = {
   name: string;
@@ -51,6 +53,7 @@ export default function ExamTypesSettingsPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [orgCurrency, setOrgCurrency] = React.useState("USD");
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [form, setForm] = React.useState<FormState>(emptyForm);
 
@@ -69,6 +72,16 @@ export default function ExamTypesSettingsPage() {
 
   React.useEffect(() => {
     void loadExamTypes();
+    void (async () => {
+      try {
+        const org = await fetchOrganizationSettings();
+        if (org.currency) {
+          setOrgCurrency(org.currency);
+        }
+      } catch (e) {
+        // Fallback to USD
+      }
+    })();
   }, [loadExamTypes]);
 
   const resetForm = () => {
@@ -200,7 +213,7 @@ export default function ExamTypesSettingsPage() {
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Base price</span>
-                  <span className="font-semibold text-foreground">${(examType.price ?? 0).toFixed(2)}</span>
+                  <span className="font-semibold text-foreground">{formatMoney(examType.price ?? 0, orgCurrency)}</span>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="gap-2" onClick={() => openEdit(examType)}>
@@ -244,7 +257,7 @@ export default function ExamTypesSettingsPage() {
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="exam-type-price">Price (USD)</Label>
+              <Label htmlFor="exam-type-price">Price ({orgCurrency})</Label>
               <Input id="exam-type-price" type="number" min={0} step={0.01} value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} />
             </div>
 

@@ -13,6 +13,7 @@ import {
   Users,
   Building2,
   Mail,
+  FileSignature,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
@@ -38,6 +39,7 @@ export function ClientSidebar() {
     { name: "Personal Details", href: `/dashboard/clients/${id}/details`, icon: User },
     { name: "Exam History", href: `/dashboard/clients/${id}/exams`, icon: FileText },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
+    { name: "Secure Reports", href: `/dashboard/clients/${id}/reports`, icon: FileSignature },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
   ];
 
@@ -48,6 +50,7 @@ export function ClientSidebar() {
     { name: "Request Examinee Roster", href: `/dashboard/clients/${id}/intake`, icon: Mail },
     { name: "All Sessions", href: `/dashboard/clients/${id}/exams`, icon: FileText },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
+    { name: "Secure Reports", href: `/dashboard/clients/${id}/reports`, icon: FileSignature },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
   ];
 

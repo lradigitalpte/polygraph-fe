@@ -5,6 +5,10 @@ export type OrganizationSettings = {
   name: string;
   support_email: string;
   address: string;
+  currency?: string;
+  usd_aed_rate?: number;
+  usd_gbp_rate?: number;
+  usd_eur_rate?: number;
   created_at: string;
   updated_at: string;
 };
@@ -22,6 +26,10 @@ export async function updateOrganizationSettings(input: {
   name: string;
   support_email: string;
   address: string;
+  currency?: string;
+  usd_aed_rate?: number;
+  usd_gbp_rate?: number;
+  usd_eur_rate?: number;
 }): Promise<OrganizationSettings> {
   const response = await authenticatedFetch("/api/settings/organization", {
     method: "PATCH",

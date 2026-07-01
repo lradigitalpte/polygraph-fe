@@ -39,12 +39,14 @@ import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import {
   collectAppointmentPayment,
   formatMoney,
+  convertCurrency,
   sendAppointmentPaymentReminder,
   type AccountLedgerEntry,
   type AccountSummary,
 } from "@/lib/client-account";
 import { fetchBillingLedger, ledgerEntryCollectTarget } from "@/lib/billing";
 import { collectQuotationPayment, sendQuotationEmail } from "@/lib/quotations";
+import { fetchOrganizationSettings } from "@/lib/settings";
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -78,9 +80,39 @@ export default function ClientAccountPage() {
     }
   }, [userLoading, can, router, clientId, isExaminer]);
 
-  const [summary, setSummary] = React.useState<AccountSummary | null>(null);
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "USD" });
+  const orgCurrency = orgSettings?.currency || "USD";
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const org = await fetchOrganizationSettings();
+        if (org) {
+          setOrgSettings(org);
+        }
+      } catch (e) {
+        // Fallback to USD
+      }
+    })();
+  }, []);
+
+  const calculatedSummary = React.useMemo(() => {
+    let totalBilled = 0;
+    let totalPaid = 0;
+    for (const entry of entries) {
+      const entryCurrency = entry.currency || "USD";
+      totalBilled += convertCurrency(entry.total_amount, entryCurrency, orgCurrency, orgSettings);
+      totalPaid += convertCurrency(entry.paid_amount, entryCurrency, orgCurrency, orgSettings);
+    }
+    const balanceDue = totalBilled - totalPaid;
+    return {
+      total_billed: totalBilled,
+      total_paid: totalPaid,
+      balance_due: balanceDue > 0 ? balanceDue : 0,
+    };
+  }, [entries, orgCurrency, orgSettings]);
 
   const [selected, setSelected] = React.useState<AccountLedgerEntry | null>(null);
   const [collectOpen, setCollectOpen] = React.useState(false);
@@ -96,7 +128,6 @@ export default function ClientAccountPage() {
     setLoading(true);
     try {
       const data = await fetchBillingLedger(clientId);
-      setSummary(data.summary);
       setEntries(data.entries);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load account");
@@ -122,8 +153,9 @@ export default function ClientAccountPage() {
   const openReminder = (entry: AccountLedgerEntry) => {
     setSelected(entry);
     setReminderSubject(`Payment reminder — ${entry.code}`);
+    const currency = entry.currency || orgCurrency;
     setReminderBody(
-      `Hello,\n\nThis is a payment reminder for ${entry.title} (${entry.code}).\n\nTotal: ${formatMoney(entry.total_amount)}\nPaid: ${formatMoney(entry.paid_amount)}\nBalance due: ${formatMoney(entry.balance_due)}\n\nPlease contact us to arrange payment.\n\nThank you,\nPolygraph Forensic System`
+      `Hello,\n\nThis is a payment reminder for ${entry.title} (${entry.code}).\n\nTotal: ${formatMoney(entry.total_amount, currency)}\nPaid: ${formatMoney(entry.paid_amount, currency)}\nBalance due: ${formatMoney(entry.balance_due, currency)}\n\nPlease contact us to arrange payment.\n\nThank you,\nPolygraph Forensic System`
     );
     setReminderOpen(true);
   };
@@ -210,7 +242,7 @@ export default function ClientAccountPage() {
               <CardHeader className="pb-2">
                 <CardDescription>Total billed</CardDescription>
                 <CardTitle className="text-2xl tabular-nums">
-                  {formatMoney(summary?.total_billed ?? 0)}
+                  {formatMoney(calculatedSummary.total_billed, orgCurrency)}
                 </CardTitle>
               </CardHeader>
             </Card>
@@ -218,7 +250,7 @@ export default function ClientAccountPage() {
               <CardHeader className="pb-2">
                 <CardDescription>Total paid</CardDescription>
                 <CardTitle className="text-2xl tabular-nums text-emerald-600 dark:text-emerald-400">
-                  {formatMoney(summary?.total_paid ?? 0)}
+                  {formatMoney(calculatedSummary.total_paid, orgCurrency)}
                 </CardTitle>
               </CardHeader>
             </Card>
@@ -226,7 +258,7 @@ export default function ClientAccountPage() {
               <CardHeader className="pb-2">
                 <CardDescription>Outstanding balance</CardDescription>
                 <CardTitle className="text-2xl tabular-nums text-amber-600 dark:text-amber-400">
-                  {formatMoney(summary?.balance_due ?? 0)}
+                  {formatMoney(calculatedSummary.balance_due, orgCurrency)}
                 </CardTitle>
               </CardHeader>
             </Card>
@@ -275,13 +307,13 @@ export default function ClientAccountPage() {
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">{entry.title}</TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatMoney(entry.total_amount)}
+                          {formatMoney(entry.total_amount, entry.currency || orgCurrency)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                          {formatMoney(entry.paid_amount)}
+                          {formatMoney(entry.paid_amount, entry.currency || orgCurrency)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums font-medium">
-                          {formatMoney(entry.balance_due)}
+                          {formatMoney(entry.balance_due, entry.currency || orgCurrency)}
                         </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(entry.status)} className="capitalize">

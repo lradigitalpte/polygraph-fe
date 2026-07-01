@@ -18,6 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Package,
+  FileSignature,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth-client";
@@ -45,6 +47,8 @@ const staffNav: NavItem[] = [
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
   { name: "Reminders", href: "/dashboard/reminders", icon: BellRing, requires: "reminder:view" },
   { name: "Payments", href: "/dashboard/payments", icon: CreditCard, requires: "payment:view" },
+  { name: "Inventory", href: "/dashboard/inventory", icon: Package, requires: "user:view" },
+  { name: "Reports", href: "/dashboard/reports", icon: FileSignature, requires: "exam:view" },
   { name: "Settings", href: "/dashboard/settings", icon: Settings, requires: "user:view" },
 ];
 

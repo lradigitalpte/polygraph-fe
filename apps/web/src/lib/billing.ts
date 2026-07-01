@@ -68,6 +68,7 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       balance_due: Math.max(0, total - paid),
       status: appt.payment_status ?? quote.status,
       payment_mode: appt.payment_mode,
+      currency: quote.currency || "USD",
     });
   }
 
@@ -93,6 +94,7 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       balance_due: Math.max(0, total - paid),
       status: appt.payment_status ?? "Unpaid",
       payment_mode: appt.payment_mode,
+      currency: "USD",
     });
   }
 
@@ -115,6 +117,7 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       paid_amount: paid,
       balance_due: Math.max(0, total - paid),
       status: quote.status,
+      currency: quote.currency || "USD",
     });
   }
 
@@ -194,6 +197,7 @@ export type FinancialInvoice = {
   status: string;
   items: { description: string; amount: number }[];
   sentAt?: string;
+  currency?: string;
 };
 
 export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInvoice {
@@ -236,6 +240,7 @@ export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInv
     paidAmount: paid,
     status: uiStatus,
     items: [{ description: entry.title, amount: total }],
+    currency: entry.currency,
   };
 }
 

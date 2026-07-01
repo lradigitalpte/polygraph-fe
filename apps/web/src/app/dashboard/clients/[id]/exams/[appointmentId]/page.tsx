@@ -191,13 +191,16 @@ export default function ExaminationDocumentationPage() {
           const subj = await fetchSubject(examData.subject_id).catch(() => null);
           setSubject(subj);
         }
+      } else if (appointment?.subject_id) {
+        const subj = await fetchSubject(appointment.subject_id).catch(() => null);
+        setSubject(subj);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load examination");
     } finally {
       setLoading(false);
     }
-  }, [appointmentId]);
+  }, [appointmentId, appointment?.subject_id]);
 
   React.useEffect(() => {
     void loadExam();
@@ -342,7 +345,7 @@ export default function ExaminationDocumentationPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-1">
               <h1 className="text-3xl font-bold tracking-tight">
-                {formatAppointmentCode(appointmentId)}
+                {subject ? `${subject.first_name} ${subject.last_name}` : formatAppointmentCode(appointmentId)}
               </h1>
               {exam && (
                 <Badge className="bg-primary/15 text-primary border-primary/20 capitalize text-sm px-3 py-0.5">
@@ -351,8 +354,9 @@ export default function ExaminationDocumentationPage() {
               )}
             </div>
             <p className="text-base text-muted-foreground">
-              Examination documentation
-              {client ? ` · ${client.name}` : ""}
+              {exam?.type || "Polygraph Examination"}
+              {client ? ` · Client: ${client.name}` : ""}
+              {subject ? ` · ${formatAppointmentCode(appointmentId)}` : ""}
             </p>
             {appointment && (
               <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3 text-sm text-muted-foreground">

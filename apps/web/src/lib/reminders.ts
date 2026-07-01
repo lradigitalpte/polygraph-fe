@@ -120,7 +120,7 @@ export function buildPaymentReminders(entries: AccountLedgerEntry[]): PaymentRem
         appointmentId: e.appointment_id!,
         client: e.client_name || `Client #${e.client_id}`,
         email: e.client_email,
-        amount: formatMoney(e.balance_due),
+        amount: formatMoney(e.balance_due, e.currency),
         balance: e.balance_due,
         due: label,
         status,

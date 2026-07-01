@@ -25,6 +25,7 @@ export type AccountLedgerEntry = {
   balance_due: number;
   status: string;
   payment_mode?: string;
+  currency?: string;
 };
 
 export type ClientAccountResponse = {
@@ -77,10 +78,39 @@ export function paymentBalance(total: number, paid: number) {
   return balance > 0 ? balance : 0;
 }
 
-export function formatMoney(amount: number) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-  }).format(amount);
+export function formatMoney(amount: number, currency = "USD") {
+  const cleanCurrency = (currency || "USD").toUpperCase();
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: cleanCurrency,
+      minimumFractionDigits: 2,
+    }).format(amount);
+  } catch (e) {
+    return `${cleanCurrency} ${amount.toFixed(2)}`;
+  }
+}
+
+export function convertCurrency(
+  amount: number,
+  from: string,
+  to: string,
+  rates: { usd_aed_rate?: number; usd_gbp_rate?: number; usd_eur_rate?: number }
+) {
+  const cleanFrom = (from || "USD").toUpperCase();
+  const cleanTo = (to || "USD").toUpperCase();
+  if (cleanFrom === cleanTo) return amount;
+
+  const rateMap: Record<string, number> = {
+    USD: 1,
+    AED: rates.usd_aed_rate ?? 3.6725,
+    GBP: rates.usd_gbp_rate ?? 0.7850,
+    EUR: rates.usd_eur_rate ?? 0.9250,
+  };
+
+  const rateFrom = rateMap[cleanFrom] ?? 1;
+  const rateTo = rateMap[cleanTo] ?? 1;
+
+  const amountInUSD = amount / rateFrom;
+  return amountInUSD * rateTo;
 }

@@ -26,6 +26,7 @@ import {
   sendAppointmentPaymentReminder,
 } from "@/lib/client-account";
 import type { AppointmentRecord } from "@/lib/exam-booking";
+import { fetchOrganizationSettings } from "@/lib/settings";
 
 type ClientPaymentPanelProps = {
   appointment: AppointmentRecord;
@@ -63,6 +64,21 @@ export function ClientPaymentPanel({
   const [reminderSubject, setReminderSubject] = React.useState("");
   const [reminderBody, setReminderBody] = React.useState("");
 
+  const [orgCurrency, setOrgCurrency] = React.useState("USD");
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const org = await fetchOrganizationSettings();
+        if (org.currency) {
+          setOrgCurrency(org.currency);
+        }
+      } catch (e) {
+        // Fallback to USD
+      }
+    })();
+  }, []);
+
   React.useEffect(() => {
     setReminderEmail(clientEmail ?? "");
   }, [clientEmail]);
@@ -71,7 +87,7 @@ export function ClientPaymentPanel({
     const code = `APT-${String(appointment.id).padStart(4, "0")}`;
     setReminderSubject(`Payment reminder — ${code}`);
     setReminderBody(
-      `Hello,\n\nThis is a reminder regarding your scheduled polygraph session (${code}).\n\nTotal fee: ${formatMoney(total)}\nPaid to date: ${formatMoney(paid)}\nBalance due: ${formatMoney(balance)}\n\nPlease contact us to arrange payment.\n\nThank you,\nPolygraph Forensic System`
+      `Hello,\n\nThis is a reminder regarding your scheduled polygraph session (${code}).\n\nTotal fee: ${formatMoney(total, orgCurrency)}\nPaid to date: ${formatMoney(paid, orgCurrency)}\nBalance due: ${formatMoney(balance, orgCurrency)}\n\nPlease contact us to arrange payment.\n\nThank you,\nPolygraph Forensic System`
     );
     setReminderOpen(true);
   };
@@ -139,18 +155,18 @@ export function ClientPaymentPanel({
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Total fee</dt>
-              <dd className="font-semibold tabular-nums">{formatMoney(total)}</dd>
+              <dd className="font-semibold tabular-nums">{formatMoney(total, orgCurrency)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-muted-foreground">Paid</dt>
               <dd className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                {formatMoney(paid)}
+                {formatMoney(paid, orgCurrency)}
               </dd>
             </div>
             <div className="flex justify-between border-t border-border/50 pt-2">
               <dt className="font-medium">Balance due</dt>
               <dd className="font-bold tabular-nums text-amber-600 dark:text-amber-400">
-                {formatMoney(balance)}
+                {formatMoney(balance, orgCurrency)}
               </dd>
             </div>
           </dl>
@@ -219,7 +235,7 @@ export function ClientPaymentPanel({
             />
             {balance > 0 && (
               <p className="text-xs text-muted-foreground">
-                Outstanding balance: {formatMoney(balance)}
+                Outstanding balance: {formatMoney(balance, orgCurrency)}
               </p>
             )}
           </div>
