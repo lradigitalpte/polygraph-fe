@@ -56,25 +56,116 @@ John,Smith,john@example.com,+1-555-0102,EMP-002`;
 
 function parseCsvRows(text: string) {
   const lines = text
-    .trim()
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  if (lines.length < 2) return [];
+  if (lines.length === 0) return [];
 
-  const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
-  const idx = (name: string) => header.indexOf(name);
+  // 1. Locate the header row.
+  // We search for a line that contains "NAME" (case-insensitive) or "FIRST_NAME".
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(",").map((c) => c.trim().toLowerCase());
+    if (cols.includes("name") || cols.includes("first_name")) {
+      headerIndex = i;
+      break;
+    }
+  }
 
-  return lines.slice(1).map((line) => {
-    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-    return {
-      first_name: cols[idx("first_name")] ?? cols[0] ?? "",
-      last_name: cols[idx("last_name")] ?? cols[1] ?? "",
-      email: cols[idx("email")] ?? "",
-      phone: cols[idx("phone")] ?? "",
-      employee_ref: cols[idx("employee_ref")] ?? "",
-    };
-  });
+  // If no header found, fall back to default parser
+  if (headerIndex === -1) {
+    const firstLine = lines[0].toLowerCase().split(",").map((h) => h.trim());
+    const idx = (name: string) => firstLine.indexOf(name);
+    return lines.slice(1).map((line) => {
+      const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+      return {
+        first_name: cols[idx("first_name")] ?? cols[0] ?? "",
+        last_name: cols[idx("last_name")] ?? cols[1] ?? "",
+        email: cols[idx("email")] ?? "",
+        phone: cols[idx("phone")] ?? "",
+        employee_ref: cols[idx("employee_ref")] ?? "",
+      };
+    });
+  }
+
+  const headerLine = lines[headerIndex];
+  const headers = headerLine.split(",").map((h) => h.trim().toLowerCase());
+  
+  // Find column positions
+  const nameIdx = headers.indexOf("name");
+  const firstNameIdx = headers.indexOf("first_name");
+  const lastNameIdx = headers.indexOf("last_name");
+  const phoneIdx = headers.findIndex(h => h.includes("phone"));
+  const emailIdx = headers.findIndex(h => h.includes("mail") || h.includes("email"));
+  const remarkIdx = headers.indexOf("remark");
+  const empRefIdx = headers.indexOf("employee_ref");
+
+  const results: Array<{
+    first_name: string;
+    last_name: string;
+    email?: string;
+    phone?: string;
+    employee_ref?: string;
+  }> = [];
+
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const cols = rawLine.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    
+    // Skip short lines
+    if (cols.length < 2) continue;
+    
+    let firstName = "";
+    let lastName = "";
+    
+    if (firstNameIdx !== -1) {
+      firstName = cols[firstNameIdx] ?? "";
+      lastName = cols[lastNameIdx] ?? "";
+    } else if (nameIdx !== -1) {
+      const fullName = cols[nameIdx] ?? "";
+      const parts = fullName.trim().split(/\s+/);
+      if (parts.length > 0 && parts[0]) {
+        firstName = parts[0];
+        lastName = parts.slice(1).join(" ") || "Subject";
+      }
+    }
+
+    // Skip if name is invalid or contains metadata/legends
+    if (!firstName || firstName.toLowerCase().includes("legend") || firstName.toLowerCase().includes("colour")) {
+      continue;
+    }
+    
+    // Also skip separator rows that have dates
+    if (rawLine.toLowerCase().includes("january") || rawLine.toLowerCase().includes("february") || rawLine.toLowerCase().includes("march") || rawLine.toLowerCase().includes("april")) {
+      continue;
+    }
+
+    const phone = phoneIdx !== -1 ? cols[phoneIdx] : "";
+    
+    // If email column contains "SENT" or other status, ignore it
+    let email = emailIdx !== -1 ? cols[emailIdx] : "";
+    if (email && (email.toLowerCase() === "sent" || email.toLowerCase() === "-")) {
+      email = "";
+    }
+
+    // Remark or employee_ref
+    let ref = "";
+    if (empRefIdx !== -1) {
+      ref = cols[empRefIdx];
+    } else if (remarkIdx !== -1) {
+      ref = cols[remarkIdx];
+    }
+
+    results.push({
+      first_name: firstName,
+      last_name: lastName,
+      email: email || undefined,
+      phone: phone || undefined,
+      employee_ref: ref || undefined,
+    });
+  }
+
+  return results;
 }
 
 export default function ExamineeRosterPage() {
@@ -481,8 +572,7 @@ export default function ExamineeRosterPage() {
           <DialogHeader>
             <DialogTitle>Import examinees (CSV)</DialogTitle>
             <DialogDescription>
-              Paste CSV or download the template. Columns: first_name, last_name, email, phone,
-              employee_ref.
+              Paste CSV or download the template. Supports standard templates and custom layouts containing columns like Name, Phone, and Remark.
             </DialogDescription>
           </DialogHeader>
           <Button type="button" variant="outline" size="sm" className="gap-2 w-fit" onClick={downloadTemplate}>

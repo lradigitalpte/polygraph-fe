@@ -329,3 +329,30 @@ export async function deleteAppointment(id: number): Promise<void> {
     throw new Error(payload?.error || `Failed to delete appointment (${response.status})`);
   }
 }
+
+export type BulkImportHistoricalRow = {
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  employee_ref?: string;
+  scheduled_at: string;
+  status: string;
+  verdict: string;
+};
+
+export async function bulkImportHistorical(input: {
+  client_id: number;
+  examiner_id: number;
+  exam_fee?: number;
+  rows: BulkImportHistoricalRow[];
+}): Promise<{ imported: number }> {
+  const response = await authenticatedFetch("/api/appointments/bulk-import-historical", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Bulk historical import failed (${response.status})`);
+  }
+  return response.json();
+}
