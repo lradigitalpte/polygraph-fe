@@ -66,6 +66,16 @@ export default function ReportsDashboard() {
   const [search, setSearch] = React.useState("");
   const [revealedPasswords, setRevealedPasswords] = React.useState<Record<number, boolean>>({});
 
+  // Sessions table filter + pagination
+  const [examsSearch, setExamsSearch] = React.useState("");
+  const [examsPage, setExamsPage] = React.useState(1);
+  const examsPerPage = 10;
+
+  // Shares table filter + pagination
+  const [sharesPage, setSharesPage] = React.useState(1);
+  const [sharesStatusFilter, setSharesStatusFilter] = React.useState<"all" | "active" | "expired">("all");
+  const sharesPerPage = 10;
+
   // Share Dialog states
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
@@ -150,10 +160,40 @@ export default function ReportsDashboard() {
     }));
   };
 
-  // Filter appointments that have active exams
+  // Sessions table derived data
   const completedExams = React.useMemo(() => {
     return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
   }, [appointments]);
+
+  const filteredExams = React.useMemo(() => {
+    const q = examsSearch.trim().toLowerCase();
+    if (!q) return completedExams;
+    return completedExams.filter((appt) => {
+      const name = appt.subject
+        ? `${appt.subject.first_name} ${appt.subject.last_name}`.toLowerCase()
+        : "";
+      const client = (appt.client?.name || "").toLowerCase();
+      return name.includes(q) || client.includes(q);
+    });
+  }, [completedExams, examsSearch]);
+
+  const examsTotalPages = Math.max(1, Math.ceil(filteredExams.length / examsPerPage));
+  React.useEffect(() => { if (examsPage > examsTotalPages) setExamsPage(examsTotalPages); }, [examsTotalPages, examsPage]);
+  const paginatedExams = filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage);
+
+  // Shares table derived data
+  const filteredShares = React.useMemo(() => {
+    const now = Date.now();
+    return shares.filter((s) => {
+      if (sharesStatusFilter === "active") return new Date(s.expires_at).getTime() >= now;
+      if (sharesStatusFilter === "expired") return new Date(s.expires_at).getTime() < now;
+      return true;
+    });
+  }, [shares, sharesStatusFilter]);
+
+  const sharesTotalPages = Math.max(1, Math.ceil(filteredShares.length / sharesPerPage));
+  React.useEffect(() => { if (sharesPage > sharesTotalPages) setSharesPage(sharesTotalPages); }, [sharesTotalPages, sharesPage]);
+  const paginatedShares = filteredShares.slice((sharesPage - 1) * sharesPerPage, sharesPage * sharesPerPage);
 
   if (userLoading) {
     return (
@@ -229,14 +269,27 @@ export default function ReportsDashboard() {
 
       {/* Sessions Ready for Report Building */}
       <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-[2.5rem] overflow-hidden shadow-xl">
-        <CardHeader className="px-8 pt-8">
-          <CardTitle className="text-base flex items-center gap-2 font-bold">
-            <ClipboardList className="h-5 w-5 text-primary" />
-            Sessions Ready for Report Customization
-          </CardTitle>
-          <CardDescription>
-            Exams that have active documentation records. Build their detailed template reports before secure sharing.
-          </CardDescription>
+        <CardHeader className="px-8 pt-8 pb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2 font-bold">
+                <ClipboardList className="h-5 w-5 text-primary" />
+                Sessions Ready for Report Customization
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Exams that have active documentation records. Build their detailed template reports before secure sharing.
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:w-72 shrink-0">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search examinee or client..."
+                className="h-10 pl-10 rounded-xl bg-card border-border/50 text-sm"
+                value={examsSearch}
+                onChange={(e) => { setExamsSearch(e.target.value); setExamsPage(1); }}
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -257,8 +310,8 @@ export default function ReportsDashboard() {
                       Loading sessions...
                     </td>
                   </tr>
-                ) : completedExams.length > 0 ? (
-                  completedExams.map((appt) => {
+                ) : paginatedExams.length > 0 ? (
+                  paginatedExams.map((appt) => {
                     const examineeName = appt.subject
                       ? formatSubjectName(appt.subject)
                       : `Examinee #${appt.subject_id}`;
@@ -303,17 +356,47 @@ export default function ReportsDashboard() {
                 ) : (
                   <tr>
                     <td colSpan={5} className="px-8 py-12 text-center text-muted-foreground italic">
-                      No active sessions found. Ensure session documentation is started or completed.
+                      {examsSearch ? "No sessions match your search." : "No active sessions found. Ensure session documentation is started or completed."}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {/* Sessions pagination footer */}
+          <div className="flex flex-col sm:flex-row items-center justify-between px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              Showing{" "}
+              <span className="text-foreground">
+                {filteredExams.length > 0 ? (examsPage - 1) * examsPerPage + 1 : 0}–{Math.min(examsPage * examsPerPage, filteredExams.length)}
+              </span>{" "}
+              of {filteredExams.length} sessions
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
+                onClick={() => setExamsPage((p) => Math.max(1, p - 1))}
+                disabled={examsPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
+                onClick={() => setExamsPage((p) => Math.min(examsTotalPages, p + 1))}
+                disabled={examsPage === examsTotalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Filter and Table */}
+      {/* Shares Filter and Table */}
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
           <div className="relative w-full sm:w-80 group">
@@ -322,8 +405,21 @@ export default function ReportsDashboard() {
               placeholder="Search by examinee or email..."
               className="h-12 pl-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setSharesPage(1); }}
             />
+          </div>
+          <div className="flex items-center gap-2">
+            {(["all", "active", "expired"] as const).map((f) => (
+              <Button
+                key={f}
+                size="sm"
+                variant={sharesStatusFilter === f ? "default" : "outline"}
+                className="h-10 px-5 rounded-xl capitalize text-xs font-black uppercase tracking-widest"
+                onClick={() => { setSharesStatusFilter(f); setSharesPage(1); }}
+              >
+                {f === "all" ? "All" : f === "active" ? "Active" : "Expired"}
+              </Button>
+            ))}
           </div>
         </div>
 
@@ -346,8 +442,8 @@ export default function ReportsDashboard() {
                       Loading reports list...
                     </td>
                   </tr>
-                ) : shares.length > 0 ? (
-                  shares.map((share) => {
+                ) : paginatedShares.length > 0 ? (
+                  paginatedShares.map((share) => {
                     const isExpired = new Date(share.expires_at).getTime() < Date.now();
                     const formattedExpiry = new Date(share.expires_at).toLocaleDateString(undefined, {
                       month: "short",
@@ -466,6 +562,36 @@ export default function ReportsDashboard() {
                 )}
               </tbody>
             </table>
+          </div>
+          {/* Shares pagination footer */}
+          <div className="flex flex-col sm:flex-row items-center justify-between px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              Showing{" "}
+              <span className="text-foreground">
+                {filteredShares.length > 0 ? (sharesPage - 1) * sharesPerPage + 1 : 0}–{Math.min(sharesPage * sharesPerPage, filteredShares.length)}
+              </span>{" "}
+              of {filteredShares.length} reports
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
+                onClick={() => setSharesPage((p) => Math.max(1, p - 1))}
+                disabled={sharesPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
+                onClick={() => setSharesPage((p) => Math.min(sharesTotalPages, p + 1))}
+                disabled={sharesPage === sharesTotalPages}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
       </div>

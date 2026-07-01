@@ -40,6 +40,8 @@ import { formatSubjectName } from "@/lib/subjects";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { formatMoney } from "@/lib/client-account";
+import { fetchOrganizationSettings } from "@/lib/settings";
 
 type LedgerRow = {
   id: number;
@@ -130,6 +132,10 @@ export default function ExamsPage() {
   const [savingReschedule, setSavingReschedule] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
+  // Org settings for currency display
+  const [orgSettings, setOrgSettings] = React.useState<{ currency: string }>({ currency: "AED" });
+  const orgCurrency = orgSettings.currency || "AED";
+
   // Pagination & Edit states
   const [currentPage, setCurrentPage] = React.useState(1);
   const itemsPerPage = 10;
@@ -144,14 +150,16 @@ export default function ExamsPage() {
     async function loadData() {
       setLoading(true);
       try {
-        const [appointments, examiners, examTypesList] = await Promise.all([
+        const [appointments, examiners, examTypesList, org] = await Promise.all([
           fetchAppointments(),
           fetchExaminers(),
           fetchExamTypes(),
+          fetchOrganizationSettings().catch(() => ({ currency: "AED" })),
         ]);
         if (cancelled) {
           return;
         }
+        if (org) setOrgSettings(org as { currency: string });
         const mapped = mapRows(appointments, examiners);
         setRows(mapped);
         setExamTypes(examTypesList);
@@ -414,7 +422,7 @@ export default function ExamsPage() {
           { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
           { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
           ...(canViewPayments
-            ? [{ label: "Accounts Receivable", value: `$${stats.receivable.toFixed(2)}`, icon: CreditCard, color: "text-rose-500" }]
+            ? [{ label: "Accounts Receivable", value: formatMoney(stats.receivable, orgCurrency), icon: CreditCard, color: "text-rose-500" }]
             : []),
           { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
         ].map((stat) => (
@@ -578,7 +586,7 @@ export default function ExamsPage() {
                               "bg-rose-500/10 text-rose-600",
                             )}
                           >
-                            {row.payment} • ${row.amount.toFixed(2)}
+                            {row.payment} • {formatMoney(row.amount, orgCurrency)}
                           </Badge>
                         </td>
                       )}

@@ -1288,15 +1288,17 @@ export default function PaymentsPage() {
 
             <div className="space-y-3">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Collection Amount ({selectedInvoice?.currency || orgCurrency})</label>
-              <div className="relative">
+              <div className="flex items-stretch gap-3">
+                <div className="flex items-center justify-center px-4 rounded-[1.5rem] bg-muted/40 border border-border/50 shadow-inner min-w-[70px]">
+                  <span className="text-base font-black text-primary tracking-wider">{selectedInvoice?.currency || orgCurrency}</span>
+                </div>
                 <Input 
                   placeholder="0.00" 
-                  className="h-20 pl-14 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
+                  className="h-20 flex-1 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
                   value={paymentAmount}
                   onChange={e => setPaymentAmount(e.target.value)}
                   disabled={recordingPayment}
                 />
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-primary">{selectedInvoice?.currency || orgCurrency}</span>
               </div>
               <div className="grid grid-cols-3 gap-3 pt-2">
                     {[100, 250, 500].map(val => (
@@ -1418,18 +1420,18 @@ export default function PaymentsPage() {
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">
                 New Price ({orgCurrency})
               </label>
-              <div className="relative">
+              <div className="flex items-stretch gap-3">
+                <div className="flex items-center justify-center px-4 rounded-[1.5rem] bg-muted/40 border border-border/50 shadow-inner min-w-[70px]">
+                  <span className="text-base font-black text-primary tracking-wider">{orgCurrency}</span>
+                </div>
                 <Input
                   type="number"
                   placeholder="1000.00"
-                  className="h-20 pl-14 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
+                  className="h-20 flex-1 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
                   value={bulkEditPrice}
                   onChange={(e) => setBulkEditPrice(e.target.value)}
                   disabled={updatingPrices}
                 />
-                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-primary">
-                  {orgCurrency}
-                </span>
               </div>
               <p className="text-[10px] text-muted-foreground leading-relaxed pl-1 pt-1">
                 This will update the underlying appointment exam fees or quotation totals. Completed transactions will have their collected amounts synced to match.
