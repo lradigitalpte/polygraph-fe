@@ -24,13 +24,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { isOrganizationClient } from "@/lib/client-types";
 import {
   deleteAppointment,
   fetchAppointments,
   rescheduleAppointment,
+  fetchExamTypes,
+  updateAppointment,
   type AppointmentRecord,
+  type ExamTypeRecord,
 } from "@/lib/exam-booking";
 import { formatSubjectName } from "@/lib/subjects";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
@@ -62,6 +66,17 @@ type LedgerRow = {
 };
 
 type DatePreset = "all" | "today" | "week" | "month" | "custom";
+
+function parseLocalDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return null;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  return new Date(year, month, day);
+}
 
 function startOfDay(date: Date): Date {
   const d = new Date(date);
@@ -115,18 +130,31 @@ export default function ExamsPage() {
   const [savingReschedule, setSavingReschedule] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
+  // Pagination & Edit states
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const itemsPerPage = 10;
+  const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
+  const [editExamType, setEditExamType] = React.useState<ExamTypeRecord | null>(null);
+  const [editPrice, setEditPrice] = React.useState("");
+  const [savingFields, setSavingFields] = React.useState(false);
+
   React.useEffect(() => {
     let cancelled = false;
 
     async function loadData() {
       setLoading(true);
       try {
-        const [appointments, examiners] = await Promise.all([fetchAppointments(), fetchExaminers()]);
+        const [appointments, examiners, examTypesList] = await Promise.all([
+          fetchAppointments(),
+          fetchExaminers(),
+          fetchExamTypes(),
+        ]);
         if (cancelled) {
           return;
         }
         const mapped = mapRows(appointments, examiners);
         setRows(mapped);
+        setExamTypes(examTypesList);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to load ledger");
       } finally {
@@ -149,8 +177,10 @@ export default function ExamsPage() {
       let from: Date | undefined;
       let to: Date | undefined;
       if (datePreset === "custom") {
-        if (dateFrom) from = startOfDay(new Date(`${dateFrom}T00:00:00`));
-        if (dateTo) to = endOfDay(new Date(`${dateTo}T00:00:00`));
+        const parsedFrom = parseLocalDate(dateFrom);
+        if (parsedFrom) from = startOfDay(parsedFrom);
+        const parsedTo = parseLocalDate(dateTo);
+        if (parsedTo) to = endOfDay(parsedTo);
       } else {
         const range = presetRange(datePreset);
         from = range.from;
@@ -177,6 +207,20 @@ export default function ExamsPage() {
     );
   }, [rows, searchQuery, datePreset, dateFrom, dateTo]);
 
+  const totalPages = React.useMemo(() => {
+    return Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
+  }, [filteredRows.length, itemsPerPage]);
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const paginatedRows = React.useMemo(() => {
+    return filteredRows.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  }, [filteredRows, currentPage, itemsPerPage]);
+
   const stats = React.useMemo(() => {
     const pending = rows.filter((row) => row.status === "Pending").length;
     const today = new Date().toDateString();
@@ -191,6 +235,9 @@ export default function ExamsPage() {
 
   const openDetails = (row: LedgerRow) => {
     setSelectedExam(row);
+    const matchedType = examTypes.find((et) => et.name === row.type);
+    setEditExamType(matchedType || null);
+    setEditPrice(String(row.amount));
     const d = new Date(row.scheduledAt);
     if (!Number.isNaN(d.getTime())) {
       // Local date/time strings for the date & time inputs.
@@ -233,6 +280,56 @@ export default function ExamsPage() {
     }
   };
 
+  const handleExamTypeChange = (et: ExamTypeRecord) => {
+    setEditExamType(et);
+    setEditPrice(String(et.price));
+  };
+
+  const handleSaveExamTypeAndPrice = async () => {
+    if (!selectedExam) return;
+    if (!editExamType) {
+      toast.error("Please select an exam type");
+      return;
+    }
+    const newPrice = parseFloat(editPrice);
+    if (isNaN(newPrice) || newPrice < 0) {
+      toast.error("Please enter a valid price");
+      return;
+    }
+    setSavingFields(true);
+    try {
+      const newNotes = [editExamType.name, selectedExam.reason].filter(Boolean).join("\n");
+      await updateAppointment(selectedExam.id, {
+        notes: newNotes,
+        exam_fee: newPrice,
+      });
+
+      setRows((current) =>
+        current.map((row) =>
+          row.id === selectedExam.id
+            ? { ...row, type: editExamType.name, amount: newPrice }
+            : row
+        )
+      );
+
+      setSelectedExam((prev) =>
+        prev
+          ? {
+              ...prev,
+              type: editExamType.name,
+              amount: newPrice,
+            }
+          : null
+      );
+
+      toast.success("Exam type and price updated successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update exam type/price");
+    } finally {
+      setSavingFields(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!selectedExam) return;
     setDeleting(true);
@@ -248,6 +345,46 @@ export default function ExamsPage() {
     }
   };
 
+  const handleExportCSV = () => {
+    const headers = [
+      "Exam ID",
+      "Examinee / Client",
+      "Billing Account",
+      "Assigned Expert",
+      "Type",
+      "Date",
+      "Time",
+      "Fee Amount",
+      "Paid Amount",
+      "Payment Status",
+      "Appointment Status"
+    ];
+    const exportRows = filteredRows.map((row) => [
+      row.code,
+      row.client,
+      row.accountName || "—",
+      row.examiner,
+      row.type,
+      row.dateLabel,
+      row.timeLabel,
+      row.amount.toFixed(2),
+      row.collected.toFixed(2),
+      row.payment,
+      row.status
+    ]);
+
+    const csvContent = [headers.join(","), ...exportRows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Polygraph_Exams_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Exams list exported to CSV");
+  };
+
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto pb-10">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -261,7 +398,7 @@ export default function ExamsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="h-10 px-4 rounded-xl border-border/50 hover:bg-muted/50 transition-all font-semibold">
+          <Button onClick={handleExportCSV} variant="outline" className="h-10 px-4 rounded-xl border-border/50 hover:bg-muted/50 transition-all font-semibold">
             <Download className="mr-2 h-4 w-4 text-muted-foreground" />
             Export Data
           </Button>
@@ -400,7 +537,7 @@ export default function ExamsPage() {
                     <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={canViewPayments ? 6 : 5}>No appointments found.</td>
                   </tr>
                 ) : (
-                  filteredRows.map((row) => (
+                  paginatedRows.map((row) => (
                     <tr key={row.id} className="hover:bg-primary/[0.02] transition-colors group relative">
                       <td className="px-6 py-5">
                         <div className="flex flex-col gap-0.5">
@@ -475,10 +612,30 @@ export default function ExamsPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between px-6 py-5 bg-muted/10 border-t border-border/50">
+          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-5 bg-muted/10 border-t border-border/50 gap-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              Showing <span className="text-foreground">{filteredRows.length}</span> of {rows.length}
+              Showing <span className="text-foreground">{filteredRows.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredRows.length)}</span> of {filteredRows.length} Exams
             </p>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   FileSignature,
   Mail,
@@ -38,10 +38,10 @@ import {
   type SecureReportShare,
 } from "@/lib/reports";
 import { formatSubjectName } from "@/lib/subjects";
-import { ReportEditorDialog } from "@/components/dashboard/report-editor-dialog";
 
 export default function ClientReportsPage() {
   const params = useParams();
+  const router = useRouter();
   const clientId = Number(params.id);
   const { client, appointments, loading: clientLoading } = useClientDetail();
 
@@ -54,15 +54,9 @@ export default function ClientReportsPage() {
   const [recipientEmail, setRecipientEmail] = React.useState("");
   const [sharing, setSharing] = React.useState(false);
 
-  // Report builder modal states
-  const [reportEditorOpen, setReportEditorOpen] = React.useState(false);
-  const [reportEditorExamId, setReportEditorExamId] = React.useState<number | null>(null);
-  const [reportEditorSubjectName, setReportEditorSubjectName] = React.useState("");
 
   const handleOpenReportEditor = (examId: number, subjectName: string) => {
-    setReportEditorExamId(examId);
-    setReportEditorSubjectName(subjectName);
-    setReportEditorOpen(true);
+    router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
   };
 
   const loadShares = async () => {
@@ -390,17 +384,6 @@ export default function ClientReportsPage() {
         </DialogContent>
       </Dialog>
 
-      {reportEditorExamId && (
-        <ReportEditorDialog
-          open={reportEditorOpen}
-          onOpenChange={setReportEditorOpen}
-          examId={reportEditorExamId}
-          subjectName={reportEditorSubjectName}
-          onSaveSuccess={() => {
-            void loadShares();
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -253,3 +253,30 @@ export function ledgerEntryCollectTarget(entry: AccountLedgerEntry): {
   }
   return { kind: "quotation", id: entry.quotation_id ?? entry.reference_id };
 }
+
+export async function bulkEditInvoicePrices(
+  targets: {
+    source: string;
+    id: number;
+    appointmentId?: number;
+    quotationId?: number;
+  }[],
+  newPrice: number
+): Promise<void> {
+  const response = await authenticatedFetch("/api/billing/bulk-edit-prices", {
+    method: "POST",
+    body: JSON.stringify({
+      targets: targets.map((t) => ({
+        source: t.source,
+        id: t.id,
+        appointment_id: t.appointmentId || undefined,
+        quotation_id: t.quotationId || undefined,
+      })),
+      new_price: newPrice,
+    }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to bulk edit prices (${response.status})`);
+  }
+}

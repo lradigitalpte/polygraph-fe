@@ -47,7 +47,6 @@ import {
 } from "@/lib/reports";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import { formatSubjectName } from "@/lib/subjects";
-import { ReportEditorDialog } from "@/components/dashboard/report-editor-dialog";
 
 export default function ReportsDashboard() {
   const router = useRouter();
@@ -72,10 +71,6 @@ export default function ReportsDashboard() {
   const [recipientEmail, setRecipientEmail] = React.useState("");
   const [sharing, setSharing] = React.useState(false);
 
-  // Report Builder states
-  const [reportEditorOpen, setReportEditorOpen] = React.useState(false);
-  const [reportEditorExamId, setReportEditorExamId] = React.useState<number | null>(null);
-  const [reportEditorSubjectName, setReportEditorSubjectName] = React.useState("");
 
   const loadData = async () => {
     setLoading(true);
@@ -123,9 +118,7 @@ export default function ReportsDashboard() {
   };
 
   const handleOpenReportEditor = (examId: number, subjectName: string) => {
-    setReportEditorExamId(examId);
-    setReportEditorSubjectName(subjectName);
-    setReportEditorOpen(true);
+    router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
   };
 
   const handleCopyLink = (token: string) => {
@@ -536,18 +529,6 @@ export default function ReportsDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Detailed Report Builder */}
-      {reportEditorExamId && (
-        <ReportEditorDialog
-          open={reportEditorOpen}
-          onOpenChange={setReportEditorOpen}
-          examId={reportEditorExamId}
-          subjectName={reportEditorSubjectName}
-          onSaveSuccess={() => {
-            void loadData();
-          }}
-        />
-      )}
     </div>
   );
 }

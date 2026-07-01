@@ -305,7 +305,6 @@ export async function updateAppointmentPayment(
   }
 }
 
-// Reschedule an appointment. scheduled_at must be an ISO/RFC3339 timestamp.
 export async function rescheduleAppointment(
   id: number,
   input: { scheduled_at: string; duration?: number }
@@ -317,6 +316,25 @@ export async function rescheduleAppointment(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to reschedule (${response.status})`);
+  }
+}
+
+export async function updateAppointment(
+  id: number,
+  input: Partial<{
+    scheduled_at: string;
+    duration: number;
+    notes: string;
+    exam_fee: number;
+  }>
+): Promise<void> {
+  const response = await authenticatedFetch(`/api/appointments/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to update appointment (${response.status})`);
   }
 }
 

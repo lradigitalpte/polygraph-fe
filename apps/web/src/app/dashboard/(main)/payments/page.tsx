@@ -39,7 +39,7 @@ import {
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { collectAppointmentPayment, formatMoney, convertCurrency } from "@/lib/client-account";
-import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, type FinancialInvoice } from "@/lib/billing";
+import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
@@ -245,6 +245,29 @@ export default function PaymentsPage() {
   // Pagination State
   const [currentPage, setCurrentPage] = React.useState(1);
   const itemsPerPage = 10;
+
+  // Bulk Edit State
+  const [selectedInvoiceKeys, setSelectedInvoiceKeys] = React.useState<string[]>([]);
+  const [isBulkPriceEditOpen, setIsBulkPriceEditOpen] = React.useState(false);
+  const [bulkEditPrice, setBulkEditPrice] = React.useState("1000");
+  const [updatingPrices, setUpdatingPrices] = React.useState(false);
+
+  const handleToggleRow = (source: string, id: number) => {
+    const key = `${source}-${id}`;
+    setSelectedInvoiceKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleToggleAll = (visibleInvoices: Invoice[]) => {
+    const visibleKeys = visibleInvoices.map((inv) => `${inv.source}-${inv.id}`);
+    const allSelected = visibleKeys.every((k) => selectedInvoiceKeys.includes(k));
+    if (allSelected) {
+      setSelectedInvoiceKeys((prev) => prev.filter((k) => !visibleKeys.includes(k)));
+    } else {
+      setSelectedInvoiceKeys((prev) => Array.from(new Set([...prev, ...visibleKeys])));
+    }
+  };
 
   // Modal states
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = React.useState(false);
@@ -519,6 +542,42 @@ export default function PaymentsPage() {
     }
   };
 
+  const handleBulkPriceEditSubmit = async () => {
+    if (selectedInvoiceKeys.length === 0) {
+      toast.error("No transactions selected");
+      return;
+    }
+    const newPrice = Number(bulkEditPrice);
+    if (isNaN(newPrice) || newPrice < 0) {
+      toast.error("Please enter a valid price");
+      return;
+    }
+    setUpdatingPrices(true);
+    try {
+      const targets = selectedInvoiceKeys.map((k) => {
+        const parts = k.split("-");
+        const source = parts[0];
+        const id = Number(parts[1]);
+        const inv = invoices.find((i) => i.id === id && i.source === source);
+        return {
+          source,
+          id,
+          appointmentId: inv?.appointmentId,
+          quotationId: inv?.quotationId,
+        };
+      });
+      await bulkEditInvoicePrices(targets, newPrice);
+      await loadData();
+      setSelectedInvoiceKeys([]);
+      setIsBulkPriceEditOpen(false);
+      toast.success(`Successfully updated ${targets.length} transactions to ${formatMoney(newPrice, orgCurrency)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to bulk edit prices");
+    } finally {
+      setUpdatingPrices(false);
+    }
+  };
+
   return (
     <div className="space-y-10 max-w-[1600px] mx-auto pb-20 px-4 sm:px-0">
       {/* Decorative Background */}
@@ -593,6 +652,14 @@ export default function PaymentsPage() {
             />
           </div>
           <div className="flex items-center gap-3">
+            {selectedInvoiceKeys.length > 0 && (
+              <Button
+                onClick={() => setIsBulkPriceEditOpen(true)}
+                className="h-12 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/25 transition-all"
+              >
+                Bulk Edit ({selectedInvoiceKeys.length})
+              </Button>
+            )}
             <Button
               variant="outline"
               className="h-12 rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm px-6 gap-2 hover:bg-muted/50 transition-all"
@@ -617,6 +684,19 @@ export default function PaymentsPage() {
             <table className="w-full text-sm text-left border-collapse">
               <thead>
                 <tr className="bg-muted/30 border-b border-border/50">
+                  <th className="w-12 px-6 py-5">
+                    <input
+                      type="checkbox"
+                      checked={
+                        paginatedInvoices.length > 0 &&
+                        paginatedInvoices.every((inv) =>
+                          selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`)
+                        )
+                      }
+                      onChange={() => handleToggleAll(paginatedInvoices)}
+                      className="rounded border-border/50 h-4 w-4 accent-primary cursor-pointer"
+                    />
+                  </th>
                   <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Invoice / Client</th>
                   <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status</th>
                   <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Progress</th>
@@ -627,7 +707,7 @@ export default function PaymentsPage() {
               <tbody className="divide-y divide-border/20">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
+                    <td colSpan={6} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
                       Loading financial records...
                     </td>
                   </tr>
@@ -638,7 +718,15 @@ export default function PaymentsPage() {
                     const convertedBalance = convertedTotal - convertedPaid;
 
                     return (
-                      <tr key={inv.id} className="hover:bg-primary/[0.03] transition-all group">
+                      <tr key={`${inv.source}-${inv.id}`} className="hover:bg-primary/[0.03] transition-all group">
+                        <td className="px-6 py-6 w-12 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`)}
+                            onChange={() => handleToggleRow(inv.source, inv.id)}
+                            className="rounded border-border/50 h-4 w-4 accent-primary cursor-pointer"
+                          />
+                        </td>
                         <td className="px-8 py-6">
                           <div className="flex flex-col gap-1">
                             <span className="font-black text-base leading-none text-foreground">{inv.client}</span>
@@ -710,7 +798,7 @@ export default function PaymentsPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
+                    <td colSpan={6} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
                       No invoices found matching your criteria.
                     </td>
                   </tr>
@@ -967,7 +1055,12 @@ export default function PaymentsPage() {
                 <div className="flex items-center justify-between h-12 px-4 rounded-xl border border-border bg-muted/20">
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-sm">{form.examType.name}</span>
-                    <Badge variant="outline" className="text-[9px] font-black">{formatMoney(form.examType.price, form.currency)}</Badge>
+                    <Badge variant="outline" className="text-[9px] font-black">
+                      {formatMoney(
+                        convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings),
+                        form.currency
+                      )}
+                    </Badge>
                   </div>
                   <button onClick={() => setForm((f) => ({ ...f, examType: null, examTypeSearch: "" }))} className="text-muted-foreground hover:text-foreground">
                     <X className="h-4 w-4" />
@@ -992,7 +1085,12 @@ export default function PaymentsPage() {
                           onClick={() => setForm((f) => ({ ...f, examType: et, examTypeSearch: "", showExamTypeList: false }))}
                         >
                           <span>{et.name}</span>
-                          <span className="text-xs font-black text-primary">{formatMoney(et.price, form.currency)}</span>
+                          <span className="text-xs font-black text-primary">
+                            {formatMoney(
+                              convertCurrency(et.price, orgCurrency, form.currency, orgSettings),
+                              form.currency
+                            )}
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1301,6 +1399,70 @@ export default function PaymentsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Bulk Price Edit Dialog */}
+      <Dialog open={isBulkPriceEditOpen} onOpenChange={setIsBulkPriceEditOpen}>
+        <DialogContent className="max-w-md rounded-[2rem] border-border/50 bg-background/95 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <DollarSign className="h-6 w-6 text-amber-500" />
+              Bulk Edit Transaction Prices
+            </DialogTitle>
+            <DialogDescription className="font-semibold text-xs mt-1">
+              Override the total billed amount for all {selectedInvoiceKeys.length} selected transactions.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">
+                New Price ({orgCurrency})
+              </label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  placeholder="1000.00"
+                  className="h-20 pl-14 rounded-[1.5rem] border-border/50 bg-muted/30 text-3xl font-black focus:bg-background transition-all shadow-inner"
+                  value={bulkEditPrice}
+                  onChange={(e) => setBulkEditPrice(e.target.value)}
+                  disabled={updatingPrices}
+                />
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-2xl font-black text-primary">
+                  {orgCurrency}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed pl-1 pt-1">
+                This will update the underlying appointment exam fees or quotation totals. Completed transactions will have their collected amounts synced to match.
+              </p>
+            </div>
+
+            <div className="pt-4 flex gap-3">
+              <Button
+                variant="outline"
+                className="w-full h-12 rounded-2xl font-semibold border-border/40 hover:bg-muted/50"
+                onClick={() => setIsBulkPriceEditOpen(false)}
+                disabled={updatingPrices}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="w-full h-12 rounded-2xl font-black uppercase tracking-[0.15em] bg-primary text-primary-foreground shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                onClick={() => void handleBulkPriceEditSubmit()}
+                disabled={updatingPrices}
+              >
+                {updatingPrices ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Updating...
+                  </>
+                ) : (
+                  "Apply Override"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
