@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -28,7 +28,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { fetchReport, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { fetchReport, requestReportOverrideUnlock, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
@@ -36,11 +45,16 @@ export default function ReportBuilderPage() {
   const searchParams = useSearchParams();
   const examId = Number(params.examId);
   const initialSubjectName = searchParams.get("subject") || "Candidate A";
+  const { can } = useCurrentUser();
 
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(true);
+  const [isLocked, setIsLocked] = React.useState(false);
+  const [overrideReason, setOverrideReason] = React.useState("");
+  const [overrideDialogOpen, setOverrideDialogOpen] = React.useState(false);
+  const [overrideSubmitting, setOverrideSubmitting] = React.useState(false);
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -59,6 +73,7 @@ export default function ReportBuilderPage() {
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
   const [conclusion, setConclusion] = React.useState("");
+  const canOverrideLockedReport = can("exam:report:override");
 
   React.useEffect(() => {
     setMounted(true);
@@ -82,6 +97,7 @@ export default function ReportBuilderPage() {
       .then((report) => {
         if (report) {
           setVerdict(report.verdict);
+          setIsLocked(Boolean(report.is_locked));
           try {
             const parsed = JSON.parse(report.content) as StructuredReportData & {
               reference_no?: string;
@@ -158,6 +174,7 @@ export default function ReportBuilderPage() {
       })
       .catch((err) => {
         toast.error("Failed to load report data");
+        setIsLocked(false);
       })
       .finally(() => {
         setLoading(false);
@@ -179,6 +196,10 @@ export default function ReportBuilderPage() {
   };
 
   const handleSave = async () => {
+    if (isLocked) {
+      toast.error("This report is locked and view-only.");
+      return;
+    }
     if (!verdict) {
       toast.error("Please select a verdict");
       return;
@@ -224,6 +245,25 @@ export default function ReportBuilderPage() {
     }
   };
 
+  const handleOverrideUnlock = async () => {
+    if (!overrideReason.trim()) {
+      toast.error("Please enter a reason for the override.");
+      return;
+    }
+    setOverrideSubmitting(true);
+    try {
+      await requestReportOverrideUnlock(examId, overrideReason.trim());
+      setIsLocked(false);
+      setOverrideDialogOpen(false);
+      setOverrideReason("");
+      toast.success("Report unlocked for controlled revision. Existing secure shares were expired.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to unlock report");
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
+
   if (!mounted) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -266,22 +306,38 @@ export default function ReportBuilderPage() {
             {showPreview ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
             {showPreview ? "Hide Preview" : "Show Preview"}
           </Button>
+          {isLocked && canOverrideLockedReport ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl h-11 px-5 font-semibold"
+              onClick={() => setOverrideDialogOpen(true)}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4 rotate-180" />
+              Unlock For Revision
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             className="rounded-xl h-11 px-5 hover:bg-muted/50 font-semibold"
             onClick={() => router.back()}
           >
-            Cancel / Draft
+            {isLocked ? "Close" : "Cancel / Draft"}
           </Button>
           <Button
             className="rounded-xl font-bold gap-2 h-11 px-6 bg-primary hover:scale-[1.02] shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-primary-foreground"
             onClick={() => void handleSave()}
-            disabled={saving || loading}
+            disabled={saving || loading || isLocked}
           >
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Saving Report...
+              </>
+            ) : isLocked ? (
+              <>
+                <Eye className="h-4 w-4" />
+                View Only
               </>
             ) : (
               <>
@@ -303,7 +359,15 @@ export default function ReportBuilderPage() {
           <div className={`${showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12"} border-border/40 overflow-y-auto p-6 space-y-6 max-h-[calc(100vh-140px)]`}>
             <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
               Report Parameters
-            </h3>
+            </h3>            {isLocked ? (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-950">
+                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
+                  <Eye className="h-4 w-4" /> Locked Final Report
+                </div>
+                <p className="mt-2 text-xs text-amber-900/80">This report is view-only. To make changes, an authorized user must unlock it for a controlled revision with a recorded reason.</p>
+              </div>
+            ) : null}
+
 
             {/* Ref & Date & Verdict */}
             <div className="grid grid-cols-2 gap-4">
@@ -530,6 +594,7 @@ export default function ReportBuilderPage() {
             </div>
           </div>
 
+
           {/* Right Column: Live A4 Document Preview */}
           {showPreview ? (
           <div className="lg:col-span-7 bg-zinc-950/40 p-8 overflow-y-auto max-h-[calc(100vh-140px)] flex flex-col items-center">
@@ -713,6 +778,46 @@ export default function ReportBuilderPage() {
           ) : null}
         </div>
       )}
+      <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Unlock Locked Report</DialogTitle>
+            <DialogDescription>
+              This action reopens the locked report for revision and expires any active secure shares. A reason is required and the action is written to the audit log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="override-reason">Override Reason</Label>
+            <Textarea
+              id="override-reason"
+              rows={4}
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Explain why this final report must be reopened for revision..."
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOverrideDialogOpen(false)} disabled={overrideSubmitting}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleOverrideUnlock()} disabled={overrideSubmitting}>
+              {overrideSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Confirm Unlock
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

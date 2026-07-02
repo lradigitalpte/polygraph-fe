@@ -1,4 +1,4 @@
-import { authenticatedFetch } from "@/lib/api-client";
+﻿import { authenticatedFetch } from "@/lib/api-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -31,6 +31,18 @@ export type ConsolidatedReportStats = {
   ndi_count: number;
   di_count: number;
   inconclusive_count: number;
+};
+
+export type ExamReportRecord = {
+  id: number;
+  exam_id: number;
+  verdict: string;
+  content: string;
+  created_at: string;
+  is_locked: boolean;
+  locked_at?: string | null;
+  signature_examiner?: string;
+  signature_client?: string;
 };
 
 export async function fetchSecureShares(filters?: {
@@ -114,13 +126,7 @@ export type StructuredReportData = {
   conclusion: string;
 };
 
-export async function fetchReport(examId: number): Promise<{
-  id: number;
-  exam_id: number;
-  verdict: string;
-  content: string;
-  created_at: string;
-} | null> {
+export async function fetchReport(examId: number): Promise<ExamReportRecord | null> {
   const response = await authenticatedFetch(`/api/reports/${examId}`);
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -147,4 +153,15 @@ export async function saveDetailedReport(
     throw new Error(payload?.error || `Failed to save report (${response.status})`);
   }
   return payload;
+}
+
+export async function requestReportOverrideUnlock(examId: number, reason: string): Promise<void> {
+  const response = await authenticatedFetch(`/api/reports/${examId}/override-unlock`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Failed to unlock report (${response.status})`);
+  }
 }

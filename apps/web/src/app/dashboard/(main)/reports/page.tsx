@@ -43,6 +43,7 @@ import {
   createSecureShare,
   regenerateSecureShare,
   fetchConsolidatedStats,
+  fetchReport,
   type SecureReportShare,
   type ConsolidatedReportStats,
 } from "@/lib/reports";
@@ -66,6 +67,7 @@ export default function ReportsDashboard() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [revealedPasswords, setRevealedPasswords] = React.useState<Record<number, boolean>>({});
+  const [reportLocks, setReportLocks] = React.useState<Record<number, boolean>>({});
 
   // Sessions table filter + pagination
   const [examsSearch, setExamsSearch] = React.useState("");
@@ -190,6 +192,26 @@ export default function ReportsDashboard() {
   const examsTotalPages = Math.max(1, Math.ceil(filteredExams.length / examsPerPage));
   React.useEffect(() => { if (examsPage > examsTotalPages) setExamsPage(examsTotalPages); }, [examsTotalPages, examsPage]);
   const paginatedExams = filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const examIds = paginatedExams.map((appt) => appt.exam_id).filter((id): id is number => Boolean(id));
+    if (examIds.length === 0) {
+      setReportLocks({});
+      return;
+    }
+    void Promise.all(examIds.map(async (examId) => [examId, Boolean((await fetchReport(examId))?.is_locked)] as const))
+      .then((entries) => {
+        if (cancelled) return;
+        setReportLocks(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (!cancelled) setReportLocks({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paginatedExams]);
 
   // Shares table derived data
   const filteredShares = React.useMemo(() => {
@@ -371,6 +393,7 @@ export default function ReportsDashboard() {
                               <Badge variant={appt.status === "completed" ? "default" : "outline"}>
                                 {appt.status.replace(/_/g, " ")}
                               </Badge>
+                              {reportLocks[appt.exam_id!] ? <Badge variant="outline" className="ml-2">Locked</Badge> : null}
                             </td>
                             <td className="px-8 py-4 text-right space-x-2">
                               <Button
@@ -380,7 +403,7 @@ export default function ReportsDashboard() {
                                 onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
                               >
                                 <FileSignature className="h-3.5 w-3.5" />
-                                Write / Edit Report
+                                {reportLocks[appt.exam_id!] ? "View Locked Report" : "Write / Edit Report"}
                               </Button>
                               <Button
                                 size="sm"
@@ -714,5 +737,10 @@ export default function ReportsDashboard() {
     </div>
   );
 }
+
+
+
+
+
 
 
