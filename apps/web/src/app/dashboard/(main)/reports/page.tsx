@@ -191,19 +191,36 @@ export default function ReportsDashboard() {
 
   const examsTotalPages = Math.max(1, Math.ceil(filteredExams.length / examsPerPage));
   React.useEffect(() => { if (examsPage > examsTotalPages) setExamsPage(examsTotalPages); }, [examsTotalPages, examsPage]);
-  const paginatedExams = filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage);
+  const paginatedExams = React.useMemo(
+    () => filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage),
+    [filteredExams, examsPage, examsPerPage],
+  );
+  const paginatedExamIds = React.useMemo(
+    () => paginatedExams.map((appt) => appt.exam_id).filter((id): id is number => Boolean(id)),
+    [paginatedExams],
+  );
+  const paginatedExamIdsKey = React.useMemo(() => paginatedExamIds.join(","), [paginatedExamIds]);
 
   React.useEffect(() => {
     let cancelled = false;
-    const examIds = paginatedExams.map((appt) => appt.exam_id).filter((id): id is number => Boolean(id));
-    if (examIds.length === 0) {
+    if (paginatedExamIds.length === 0) {
       setReportLocks({});
       return;
     }
-    void Promise.all(examIds.map(async (examId) => [examId, Boolean((await fetchReport(examId))?.is_locked)] as const))
+    void Promise.all(paginatedExamIds.map(async (examId) => [examId, Boolean((await fetchReport(examId))?.is_locked)] as const))
       .then((entries) => {
         if (cancelled) return;
-        setReportLocks(Object.fromEntries(entries));
+        setReportLocks((prev) => {
+          const next = Object.fromEntries(entries);
+          const prevKeys = Object.keys(prev);
+          const nextKeys = Object.keys(next);
+
+          if (prevKeys.length === nextKeys.length && nextKeys.every((key) => prev[Number(key)] === next[Number(key)])) {
+            return prev;
+          }
+
+          return next;
+        });
       })
       .catch(() => {
         if (!cancelled) setReportLocks({});
@@ -211,7 +228,7 @@ export default function ReportsDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [paginatedExams]);
+  }, [paginatedExamIdsKey]);
 
   // Shares table derived data
   const filteredShares = React.useMemo(() => {
