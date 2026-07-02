@@ -40,8 +40,8 @@ import { formatSubjectName } from "@/lib/subjects";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import { formatMoney } from "@/lib/client-account";
-import { fetchOrganizationSettings } from "@/lib/settings";
+import { convertCurrency, formatMoney } from "@/lib/client-account";
+import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 type LedgerRow = {
   id: number;
@@ -133,8 +133,12 @@ export default function ExamsPage() {
   const [deleting, setDeleting] = React.useState(false);
 
   // Org settings for currency display
-  const [orgSettings, setOrgSettings] = React.useState<{ currency: string }>({ currency: "AED" });
+  const [orgSettings, setOrgSettings] = React.useState<Partial<OrganizationSettings>>({ currency: "AED" });
   const orgCurrency = orgSettings.currency || "AED";
+  const displayAmount = React.useCallback(
+    (amount: number) => convertCurrency(amount, "USD", orgCurrency, orgSettings),
+    [orgCurrency, orgSettings],
+  );
 
   // Pagination & Edit states
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -159,7 +163,7 @@ export default function ExamsPage() {
         if (cancelled) {
           return;
         }
-        if (org) setOrgSettings(org as { currency: string });
+        if (org) setOrgSettings(org);
         const mapped = mapRows(appointments, examiners);
         setRows(mapped);
         setExamTypes(examTypesList);
@@ -362,8 +366,8 @@ export default function ExamsPage() {
       "Type",
       "Date",
       "Time",
-      "Fee Amount",
-      "Paid Amount",
+      `Fee Amount (${orgCurrency})`,
+      `Paid Amount (${orgCurrency})`,
       "Payment Status",
       "Appointment Status"
     ];
@@ -375,8 +379,8 @@ export default function ExamsPage() {
       row.type,
       row.dateLabel,
       row.timeLabel,
-      row.amount.toFixed(2),
-      row.collected.toFixed(2),
+      displayAmount(row.amount).toFixed(2),
+      displayAmount(row.collected).toFixed(2),
       row.payment,
       row.status
     ]);
@@ -422,7 +426,7 @@ export default function ExamsPage() {
           { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
           { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
           ...(canViewPayments
-            ? [{ label: "Accounts Receivable", value: formatMoney(stats.receivable, orgCurrency), icon: CreditCard, color: "text-rose-500" }]
+            ? [{ label: "Accounts Receivable", value: formatMoney(displayAmount(stats.receivable), orgCurrency), icon: CreditCard, color: "text-rose-500" }]
             : []),
           { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
         ].map((stat) => (
@@ -586,7 +590,7 @@ export default function ExamsPage() {
                               "bg-rose-500/10 text-rose-600",
                             )}
                           >
-                            {row.payment} • {formatMoney(row.amount, orgCurrency)}
+                            {row.payment} • {formatMoney(displayAmount(row.amount), orgCurrency)}
                           </Badge>
                         </td>
                       )}

@@ -11,6 +11,7 @@ import {
   BrainCircuit,
   AlertCircle,
   Eye,
+  EyeOff,
   FileText,
   Printer,
   ArrowLeft,
@@ -38,6 +39,8 @@ export default function ReportBuilderPage() {
 
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+  const [showPreview, setShowPreview] = React.useState(true);
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -56,6 +59,10 @@ export default function ReportBuilderPage() {
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
   const [conclusion, setConclusion] = React.useState("");
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Auto-refresh opinion statement text when verdict changes
   React.useEffect(() => {
@@ -208,7 +215,7 @@ export default function ReportBuilderPage() {
       };
 
       await saveDetailedReport(examId, verdict, data);
-      toast.success("Detailed report compiled and locked successfully!");
+      toast.success("Report saved successfully. The PDF is generated when you share the report.");
       router.back();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to compile report");
@@ -216,6 +223,14 @@ export default function ReportBuilderPage() {
       setSaving(false);
     }
   };
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-2rem)] rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden shadow-2xl">
@@ -243,6 +258,15 @@ export default function ReportBuilderPage() {
         </div>
         <div className="flex items-center gap-3">
           <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl h-11 px-5 hover:bg-muted/50 font-semibold"
+            onClick={() => setShowPreview((current) => !current)}
+          >
+            {showPreview ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {showPreview ? "Hide Preview" : "Show Preview"}
+          </Button>
+          <Button
             variant="outline"
             className="rounded-xl h-11 px-5 hover:bg-muted/50 font-semibold"
             onClick={() => router.back()}
@@ -257,12 +281,12 @@ export default function ReportBuilderPage() {
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Compiling Report...
+                Saving Report...
               </>
             ) : (
               <>
                 <Printer className="h-4 w-4" />
-                Save & Compile Report PDF
+                Save Report
               </>
             )}
           </Button>
@@ -276,7 +300,7 @@ export default function ReportBuilderPage() {
       ) : (
         <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
           {/* Left Column: Form Editor (Scrollable) */}
-          <div className="lg:col-span-5 border-r border-border/40 overflow-y-auto p-6 space-y-6 max-h-[calc(100vh-140px)]">
+          <div className={`${showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12"} border-border/40 overflow-y-auto p-6 space-y-6 max-h-[calc(100vh-140px)]`}>
             <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
               Report Parameters
             </h3>
@@ -507,14 +531,27 @@ export default function ReportBuilderPage() {
           </div>
 
           {/* Right Column: Live A4 Document Preview */}
+          {showPreview ? (
           <div className="lg:col-span-7 bg-zinc-950/40 p-8 overflow-y-auto max-h-[calc(100vh-140px)] flex flex-col items-center">
             <div className="sticky top-0 w-full flex justify-between items-center mb-4 z-10 bg-zinc-900/60 backdrop-blur px-4 py-2.5 rounded-2xl border border-border/40">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Eye className="h-4 w-4 text-primary" /> Live Document Preview
               </span>
-              <span className="text-[10px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">
-                A4 Ratio Print Simulated
-              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-lg px-2.5 text-[10px] font-bold uppercase tracking-wider"
+                  onClick={() => setShowPreview(false)}
+                >
+                  <EyeOff className="mr-1.5 h-3.5 w-3.5" />
+                  Hide Preview
+                </Button>
+                <span className="text-[10px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">
+                  A4 Ratio Print Simulated
+                </span>
+              </div>
             </div>
 
             {/* Visual Preview Template Page 1 */}
@@ -581,7 +618,7 @@ export default function ReportBuilderPage() {
                         {questions.map((q, idx) => (
                           <tr key={idx} className="border-b border-zinc-200">
                             <td className="border border-zinc-300 px-3 py-2 text-center font-semibold text-zinc-500">{idx + 1}</td>
-                            <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium">{q.text || "—"}</td>
+                            <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium">{q.text || "-"}</td>
                             <td className="border border-zinc-300 px-3 py-2 text-center font-black text-zinc-900">{q.answer}</td>
                           </tr>
                         ))}
@@ -673,6 +710,7 @@ export default function ReportBuilderPage() {
               </div>
             </div>
           </div>
+          ) : null}
         </div>
       )}
     </div>
