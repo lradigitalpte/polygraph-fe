@@ -325,9 +325,19 @@ export default function ReportsDashboard() {
       </div>
 
       <Tabs defaultValue="sessions" className="space-y-6">
-        <TabsList className="h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
-          <TabsTrigger value="sessions">Sessions to Build</TabsTrigger>
-          <TabsTrigger value="reports">Sent Reports</TabsTrigger>
+        <TabsList className="h-auto flex-wrap justify-start gap-3 rounded-2xl border border-border/50 bg-card/70 p-2 shadow-sm backdrop-blur">
+          <TabsTrigger
+            value="sessions"
+            className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
+          >
+            Sessions to Build
+          </TabsTrigger>
+          <TabsTrigger
+            value="reports"
+            className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
+          >
+            Sent Reports
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="sessions" className="space-y-6 mt-0 outline-none">

@@ -692,20 +692,20 @@ export default function ReportBuilderPage() {
                   </p>
 
                   {questions.length > 0 && (
-                    <table className="w-full text-left border-collapse border border-zinc-300 mt-2">
+                    <table className="mt-2 w-full table-fixed border-collapse border border-zinc-300 text-left">
                       <thead>
                         <tr className="bg-zinc-50 text-[8px] font-black uppercase text-zinc-500 tracking-wider border-b border-zinc-300">
-                          <th className="border border-zinc-300 px-3 py-1.5 w-12 text-center">S/N</th>
+                          <th className="w-12 border border-zinc-300 px-2 py-1.5 text-center">S/N</th>
                           <th className="border border-zinc-300 px-3 py-1.5">Questions</th>
-                          <th className="border border-zinc-300 px-3 py-1.5 w-36 text-center">Examinee Response</th>
+                          <th className="w-36 border border-zinc-300 px-3 py-1.5 text-center">Examinee Response</th>
                         </tr>
                       </thead>
                       <tbody>
                         {questions.map((q, idx) => (
                           <tr key={idx} className="border-b border-zinc-200">
-                            <td className="border border-zinc-300 px-3 py-2 text-center font-semibold text-zinc-500">{idx + 1}</td>
-                            <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium">{q.text || "-"}</td>
-                            <td className="border border-zinc-300 px-3 py-2 text-center font-black text-zinc-900">{q.answer}</td>
+                            <td className="align-top border border-zinc-300 px-2 py-2 text-center font-semibold text-zinc-500">{idx + 1}</td>
+                            <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium whitespace-normal break-words leading-6">{q.text || "-"}</td>
+                            <td className="border border-zinc-300 px-3 py-2 text-center font-black text-zinc-900 align-middle">{q.answer}</td>
                           </tr>
                         ))}
                       </tbody>
