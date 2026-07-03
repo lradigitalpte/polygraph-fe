@@ -53,6 +53,7 @@ import { formatSubjectName } from "@/lib/subjects";
 export default function ReportsDashboard() {
   const router = useRouter();
   const { loading: userLoading, can } = useCurrentUser();
+  const canViewLockedReport = can("exam:report:view_locked");
 
   React.useEffect(() => {
     if (!userLoading && !can("exam:view")) {
@@ -135,6 +136,10 @@ export default function ReportsDashboard() {
   };
 
   const handleOpenReportEditor = (examId: number, subjectName: string) => {
+    if (reportLocks[examId] && !canViewLockedReport) {
+      toast.error("You don't have permission to view locked final reports.");
+      return;
+    }
     router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
   };
 

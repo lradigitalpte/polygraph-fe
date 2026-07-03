@@ -74,6 +74,7 @@ export default function ReportBuilderPage() {
   const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
   const [conclusion, setConclusion] = React.useState("");
   const canOverrideLockedReport = can("exam:report:override");
+  const readOnly = isLocked;
 
   React.useEffect(() => {
     setMounted(true);
@@ -173,6 +174,11 @@ export default function ReportBuilderPage() {
         }
       })
       .catch((err) => {
+        if (err instanceof Error && err.message.includes("403")) {
+          toast.error("You don't have permission to view this locked final report.");
+          router.back();
+          return;
+        }
         toast.error("Failed to load report data");
         setIsLocked(false);
       })
@@ -377,6 +383,7 @@ export default function ReportBuilderPage() {
                   id="ref-no"
                   value={referenceNo}
                   onChange={(e) => setReferenceNo(e.target.value)}
+                  disabled={readOnly}
                   className="h-10 rounded-xl bg-card border-border/50"
                 />
               </div>
@@ -386,6 +393,7 @@ export default function ReportBuilderPage() {
                   id="date"
                   value={examDate}
                   onChange={(e) => setExamDate(e.target.value)}
+                  disabled={readOnly}
                   className="h-10 rounded-xl bg-card border-border/50"
                 />
               </div>
@@ -396,7 +404,7 @@ export default function ReportBuilderPage() {
               <Label className="font-bold flex items-center gap-1.5 text-primary text-xs uppercase tracking-wider mb-2">
                 <BrainCircuit className="h-4 w-4" /> Final Evaluation Verdict
               </Label>
-              <Select value={verdict} onValueChange={(val) => setVerdict(String(val))}>
+              <Select value={verdict} onValueChange={(val) => setVerdict(String(val))} disabled={readOnly}>
                 <SelectTrigger className="rounded-xl h-11 bg-background">
                   <SelectValue placeholder="Select verdict..." />
                 </SelectTrigger>
@@ -418,6 +426,7 @@ export default function ReportBuilderPage() {
                   rows={3}
                   value={preTestPhaseText}
                   onChange={(e) => setPreTestPhaseText(e.target.value)}
+                  disabled={readOnly}
                   placeholder="On 04th May 2026 at about 14:00 hrs..."
                   className="rounded-xl text-xs bg-card"
                 />
@@ -429,6 +438,7 @@ export default function ReportBuilderPage() {
                   rows={2}
                   value={preTestNotes}
                   onChange={(e) => setPreTestNotes(e.target.value)}
+                  disabled={readOnly}
                   placeholder="Examinee physical and mental health assessed as fit..."
                   className="rounded-xl text-xs bg-card"
                 />
@@ -447,6 +457,7 @@ export default function ReportBuilderPage() {
                   size="sm"
                   className="rounded-xl text-xs gap-1.5 h-8"
                   onClick={handleAddQuestion}
+                  disabled={readOnly}
                 >
                   <Plus className="h-3.5 w-3.5" /> Add Question
                 </Button>
@@ -459,6 +470,7 @@ export default function ReportBuilderPage() {
                   rows={2}
                   value={examPhaseText}
                   onChange={(e) => setExamPhaseText(e.target.value)}
+                  disabled={readOnly}
                   className="rounded-xl text-xs bg-card"
                 />
               </div>
@@ -477,6 +489,7 @@ export default function ReportBuilderPage() {
                         size="icon"
                         className="h-7 w-7 rounded-lg hover:bg-rose-500/10 hover:text-rose-500"
                         onClick={() => handleRemoveQuestion(idx)}
+                        disabled={readOnly}
                       >
                         <Trash className="h-3.5 w-3.5" />
                       </Button>
@@ -485,6 +498,7 @@ export default function ReportBuilderPage() {
                       placeholder="Type question text..."
                       value={q.text}
                       onChange={(e) => handleQuestionChange(idx, "text", e.target.value)}
+                      disabled={readOnly}
                       className="h-9 rounded-lg"
                     />
                     <div className="grid grid-cols-2 gap-2 mt-1">
@@ -493,6 +507,7 @@ export default function ReportBuilderPage() {
                         <Select
                           value={q.answer}
                           onValueChange={(val) => handleQuestionChange(idx, "answer", String(val))}
+                          disabled={readOnly}
                         >
                           <SelectTrigger className="h-8 rounded-lg text-xs bg-background">
                             <SelectValue />
@@ -509,6 +524,7 @@ export default function ReportBuilderPage() {
                         <Select
                           value={q.evaluation}
                           onValueChange={(val) => handleQuestionChange(idx, "evaluation", String(val))}
+                          disabled={readOnly}
                         >
                           <SelectTrigger className="h-8 rounded-lg text-xs bg-background">
                             <SelectValue />
@@ -532,6 +548,7 @@ export default function ReportBuilderPage() {
                   rows={3}
                   value={limestoneNotes}
                   onChange={(e) => setLimestoneNotes(e.target.value)}
+                  disabled={readOnly}
                   className="rounded-xl text-xs bg-card"
                 />
               </div>
@@ -547,6 +564,7 @@ export default function ReportBuilderPage() {
                   rows={3}
                   value={opinionPhaseText}
                   onChange={(e) => setOpinionPhaseText(e.target.value)}
+                  disabled={readOnly}
                   placeholder="Based on diagnostic evaluations..."
                   className="rounded-xl text-xs bg-card"
                 />
@@ -558,6 +576,7 @@ export default function ReportBuilderPage() {
                   rows={2}
                   value={postTestNotes}
                   onChange={(e) => setPostTestNotes(e.target.value)}
+                  disabled={readOnly}
                   placeholder="Examinee cooperated..."
                   className="rounded-xl text-xs bg-card"
                 />
@@ -573,6 +592,7 @@ export default function ReportBuilderPage() {
                   id="follow-up"
                   value={section4FollowUp}
                   onChange={(e) => setSection4FollowUp(e.target.value)}
+                  disabled={readOnly}
                   className="h-10 rounded-xl bg-card border-border/50 text-xs"
                 />
               </div>
@@ -590,6 +610,7 @@ export default function ReportBuilderPage() {
                 className="rounded-xl text-xs bg-card border-primary/20"
                 value={conclusion}
                 onChange={(e) => setConclusion(e.target.value)}
+                disabled={readOnly}
               />
             </div>
           </div>
