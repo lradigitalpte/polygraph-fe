@@ -60,6 +60,7 @@ export type AppointmentRecord = {
   scheduled_at: string;
   duration: number;
   exam_fee?: number;
+  fee_currency?: string;
   collected_amount?: number;
   status: string;
   payment_mode?: string;

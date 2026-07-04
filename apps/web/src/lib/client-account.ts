@@ -78,6 +78,14 @@ export function paymentBalance(total: number, paid: number) {
   return balance > 0 ? balance : 0;
 }
 
+/**
+ * Money rules (keep in sync with backend billing.go):
+ * - Exam type catalog `price` is always USD.
+ * - Appointment fees / collected amounts are stored in org currency after save.
+ * - Ledger API returns amounts already in org currency — do not convert again.
+ * - Use catalogPriceInCurrency() to show USD catalog prices in another currency.
+ * - Use ledgerRowMoney() for ledger rows; it converts at most once when currencies differ.
+ */
 export function formatMoney(amount: number, currency = "USD") {
   const cleanCurrency = (currency || "USD").toUpperCase();
   try {
@@ -115,16 +123,36 @@ export function convertCurrency(
   return amountInUSD * rateTo;
 }
 
-/** Normalize a ledger row to org currency; amounts from the API are usually already normalized. */
+/** Exam type catalog prices are always stored in USD in the database. */
+export const CATALOG_PRICE_CURRENCY = "USD";
+
+export function catalogPriceInCurrency(
+  usdPrice: number,
+  targetCurrency: string,
+  rates: { usd_aed_rate?: number; usd_gbp_rate?: number; usd_eur_rate?: number }
+) {
+  return convertCurrency(usdPrice, CATALOG_PRICE_CURRENCY, targetCurrency, rates);
+}
+
+/** Use ledger row amounts as-is when already in org currency; convert at most once otherwise. */
 export function ledgerRowMoney(
-  entry: Pick<AccountLedgerEntry, "total_amount" | "paid_amount" | "balance_due" | "currency">,
+  entry: Pick<AccountLedgerEntry, "total_amount" | "paid_amount" | "currency"> & { balance_due?: number },
   orgCurrency: string,
   orgSettings: { usd_aed_rate?: number; usd_gbp_rate?: number; usd_eur_rate?: number }
 ) {
-  const from = (entry.currency || orgCurrency).toUpperCase();
+  const rowCurrency = (entry.currency || orgCurrency).toUpperCase();
   const to = (orgCurrency || "USD").toUpperCase();
-  const total = convertCurrency(Number(entry.total_amount || 0), from, to, orgSettings);
-  const paid = convertCurrency(Number(entry.paid_amount || 0), from, to, orgSettings);
+  const total = Number(entry.total_amount || 0);
+  const paid = Number(entry.paid_amount || 0);
   const balance = Math.max(0, Number(entry.balance_due ?? total - paid));
-  return { total, paid, balance };
+
+  if (rowCurrency === to) {
+    return { total, paid, balance };
+  }
+
+  return {
+    total: convertCurrency(total, rowCurrency, to, orgSettings),
+    paid: convertCurrency(paid, rowCurrency, to, orgSettings),
+    balance: Math.max(0, convertCurrency(balance, rowCurrency, to, orgSettings)),
+  };
 }

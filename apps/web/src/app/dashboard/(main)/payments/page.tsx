@@ -38,7 +38,8 @@ import {
   sendQuotationEmail,
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
-import { collectAppointmentPayment, formatMoney, convertCurrency, ledgerRowMoney } from "@/lib/client-account";
+import { collectAppointmentPayment, formatMoney, convertCurrency, catalogPriceInCurrency, ledgerRowMoney } from "@/lib/client-account";
+import type { AccountSummary } from "@/lib/client-account";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
@@ -234,6 +235,7 @@ export default function PaymentsPage() {
   }, [userLoading, can, router]);
 
   const [invoices, setInvoices] = React.useState<Invoice[]>([]);
+  const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);
   const [clients, setClients] = React.useState<ClientRecord[]>([]);
   const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
@@ -344,6 +346,7 @@ export default function PaymentsPage() {
         setOrgSettings(org);
       }
 
+      setLedgerSummary(ledger.summary);
       setInvoices(
         ledger.entries.map((entry) => {
           const inv = mapLedgerEntryToInvoice(entry) as Invoice;
@@ -387,8 +390,11 @@ export default function PaymentsPage() {
   const handleExportCSV = () => {
     const headers = ["Invoice Code", "Client", "Source", "Status", "Date", "Total Amount", "Paid Amount", "Balance Due", "Currency"];
     const rows = filteredInvoices.map((inv) => {
-      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
+      const { total: convertedTotal, paid: convertedPaid, balance } = ledgerRowMoney(
+        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+        orgCurrency,
+        orgSettings,
+      );
       return [
         inv.code,
         inv.client,
@@ -397,7 +403,7 @@ export default function PaymentsPage() {
         inv.date || "—",
         convertedTotal.toFixed(2),
         convertedPaid.toFixed(2),
-        (convertedTotal - convertedPaid).toFixed(2),
+        balance.toFixed(2),
         orgCurrency,
       ];
     });
@@ -430,27 +436,9 @@ export default function PaymentsPage() {
   );
 
   const stats = {
-    total: invoices.reduce((acc, inv) => {
-      return acc + ledgerRowMoney(
-        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
-        orgCurrency,
-        orgSettings,
-      ).total;
-    }, 0),
-    collected: invoices.reduce((acc, inv) => {
-      return acc + ledgerRowMoney(
-        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
-        orgCurrency,
-        orgSettings,
-      ).paid;
-    }, 0),
-    pending: invoices.reduce((acc, inv) => {
-      return acc + ledgerRowMoney(
-        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
-        orgCurrency,
-        orgSettings,
-      ).balance;
-    }, 0),
+    total: ledgerSummary?.total_billed ?? 0,
+    collected: ledgerSummary?.total_paid ?? 0,
+    pending: ledgerSummary?.balance_due ?? 0,
     overdue: invoices.filter((inv) => inv.status === "Overdue").reduce((acc, inv) => {
       return acc + ledgerRowMoney(
         { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
@@ -464,9 +452,9 @@ export default function PaymentsPage() {
     if (!form.client) { toast.error("Select a client"); return; }
     if (!form.examType) { toast.error("Select an exam type"); return; }
 
-    const convertedBasePrice = convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings);
+    const basePrice = catalogPriceInCurrency(form.examType.price, form.currency, orgSettings);
     const lineItems: { description: string; amount: number }[] = [
-      { description: form.examType.name, amount: convertedBasePrice },
+      { description: form.examType.name, amount: basePrice },
       ...form.extraItems.filter((item) => item.description.trim() && item.amount > 0),
     ];
     const total = lineItems.reduce((acc, item) => acc + item.amount, 0);
@@ -887,7 +875,7 @@ export default function PaymentsPage() {
                     {selectedInvoice.status}
                   </Badge>
                   <div className="space-y-1">
-                    <h2 className="text-5xl font-black tracking-tighter leading-none">{formatMoney(selectedInvoice.totalAmount - selectedInvoice.paidAmount, selectedInvoice.currency || orgCurrency)}</h2>
+                    <h2 className="text-5xl font-black tracking-tighter leading-none">{formatMoney(selectedInvoice.balanceDue ?? Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount), selectedInvoice.currency || orgCurrency)}</h2>
                     <p className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em] pl-1">Balance Due</p>
                   </div>
                 </div>
@@ -1074,7 +1062,7 @@ export default function PaymentsPage() {
                     <span className="font-bold text-sm">{form.examType.name}</span>
                     <Badge variant="outline" className="text-[9px] font-black">
                       {formatMoney(
-                        convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings),
+                        catalogPriceInCurrency(form.examType.price, form.currency, orgSettings),
                         form.currency
                       )}
                     </Badge>
@@ -1104,7 +1092,7 @@ export default function PaymentsPage() {
                           <span>{et.name}</span>
                           <span className="text-xs font-black text-primary">
                             {formatMoney(
-                              convertCurrency(et.price, orgCurrency, form.currency, orgSettings),
+                              catalogPriceInCurrency(et.price, form.currency, orgSettings),
                               form.currency
                             )}
                           </span>
@@ -1181,7 +1169,7 @@ export default function PaymentsPage() {
                     <span className="text-xs font-bold">{form.examType.name}</span>
                     <span className="text-sm font-black text-primary">
                       {formatMoney(
-                        convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings),
+                        catalogPriceInCurrency(form.examType.price, form.currency, orgSettings),
                         form.currency
                       )}
                     </span>
@@ -1231,7 +1219,7 @@ export default function PaymentsPage() {
                   <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total</span>
                   <span className="text-lg font-black text-foreground">
                     {formatMoney(
-                      convertCurrency(form.examType.price, orgCurrency, form.currency, orgSettings) +
+                      catalogPriceInCurrency(form.examType.price, form.currency, orgSettings) +
                         form.extraItems.reduce((s, i) => s + i.amount, 0),
                       form.currency
                     )}

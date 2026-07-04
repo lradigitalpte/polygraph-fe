@@ -1,7 +1,9 @@
 import { authenticatedFetch } from "@/lib/api-client";
 import type { AccountLedgerEntry, AccountSummary, ClientAccountResponse } from "@/lib/client-account";
+import { catalogPriceInCurrency, CATALOG_PRICE_CURRENCY, ledgerRowMoney } from "@/lib/client-account";
 import { fetchAppointments, fetchExamTypes } from "@/lib/exam-booking";
 import { fetchQuotations } from "@/lib/quotations";
+import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 function examTypePriceIndex(types: { name: string; price: number }[]) {
   return new Map(types.map((t) => [t.name.trim().toLowerCase(), Number(t.price || 0)]));
@@ -12,25 +14,45 @@ function titleFromNotes(notes?: string) {
   return line || "Polygraph session";
 }
 
-function resolveAppointmentFee(
-  appt: { exam_fee?: number; notes?: string },
+/** Prefer stored org fee; fall back to catalog USD converted once. */
+function resolveAppointmentFeeOrg(
+  appt: { exam_fee?: number; fee_currency?: string; notes?: string },
   prices: Map<string, number>,
+  orgCurrency: string,
+  orgSettings: { usd_aed_rate?: number; usd_gbp_rate?: number; usd_eur_rate?: number },
 ) {
   const stored = Number(appt.exam_fee || 0);
-  if (stored > 0) return stored;
+  const feeCurrency = (appt.fee_currency || orgCurrency).toUpperCase();
+  if (stored > 0 && feeCurrency === orgCurrency.toUpperCase()) {
+    return stored;
+  }
   const key = titleFromNotes(appt.notes).toLowerCase();
-  return prices.get(key) ?? 0;
+  const catalogUSD = prices.get(key) ?? 0;
+  if (catalogUSD > 0) {
+    return catalogPriceInCurrency(catalogUSD, orgCurrency, orgSettings);
+  }
+  if (stored > 0 && feeCurrency === CATALOG_PRICE_CURRENCY) {
+    return catalogPriceInCurrency(stored, orgCurrency, orgSettings);
+  }
+  return stored;
 }
 
 export type { AccountLedgerEntry, AccountSummary };
 
-/** Build ledger client-side when the API server has not been restarted yet. */
+/** Build ledger client-side when the billing API is unavailable (legacy fallback). */
 async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAccountResponse> {
-  const [quotes, appointments, examTypes] = await Promise.all([
+  const [quotes, appointments, examTypes, org] = await Promise.all([
     fetchQuotations(),
     fetchAppointments(),
     fetchExamTypes(),
+    fetchOrganizationSettings().catch(() => ({ currency: "USD" } as OrganizationSettings)),
   ]);
+  const orgCurrency = org?.currency || "USD";
+  const orgSettings = {
+    usd_aed_rate: org?.usd_aed_rate,
+    usd_gbp_rate: org?.usd_gbp_rate,
+    usd_eur_rate: org?.usd_eur_rate,
+  };
   const typePrices = examTypePriceIndex(examTypes);
 
   const filteredQuotes = clientId
@@ -49,7 +71,9 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
     const appt = apptByID.get(quote.appointment_id);
     if (!appt) continue;
     seenAppts.add(appt.id);
-    const total = resolveAppointmentFee(appt, typePrices) || Number(quote.amount || 0);
+    const total =
+      resolveAppointmentFeeOrg(appt, typePrices, orgCurrency, orgSettings) ||
+      Number(quote.amount || 0);
     const paid = Number(appt.collected_amount ?? quote.collected_amount ?? 0);
     entries.push({
       id: quote.id,
@@ -68,14 +92,14 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       balance_due: Math.max(0, total - paid),
       status: appt.payment_status ?? quote.status,
       payment_mode: appt.payment_mode,
-      currency: quote.currency || "USD",
+      currency: orgCurrency,
     });
   }
 
   for (const appt of filteredAppts) {
     if (seenAppts.has(appt.id)) continue;
     if (appt.status?.toLowerCase() === "cancelled") continue;
-    const total = resolveAppointmentFee(appt, typePrices);
+    const total = resolveAppointmentFeeOrg(appt, typePrices, orgCurrency, orgSettings);
     const paid = Number(appt.collected_amount || 0);
     if (total <= 0 && paid <= 0 && !appt.notes?.trim()) continue;
     entries.push({
@@ -94,14 +118,23 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       balance_due: Math.max(0, total - paid),
       status: appt.payment_status ?? "Unpaid",
       payment_mode: appt.payment_mode,
-      currency: "USD",
+      currency: orgCurrency,
     });
   }
 
   for (const quote of filteredQuotes) {
     if (quote.appointment_id) continue;
-    const total = Number(quote.amount || 0);
-    const paid = Number(quote.collected_amount || 0);
+    const quoteCur = (quote.currency || orgCurrency).toUpperCase();
+    const total = ledgerRowMoney(
+      { total_amount: quote.amount, paid_amount: 0, currency: quoteCur },
+      orgCurrency,
+      orgSettings,
+    ).total;
+    const paid = ledgerRowMoney(
+      { total_amount: 0, paid_amount: quote.collected_amount, currency: quoteCur },
+      orgCurrency,
+      orgSettings,
+    ).paid;
     entries.push({
       id: quote.id,
       source: "quote",
@@ -117,7 +150,7 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
       paid_amount: paid,
       balance_due: Math.max(0, total - paid),
       status: quote.status,
-      currency: quote.currency || "USD",
+      currency: orgCurrency,
     });
   }
 

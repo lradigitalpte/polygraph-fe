@@ -39,7 +39,7 @@ import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import {
   collectAppointmentPayment,
   formatMoney,
-  convertCurrency,
+  ledgerRowMoney,
   sendAppointmentPaymentReminder,
   type AccountLedgerEntry,
   type AccountSummary,
@@ -81,6 +81,7 @@ export default function ClientAccountPage() {
   }, [userLoading, can, router, clientId, isExaminer]);
 
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
+  const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "USD" });
   const orgCurrency = orgSettings?.currency || "USD";
@@ -99,12 +100,15 @@ export default function ClientAccountPage() {
   }, []);
 
   const calculatedSummary = React.useMemo(() => {
+    if (ledgerSummary) {
+      return ledgerSummary;
+    }
     let totalBilled = 0;
     let totalPaid = 0;
     for (const entry of entries) {
-      const entryCurrency = entry.currency || "USD";
-      totalBilled += convertCurrency(entry.total_amount, entryCurrency, orgCurrency, orgSettings);
-      totalPaid += convertCurrency(entry.paid_amount, entryCurrency, orgCurrency, orgSettings);
+      const { total, paid } = ledgerRowMoney(entry, orgCurrency, orgSettings);
+      totalBilled += total;
+      totalPaid += paid;
     }
     const balanceDue = totalBilled - totalPaid;
     return {
@@ -112,7 +116,7 @@ export default function ClientAccountPage() {
       total_paid: totalPaid,
       balance_due: balanceDue > 0 ? balanceDue : 0,
     };
-  }, [entries, orgCurrency, orgSettings]);
+  }, [entries, ledgerSummary, orgCurrency, orgSettings]);
 
   const [selected, setSelected] = React.useState<AccountLedgerEntry | null>(null);
   const [collectOpen, setCollectOpen] = React.useState(false);
@@ -128,6 +132,7 @@ export default function ClientAccountPage() {
     setLoading(true);
     try {
       const data = await fetchBillingLedger(clientId);
+      setLedgerSummary(data.summary);
       setEntries(data.entries);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load account");

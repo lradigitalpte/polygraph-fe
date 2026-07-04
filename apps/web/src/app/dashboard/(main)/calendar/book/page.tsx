@@ -52,7 +52,7 @@ import {
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { convertQuotation } from "@/lib/quotations";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
-import { convertCurrency, formatMoney } from "@/lib/client-account";
+import { catalogPriceInCurrency, convertCurrency, formatMoney } from "@/lib/client-account";
 import { cn } from "@/lib/utils";
 
 const paymentTypes = ["Bank Transfer", "Credit Card"];
@@ -138,7 +138,7 @@ function BookAppointmentPageContent() {
   }, []);
 
   const examPriceInOrg = React.useCallback(
-    (usdPrice: number) => convertCurrency(usdPrice, "USD", orgCurrency, orgSettings ?? {}),
+    (usdPrice: number) => catalogPriceInCurrency(usdPrice, orgCurrency, orgSettings ?? {}),
     [orgCurrency, orgSettings],
   );
 

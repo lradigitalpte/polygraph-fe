@@ -26,7 +26,7 @@ import {
   updateExamType,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
-import { formatMoney, convertCurrency } from "@/lib/client-account";
+import { formatMoney, catalogPriceInCurrency, CATALOG_PRICE_CURRENCY } from "@/lib/client-account";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 type FormState = {
@@ -96,11 +96,6 @@ export default function ExamTypesSettingsPage() {
     setOpen(true);
   };
 
-  const catalogPriceInOrg = React.useCallback(
-    (usdPrice: number) => convertCurrency(usdPrice, "USD", orgCurrency, orgSettings ?? {}),
-    [orgCurrency, orgSettings],
-  );
-
   const openEdit = (examType: ExamTypeRecord) => {
     setEditingId(examType.id);
     setForm({
@@ -108,7 +103,7 @@ export default function ExamTypesSettingsPage() {
       description: examType.description || "",
       category: examType.category || "",
       duration: String(examType.duration),
-      price: String(catalogPriceInOrg(examType.price ?? 0)),
+      price: String(examType.price ?? 0),
       active: examType.active,
     });
     setOpen(true);
@@ -116,7 +111,7 @@ export default function ExamTypesSettingsPage() {
 
   const handleSave = async () => {
     const duration = Number(form.duration);
-    const priceInOrg = Number(form.price);
+    const price = Number(form.price);
     if (!form.name.trim()) {
       toast.error("Exam type name is required");
       return;
@@ -125,11 +120,10 @@ export default function ExamTypesSettingsPage() {
       toast.error("Duration must be greater than 0");
       return;
     }
-    if (!Number.isFinite(priceInOrg) || priceInOrg < 0) {
+    if (!Number.isFinite(price) || price < 0) {
       toast.error("Price cannot be negative");
       return;
     }
-    const price = convertCurrency(priceInOrg, orgCurrency, "USD", orgSettings ?? {});
 
     setSaving(true);
     try {
@@ -181,7 +175,7 @@ export default function ExamTypesSettingsPage() {
         <div>
           <h3 className="text-lg font-medium">Exam Types</h3>
           <p className="text-sm text-muted-foreground">
-            Control the exam protocols surfaced in booking, scheduling, and downstream summaries.
+            Catalog prices are stored in USD. Invoices and bookings convert to your org currency ({orgCurrency}) once at billing time.
           </p>
         </div>
         <Button className="gap-2" onClick={openCreate}>
@@ -220,9 +214,14 @@ export default function ExamTypesSettingsPage() {
                   <span>{examType.duration} minutes</span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Base price</span>
+                  <span>Base price (USD)</span>
                   <span className="font-semibold text-foreground">
-                    {formatMoney(catalogPriceInOrg(examType.price ?? 0), orgCurrency)}
+                    {formatMoney(examType.price ?? 0, CATALOG_PRICE_CURRENCY)}
+                    {orgCurrency !== CATALOG_PRICE_CURRENCY && orgSettings ? (
+                      <span className="ml-2 text-muted-foreground font-normal">
+                        ≈ {formatMoney(catalogPriceInCurrency(examType.price ?? 0, orgCurrency, orgSettings), orgCurrency)}
+                      </span>
+                    ) : null}
                   </span>
                 </div>
                 <div className="flex gap-2">
@@ -267,8 +266,13 @@ export default function ExamTypesSettingsPage() {
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="exam-type-price">Price ({orgCurrency})</Label>
+              <Label htmlFor="exam-type-price">Price (USD)</Label>
               <Input id="exam-type-price" type="number" min={0} step={0.01} value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} />
+              {orgCurrency !== CATALOG_PRICE_CURRENCY && orgSettings && form.price ? (
+                <p className="text-xs text-muted-foreground">
+                  ≈ {formatMoney(catalogPriceInCurrency(Number(form.price) || 0, orgCurrency, orgSettings), orgCurrency)} in {orgCurrency} at billing
+                </p>
+              ) : null}
             </div>
 
             <div className="grid gap-2">

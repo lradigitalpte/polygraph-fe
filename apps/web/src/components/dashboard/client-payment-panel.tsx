@@ -222,7 +222,7 @@ export function ClientPaymentPanel({
           </DialogHeader>
           <div className="space-y-2">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Amount received ($)
+              Amount received ({orgCurrency})
             </Label>
             <Input
               type="number"
