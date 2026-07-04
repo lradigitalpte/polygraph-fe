@@ -38,7 +38,7 @@ import {
   sendQuotationEmail,
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
-import { collectAppointmentPayment, formatMoney, convertCurrency } from "@/lib/client-account";
+import { collectAppointmentPayment, formatMoney, convertCurrency, ledgerRowMoney } from "@/lib/client-account";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
@@ -431,23 +431,33 @@ export default function PaymentsPage() {
 
   const stats = {
     total: invoices.reduce((acc, inv) => {
-      const converted = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      return acc + converted;
+      return acc + ledgerRowMoney(
+        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+        orgCurrency,
+        orgSettings,
+      ).total;
     }, 0),
     collected: invoices.reduce((acc, inv) => {
-      const converted = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      return acc + converted;
+      return acc + ledgerRowMoney(
+        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+        orgCurrency,
+        orgSettings,
+      ).paid;
     }, 0),
     pending: invoices.reduce((acc, inv) => {
-      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      return acc + (convertedTotal - convertedPaid);
+      return acc + ledgerRowMoney(
+        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+        orgCurrency,
+        orgSettings,
+      ).balance;
     }, 0),
-    overdue: invoices.filter(inv => inv.status === "Overdue").reduce((acc, inv) => {
-      const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
-      return acc + (convertedTotal - convertedPaid);
-    }, 0)
+    overdue: invoices.filter((inv) => inv.status === "Overdue").reduce((acc, inv) => {
+      return acc + ledgerRowMoney(
+        { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+        orgCurrency,
+        orgSettings,
+      ).balance;
+    }, 0),
   };
 
   const handleCreateInvoice = async () => {
@@ -713,9 +723,16 @@ export default function PaymentsPage() {
                   </tr>
                 ) : paginatedInvoices.length > 0 ? (
                   paginatedInvoices.map((inv) => {
-                    const convertedTotal = convertCurrency(inv.totalAmount, inv.currency || "USD", orgCurrency, orgSettings);
-                    const convertedPaid = convertCurrency(inv.paidAmount, inv.currency || "USD", orgCurrency, orgSettings);
-                    const convertedBalance = convertedTotal - convertedPaid;
+                    const { total: convertedTotal, paid: convertedPaid, balance: convertedBalance } = ledgerRowMoney(
+                      {
+                        total_amount: inv.totalAmount,
+                        paid_amount: inv.paidAmount,
+                        balance_due: inv.balanceDue,
+                        currency: inv.currency,
+                      },
+                      orgCurrency,
+                      orgSettings,
+                    );
 
                     return (
                       <tr key={`${inv.source}-${inv.id}`} className="hover:bg-primary/[0.03] transition-all group">

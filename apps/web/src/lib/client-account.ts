@@ -114,3 +114,17 @@ export function convertCurrency(
   const amountInUSD = amount / rateFrom;
   return amountInUSD * rateTo;
 }
+
+/** Normalize a ledger row to org currency; amounts from the API are usually already normalized. */
+export function ledgerRowMoney(
+  entry: Pick<AccountLedgerEntry, "total_amount" | "paid_amount" | "balance_due" | "currency">,
+  orgCurrency: string,
+  orgSettings: { usd_aed_rate?: number; usd_gbp_rate?: number; usd_eur_rate?: number }
+) {
+  const from = (entry.currency || orgCurrency).toUpperCase();
+  const to = (orgCurrency || "USD").toUpperCase();
+  const total = convertCurrency(Number(entry.total_amount || 0), from, to, orgSettings);
+  const paid = convertCurrency(Number(entry.paid_amount || 0), from, to, orgSettings);
+  const balance = Math.max(0, Number(entry.balance_due ?? total - paid));
+  return { total, paid, balance };
+}
