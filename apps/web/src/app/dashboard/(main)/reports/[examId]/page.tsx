@@ -14,6 +14,7 @@ import {
   EyeOff,
   FileText,
   Printer,
+  Lock,
   ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,17 +38,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fetchReport, requestReportOverrideUnlock, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
+import { fetchAppointment, fetchExam } from "@/lib/exam-documentation";
+import { fetchClient } from "@/lib/clients";
+import {
+  buildNewReportDefaults,
+  buildOpinionPhaseText,
+  buildReportSessionContext,
+  coalesceField,
+  type ReportSessionContext,
+} from "@/lib/report-template";
+import { fetchReport, finalizeReport, requestReportOverrideUnlock, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const examId = Number(params.examId);
-  const initialSubjectName = searchParams.get("subject") || "Candidate A";
+  const querySubjectName = searchParams.get("subject") || "";
   const { can } = useCurrentUser();
+  const canFinalizeReport = can("exam:report");
+  const canOverrideLockedReport = can("exam:report:override");
 
   const [loading, setLoading] = React.useState(false);
+  const [subjectName, setSubjectName] = React.useState(querySubjectName);
+  const [clientName, setClientName] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(true);
@@ -55,13 +69,16 @@ export default function ReportBuilderPage() {
   const [overrideReason, setOverrideReason] = React.useState("");
   const [overrideDialogOpen, setOverrideDialogOpen] = React.useState(false);
   const [overrideSubmitting, setOverrideSubmitting] = React.useState(false);
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = React.useState(false);
+  const [finalizing, setFinalizing] = React.useState(false);
+  const [lockedAt, setLockedAt] = React.useState<string | null>(null);
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
   const [purpose, setPurpose] = React.useState("");
   const [instrument, setInstrument] = React.useState("Lafayette LX6000");
-  const [referenceNo, setReferenceNo] = React.useState("PIN/CONF/2026/001");
-  const [examDate, setExamDate] = React.useState("4th May 2026");
+  const [referenceNo, setReferenceNo] = React.useState("");
+  const [examDate, setExamDate] = React.useState("");
   const [preTestPhaseText, setPreTestPhaseText] = React.useState("");
   const [preTestNotes, setPreTestNotes] = React.useState("");
   const [questions, setQuestions] = React.useState<{ text: string; answer: string; evaluation: string }[]>([]);
@@ -73,107 +90,113 @@ export default function ReportBuilderPage() {
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
   const [conclusion, setConclusion] = React.useState("");
-  const canOverrideLockedReport = can("exam:report:override");
   const readOnly = isLocked;
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Auto-refresh opinion statement text when verdict changes
-  React.useEffect(() => {
-    if (!opinionPhaseText) {
-      setOpinionPhaseText(
-        `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${initialSubjectName} as ${verdict === "DI" ? "Not Truthful" : "Truthful"}.`
-      );
-    }
-  }, [verdict, initialSubjectName]);
+  const applyReportDefaults = React.useCallback(
+    (ctx: ReportSessionContext, verdictValue = "NDI") => {
+      const defaults = buildNewReportDefaults(ctx, verdictValue);
+      setVerdict(defaults.verdict);
+      setPurpose(defaults.purpose);
+      setInstrument(defaults.instrument);
+      setReferenceNo(defaults.referenceNo);
+      setExamDate(defaults.examDate);
+      setSection4FollowUp(defaults.section4FollowUp);
+      setPreTestNotes(defaults.preTestNotes);
+      setQuestions(defaults.questions);
+      setLimestoneNotes(defaults.limestoneNotes);
+      setPreTestPhaseText(defaults.preTestPhaseText);
+      setExamPhaseText(defaults.examPhaseText);
+      setOpinionPhaseText(defaults.opinionPhaseText);
+      setPostTestNotes(defaults.postTestNotes);
+      setConclusion(defaults.conclusion);
+    },
+    []
+  );
 
-  // Load report on mount
+  const applySavedReport = React.useCallback(
+    (
+      report: NonNullable<Awaited<ReturnType<typeof fetchReport>>>,
+      ctx: ReportSessionContext
+    ) => {
+      const defaults = buildNewReportDefaults(ctx, report.verdict || "NDI");
+      setVerdict(report.verdict || defaults.verdict);
+      setIsLocked(Boolean(report.is_locked));
+      setLockedAt(report.locked_at ?? null);
+
+      try {
+        const parsed = JSON.parse(report.content) as StructuredReportData & {
+          reference_no?: string;
+          exam_date?: string;
+          section_4_follow_up?: string;
+          limestone_notes?: string;
+          pre_test_phase_text?: string;
+          exam_phase_text?: string;
+          opinion_phase_text?: string;
+        };
+
+        setPurpose(coalesceField(parsed.purpose, defaults.purpose));
+        setInstrument(coalesceField(parsed.instrument, defaults.instrument));
+        setPreTestNotes(coalesceField(parsed.pre_test_notes, defaults.preTestNotes));
+        setQuestions(parsed.questions?.length ? parsed.questions : defaults.questions);
+        setPostTestNotes(coalesceField(parsed.post_test_notes, defaults.postTestNotes));
+        setConclusion(coalesceField(parsed.conclusion, defaults.conclusion));
+        setReferenceNo(coalesceField(parsed.reference_no, defaults.referenceNo));
+        setExamDate(coalesceField(parsed.exam_date, defaults.examDate));
+        setSection4FollowUp(coalesceField(parsed.section_4_follow_up, defaults.section4FollowUp));
+        setLimestoneNotes(coalesceField(parsed.limestone_notes, defaults.limestoneNotes));
+        setPreTestPhaseText(coalesceField(parsed.pre_test_phase_text, defaults.preTestPhaseText));
+        setExamPhaseText(coalesceField(parsed.exam_phase_text, defaults.examPhaseText));
+        setOpinionPhaseText(
+          coalesceField(
+            parsed.opinion_phase_text,
+            buildOpinionPhaseText(ctx.subjectName, report.verdict || defaults.verdict)
+          )
+        );
+      } catch {
+        setConclusion(report.content || defaults.conclusion);
+        applyReportDefaults(ctx, report.verdict || "NDI");
+      }
+    },
+    [applyReportDefaults]
+  );
+
+  // Load exam context + any saved report
   React.useEffect(() => {
     if (!examId) return;
 
+    let cancelled = false;
     setLoading(true);
-    fetchReport(examId)
-      .then((report) => {
+
+    void (async () => {
+      try {
+        const [report, exam] = await Promise.all([fetchReport(examId), fetchExam(examId)]);
+
+        const appointment = exam.appointment_id
+          ? await fetchAppointment(exam.appointment_id).catch(() => null)
+          : null;
+        const client = await fetchClient(exam.client_id).catch(() => null);
+        const ctx = buildReportSessionContext(
+          exam,
+          client?.name || appointment?.client?.name || "",
+          appointment
+        );
+
+        if (cancelled) return;
+
+        setSubjectName(ctx.subjectName || querySubjectName);
+        setClientName(ctx.clientName);
+
         if (report) {
-          setVerdict(report.verdict);
-          setIsLocked(Boolean(report.is_locked));
-          try {
-            const parsed = JSON.parse(report.content) as StructuredReportData & {
-              reference_no?: string;
-              exam_date?: string;
-              section_4_follow_up?: string;
-              limestone_notes?: string;
-              pre_test_phase_text?: string;
-              exam_phase_text?: string;
-              opinion_phase_text?: string;
-            };
-            setPurpose(parsed.purpose || "");
-            setInstrument(parsed.instrument || "Lafayette LX6000");
-            setPreTestNotes(parsed.pre_test_notes || "");
-            setQuestions(parsed.questions || []);
-            setPostTestNotes(parsed.post_test_notes || "");
-            setConclusion(parsed.conclusion || "");
-            
-            // Set new fields
-            setReferenceNo(parsed.reference_no || "PIN/CONF/2026/001");
-            setExamDate(parsed.exam_date || "4th May 2026");
-            setSection4FollowUp(parsed.section_4_follow_up || "Nil");
-            setLimestoneNotes(
-              parsed.limestone_notes ||
-                "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.\n\nFour polygrams, including 1 acquaintance and 3 official tests were recorded, and the process ended at about 15:35 hrs (Dubai Time)."
-            );
-            setPreTestPhaseText(
-              parsed.pre_test_phase_text ||
-                `On 04th May 2026 at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`
-            );
-            setExamPhaseText(
-              parsed.exam_phase_text ||
-                "During the examination phase, the relevant and comparison questions were administered to subject with a set of 4 relevant questions. His verbal responses to the relevant questions were as indicated:"
-            );
-            setOpinionPhaseText(
-              parsed.opinion_phase_text ||
-                `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${initialSubjectName} as ${report.verdict === "DI" ? "Not Truthful" : "Truthful"}.`
-            );
-          } catch (e) {
-            // Content was plain text fallback
-            setConclusion(report.content || "");
-            setPurpose("");
-            setPreTestNotes("");
-            setQuestions([]);
-            setPostTestNotes("");
-          }
+          applySavedReport(report, ctx);
         } else {
-          // Defaults for new report
-          setVerdict("NDI");
-          setPurpose("Investigation of missing storage vault inventory");
-          setInstrument("Lafayette LX6000");
-          setReferenceNo("PIN/CONF/2026/001");
-          setExamDate("4th May 2026");
-          setSection4FollowUp("Nil");
-          setPreTestNotes("Examinee physical and mental health assessed as fit for testing. Legal rights and examination consent form explained and signed.");
-          setQuestions([
-            { text: "Have you ever shared confidential company information with an unauthorized person?", answer: "No", evaluation: "No Reaction" },
-            { text: "Have you stolen money, leads or any property from a company you worked for?", answer: "No", evaluation: "No Reaction" },
-            { text: "Have you ever used company resources like leads or tools for your own personal gain or for someone else?", answer: "No", evaluation: "No Reaction" },
-            { text: "Is your purpose in applying for this position to intentionally damage or undermine the company?", answer: "No", evaluation: "No Reaction" },
-          ]);
-          setLimestoneNotes(
-            "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.\n\nFour polygrams, including 1 acquaintance and 3 official tests were recorded, and the process ended at about 15:35 hrs (Dubai Time)."
-          );
-          setPreTestPhaseText(
-            `On 04th May 2026 at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`
-          );
-          setExamPhaseText(
-            "During the examination phase, the relevant and comparison questions were administered to subject with a set of 4 relevant questions. His verbal responses to the relevant questions were as indicated:"
-          );
-          setOpinionPhaseText(`Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${initialSubjectName} as Truthful.`);
-          setPostTestNotes("Examinee cooperated and the test administration was as per procedure.");
-          setConclusion("Analysis of the physiological records indicates no significant emotional or autonomic nervous system reactions to target items.");
+          applyReportDefaults(ctx);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
+        if (cancelled) return;
         if (err instanceof Error && err.message.includes("403")) {
           toast.error("You don't have permission to view this locked final report.");
           router.back();
@@ -181,11 +204,15 @@ export default function ReportBuilderPage() {
         }
         toast.error("Failed to load report data");
         setIsLocked(false);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [examId, initialSubjectName]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [examId, querySubjectName, applyReportDefaults, applySavedReport, router]);
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, { text: "", answer: "No", evaluation: "No Reaction" }]);
@@ -200,6 +227,22 @@ export default function ReportBuilderPage() {
       prev.map((q, i) => (i === index ? { ...q, [field]: value } : q))
     );
   };
+
+  const buildReportPayload = () => ({
+    purpose,
+    instrument,
+    pre_test_notes: preTestNotes,
+    questions,
+    post_test_notes: postTestNotes,
+    conclusion,
+    reference_no: referenceNo,
+    exam_date: examDate,
+    section_4_follow_up: section4FollowUp,
+    limestone_notes: limestoneNotes,
+    pre_test_phase_text: preTestPhaseText,
+    exam_phase_text: examPhaseText,
+    opinion_phase_text: opinionPhaseText,
+  });
 
   const handleSave = async () => {
     if (isLocked) {
@@ -217,37 +260,38 @@ export default function ReportBuilderPage() {
 
     setSaving(true);
     try {
-      const data: StructuredReportData & {
-        reference_no: string;
-        exam_date: string;
-        section_4_follow_up: string;
-        limestone_notes: string;
-        pre_test_phase_text: string;
-        exam_phase_text: string;
-        opinion_phase_text: string;
-      } = {
-        purpose,
-        instrument,
-        pre_test_notes: preTestNotes,
-        questions,
-        post_test_notes: postTestNotes,
-        conclusion,
-        reference_no: referenceNo,
-        exam_date: examDate,
-        section_4_follow_up: section4FollowUp,
-        limestone_notes: limestoneNotes,
-        pre_test_phase_text: preTestPhaseText,
-        exam_phase_text: examPhaseText,
-        opinion_phase_text: opinionPhaseText,
-      };
-
-      await saveDetailedReport(examId, verdict, data);
-      toast.success("Report saved successfully. The PDF is generated when you share the report.");
-      router.back();
+      await saveDetailedReport(examId, verdict, buildReportPayload());
+      toast.success("Report draft saved. Finalize and lock it when ready to send.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to compile report");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (isLocked) return;
+    if (!verdict) {
+      toast.error("Please select a verdict");
+      return;
+    }
+    if (!conclusion.trim()) {
+      toast.error("Please fill in the professional conclusion before finalizing");
+      return;
+    }
+
+    setFinalizing(true);
+    try {
+      await saveDetailedReport(examId, verdict, buildReportPayload());
+      const result = await finalizeReport(examId);
+      setIsLocked(true);
+      setLockedAt(result.locked_at ?? new Date().toISOString());
+      setFinalizeDialogOpen(false);
+      toast.success("Report finalized and locked. You can now email it from Forensic Reports.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to finalize report");
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -260,6 +304,7 @@ export default function ReportBuilderPage() {
     try {
       await requestReportOverrideUnlock(examId, overrideReason.trim());
       setIsLocked(false);
+      setLockedAt(null);
       setOverrideDialogOpen(false);
       setOverrideReason("");
       toast.success("Report unlocked for controlled revision. Existing secure shares were expired.");
@@ -298,7 +343,19 @@ export default function ReportBuilderPage() {
               Polygraph Forensic Report Builder
             </h1>
             <p className="font-semibold text-xs text-muted-foreground mt-1">
-              Configure report sections on the left and preview the official formatted template on the right.
+              {subjectName ? (
+                <>
+                  Examinee: <span className="text-foreground">{subjectName}</span>
+                  {clientName ? (
+                    <>
+                      {" "}
+                      · Client: <span className="text-foreground">{clientName}</span>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                "Configure report sections on the left and preview the official formatted template on the right."
+              )}
             </p>
           </div>
         </div>
@@ -321,6 +378,18 @@ export default function ReportBuilderPage() {
             >
               <ArrowLeft className="mr-2 h-4 w-4 rotate-180" />
               Unlock For Revision
+            </Button>
+          ) : null}
+          {!isLocked && canFinalizeReport ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="rounded-xl h-11 px-5 font-bold gap-2"
+              onClick={() => setFinalizeDialogOpen(true)}
+              disabled={saving || finalizing || loading}
+            >
+              <Lock className="h-4 w-4" />
+              Finalize & Lock
             </Button>
           ) : null}
           <Button
@@ -366,13 +435,25 @@ export default function ReportBuilderPage() {
             <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
               Report Parameters
             </h3>            {isLocked ? (
+              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-950">
+                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
+                  <Lock className="h-4 w-4" /> Final Report Locked
+                </div>
+                <p className="mt-2 text-xs text-emerald-900/80">
+                  This report is immutable{lockedAt ? ` since ${new Date(lockedAt).toLocaleString()}` : ""}. Return to Forensic Reports to email the secure PDF to the client.
+                  {canOverrideLockedReport ? " An authorized admin can unlock it for revision if needed." : ""}
+                </p>
+              </div>
+            ) : (
               <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-950">
                 <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
-                  <Eye className="h-4 w-4" /> Locked Final Report
+                  <FileSignature className="h-4 w-4" /> Draft In Progress
                 </div>
-                <p className="mt-2 text-xs text-amber-900/80">This report is view-only. To make changes, an authorized user must unlock it for a controlled revision with a recorded reason.</p>
+                <p className="mt-2 text-xs text-amber-900/80">
+                  Save your draft as you work, then use <span className="font-semibold">Finalize &amp; Lock</span> when the report is ready to send. Locked reports cannot be edited unless an admin unlocks them.
+                </p>
               </div>
-            ) : null}
+            )}
 
 
             {/* Ref & Date & Verdict */}
@@ -404,7 +485,15 @@ export default function ReportBuilderPage() {
               <Label className="font-bold flex items-center gap-1.5 text-primary text-xs uppercase tracking-wider mb-2">
                 <BrainCircuit className="h-4 w-4" /> Final Evaluation Verdict
               </Label>
-              <Select value={verdict} onValueChange={(val) => setVerdict(String(val))} disabled={readOnly}>
+              <Select
+                value={verdict}
+                onValueChange={(val) => {
+                  const next = String(val);
+                  setVerdict(next);
+                  setOpinionPhaseText(buildOpinionPhaseText(subjectName, next));
+                }}
+                disabled={readOnly}
+              >
                 <SelectTrigger className="rounded-xl h-11 bg-background">
                   <SelectValue placeholder="Select verdict..." />
                 </SelectTrigger>
@@ -667,7 +756,7 @@ export default function ReportBuilderPage() {
                   </div>
                   <div className="grid grid-cols-12 text-[10px]">
                     <div className="col-span-3 font-bold text-zinc-500 uppercase">EXAMINEE</div>
-                    <div className="col-span-9 font-black text-zinc-900">: {initialSubjectName}</div>
+                    <div className="col-span-9 font-black text-zinc-900">: {subjectName || "—"}</div>
                   </div>
                 </div>
 
@@ -676,7 +765,7 @@ export default function ReportBuilderPage() {
                     SECTION 1: PRE-EXAMINATION PHASE
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
-                    {preTestPhaseText || `On ${examDate} at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`}
+                    {preTestPhaseText}
                   </p>
                   <p className="whitespace-pre-line text-zinc-700 italic">
                     {preTestNotes}
@@ -751,7 +840,7 @@ export default function ReportBuilderPage() {
                     SECTION 3: OPINION OF EXAMINER
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
-                    {opinionPhaseText || `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${initialSubjectName} as ${verdict === "DI" ? "Not Truthful" : "Truthful"}.`}
+                    {opinionPhaseText}
                   </p>
                   <p className="text-zinc-700">
                     {postTestNotes}
@@ -799,6 +888,25 @@ export default function ReportBuilderPage() {
           ) : null}
         </div>
       )}
+      <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Finalize and lock this report?</DialogTitle>
+            <DialogDescription>
+              This saves your latest changes, marks the report as final, and prevents further edits. After locking, you can email the secure PDF from Forensic Reports. Only an admin override can reopen a locked report.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setFinalizeDialogOpen(false)} disabled={finalizing}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleFinalize()} disabled={finalizing} className="gap-2">
+              {finalizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+              Finalize & Lock
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={overrideDialogOpen} onOpenChange={setOverrideDialogOpen}>
         <DialogContent className="rounded-3xl">
           <DialogHeader>

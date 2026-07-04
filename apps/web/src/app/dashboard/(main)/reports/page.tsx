@@ -19,7 +19,6 @@ import {
   HelpCircle,
   ClipboardList,
   Lock,
-  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -27,28 +26,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { formatSubjectName } from "@/lib/subjects";
+import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
 import {
+  DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
   fetchSecureShares,
   createSecureShare,
   regenerateSecureShare,
   fetchConsolidatedStats,
   fetchReport,
+  resolveReportWorkflowStatus,
+  type ReportWorkflowStatus,
   type SecureReportShare,
   type ConsolidatedReportStats,
 } from "@/lib/reports";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
-import { formatSubjectName } from "@/lib/subjects";
 
 export default function ReportsDashboard() {
   const router = useRouter();
@@ -68,7 +62,9 @@ export default function ReportsDashboard() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [revealedPasswords, setRevealedPasswords] = React.useState<Record<number, boolean>>({});
-  const [reportLocks, setReportLocks] = React.useState<Record<number, boolean>>({});
+  const [reportWorkflow, setReportWorkflow] = React.useState<
+    Record<number, ReportWorkflowStatus>
+  >({});
 
   // Sessions table filter + pagination
   const [examsSearch, setExamsSearch] = React.useState("");
@@ -87,6 +83,7 @@ export default function ReportsDashboard() {
   // Share Dialog states
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
+  const [shareExpiryDays, setShareExpiryDays] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   const [sharing, setSharing] = React.useState(false);
 
 
@@ -113,8 +110,14 @@ export default function ReportsDashboard() {
   }, [search]);
 
   const handleOpenShare = (examId: number, initialEmail?: string) => {
+    const status = reportWorkflow[examId];
+    if (status !== "locked" && status !== "sent") {
+      toast.error("Finalize and lock the report in the Report Builder before emailing it.");
+      return;
+    }
     setSelectedExamId(examId);
     setRecipientEmail(initialEmail || "");
+    setShareExpiryDays(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   };
 
   const handleCreateShare = async () => {
@@ -124,7 +127,7 @@ export default function ReportsDashboard() {
     }
     setSharing(true);
     try {
-      await createSecureShare(null, recipientEmail.trim(), selectedExamId);
+      await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays);
       toast.success("Secure PDF encrypted and sent successfully!");
       setSelectedExamId(null);
       void loadData();
@@ -136,11 +139,25 @@ export default function ReportsDashboard() {
   };
 
   const handleOpenReportEditor = (examId: number, subjectName: string) => {
-    if (reportLocks[examId] && !canViewLockedReport) {
+    const status = reportWorkflow[examId];
+    if (status === "locked" && !canViewLockedReport) {
       toast.error("You don't have permission to view locked final reports.");
       return;
     }
     router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
+  };
+
+  const workflowBadge = (status: ReportWorkflowStatus | undefined) => {
+    switch (status) {
+      case "sent":
+        return <Badge className="ml-2 bg-emerald-500/10 text-emerald-700 border-none">Sent</Badge>;
+      case "locked":
+        return <Badge className="ml-2 bg-amber-500/10 text-amber-700 border-none">Locked</Badge>;
+      case "draft":
+        return <Badge variant="outline" className="ml-2">Draft</Badge>;
+      default:
+        return <Badge variant="secondary" className="ml-2">No report</Badge>;
+    }
   };
 
   const handleCopyLink = (token: string) => {
@@ -209,31 +226,36 @@ export default function ReportsDashboard() {
   React.useEffect(() => {
     let cancelled = false;
     if (paginatedExamIds.length === 0) {
-      setReportLocks({});
+      setReportWorkflow({});
       return;
     }
-    void Promise.all(paginatedExamIds.map(async (examId) => [examId, Boolean((await fetchReport(examId))?.is_locked)] as const))
+    void Promise.all(
+      paginatedExamIds.map(async (examId) => {
+        const report = await fetchReport(examId).catch(() => null);
+        const hasShare = report
+          ? shares.some((share) => share.exam_report_id === report.id)
+          : false;
+        return [
+          examId,
+          resolveReportWorkflowStatus({
+            reportExists: Boolean(report),
+            isLocked: Boolean(report?.is_locked),
+            hasShare,
+          }),
+        ] as const;
+      })
+    )
       .then((entries) => {
         if (cancelled) return;
-        setReportLocks((prev) => {
-          const next = Object.fromEntries(entries);
-          const prevKeys = Object.keys(prev);
-          const nextKeys = Object.keys(next);
-
-          if (prevKeys.length === nextKeys.length && nextKeys.every((key) => prev[Number(key)] === next[Number(key)])) {
-            return prev;
-          }
-
-          return next;
-        });
+        setReportWorkflow(Object.fromEntries(entries));
       })
       .catch(() => {
-        if (!cancelled) setReportLocks({});
+        if (!cancelled) setReportWorkflow({});
       });
     return () => {
       cancelled = true;
     };
-  }, [paginatedExamIdsKey]);
+  }, [paginatedExamIdsKey, shares]);
 
   // Shares table derived data
   const filteredShares = React.useMemo(() => {
@@ -425,7 +447,7 @@ export default function ReportsDashboard() {
                               <Badge variant={appt.status === "completed" ? "default" : "outline"}>
                                 {appt.status.replace(/_/g, " ")}
                               </Badge>
-                              {reportLocks[appt.exam_id!] ? <Badge variant="outline" className="ml-2">Locked</Badge> : null}
+                              {workflowBadge(reportWorkflow[appt.exam_id!])}
                             </td>
                             <td className="px-8 py-4 text-right space-x-2">
                               <Button
@@ -435,12 +457,20 @@ export default function ReportsDashboard() {
                                 onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
                               >
                                 <FileSignature className="h-3.5 w-3.5" />
-                                {reportLocks[appt.exam_id!] ? "View Locked Report" : "Write / Edit Report"}
+                                {reportWorkflow[appt.exam_id!] === "locked" || reportWorkflow[appt.exam_id!] === "sent"
+                                  ? "View Locked Report"
+                                  : "Write / Edit Report"}
                               </Button>
                               <Button
                                 size="sm"
                                 className="rounded-xl text-xs gap-1.5 font-bold"
                                 onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
+                                disabled={reportWorkflow[appt.exam_id!] !== "locked" && reportWorkflow[appt.exam_id!] !== "sent"}
+                                title={
+                                  reportWorkflow[appt.exam_id!] === "locked" || reportWorkflow[appt.exam_id!] === "sent"
+                                    ? "Email secure PDF to client"
+                                    : "Finalize and lock the report before sending"
+                                }
                               >
                                 <Mail className="h-3.5 w-3.5" />
                                 Email Secure Report
@@ -707,64 +737,16 @@ export default function ReportsDashboard() {
           </div>
         </TabsContent>
       </Tabs>
-      {/* Share Dialog */}
-      <Dialog open={selectedExamId !== null} onOpenChange={(open) => !open && setSelectedExamId(null)}>
-        <DialogContent className="rounded-3xl border-border/50 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-primary" />
-              Secure Document Share
-            </DialogTitle>
-            <DialogDescription>
-              Generate a password-encrypted PDF of the forensic report and send it to the recipient.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="recipient-email">Recipient Email Address</Label>
-              <Input
-                id="recipient-email"
-                type="email"
-                placeholder="client@company.com"
-                value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                An email will be sent containing the encrypted report PDF as an attachment, with a separate secure link they can use to unlock the document.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => setSelectedExamId(null)}
-              disabled={sharing}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-xl gap-2 font-bold"
-              onClick={() => void handleCreateShare()}
-              disabled={sharing}
-            >
-              {sharing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <ArrowRight className="h-4 w-4" />
-                  Generate & Share
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShareReportDialog
+        open={selectedExamId !== null}
+        onOpenChange={(open) => !open && setSelectedExamId(null)}
+        recipientEmail={recipientEmail}
+        onRecipientEmailChange={setRecipientEmail}
+        expiryDays={shareExpiryDays}
+        onExpiryDaysChange={setShareExpiryDays}
+        sharing={sharing}
+        onSubmit={handleCreateShare}
+      />
 
     </div>
   );

@@ -34,6 +34,15 @@ import {
   Printer,
 } from "lucide-react";
 import { toast } from "sonner";
+import { fetchAppointment, fetchExam } from "@/lib/exam-documentation";
+import { fetchClient } from "@/lib/clients";
+import {
+  buildNewReportDefaults,
+  buildOpinionPhaseText,
+  buildReportSessionContext,
+  coalesceField,
+  type ReportSessionContext,
+} from "@/lib/report-template";
 import { fetchReport, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
 
 type ReportEditorDialogProps = {
@@ -58,8 +67,8 @@ export function ReportEditorDialog({
   const [verdict, setVerdict] = React.useState<string>("NDI");
   const [purpose, setPurpose] = React.useState("");
   const [instrument, setInstrument] = React.useState("Lafayette LX6000");
-  const [referenceNo, setReferenceNo] = React.useState("PIN/CONF/2026/001");
-  const [examDate, setExamDate] = React.useState("4th May 2026");
+  const [referenceNo, setReferenceNo] = React.useState("");
+  const [examDate, setExamDate] = React.useState("");
   const [preTestPhaseText, setPreTestPhaseText] = React.useState("");
   const [preTestNotes, setPreTestNotes] = React.useState("");
   const [questions, setQuestions] = React.useState<{ text: string; answer: string; evaluation: string }[]>([]);
@@ -72,105 +81,113 @@ export function ReportEditorDialog({
   const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
   const [conclusion, setConclusion] = React.useState("");
 
-  // Auto-refresh opinion statement text when subjectName or verdict changes
-  React.useEffect(() => {
-    if (!opinionPhaseText) {
-      setOpinionPhaseText(
-        `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${subjectName || "Candidate A"} as ${verdict === "DI" ? "Not Truthful" : "Truthful"}.`
-      );
-    }
-  }, [verdict, subjectName]);
+  const applyReportDefaults = React.useCallback(
+    (ctx: ReportSessionContext, verdictValue = "NDI") => {
+      const defaults = buildNewReportDefaults(ctx, verdictValue);
+      setVerdict(defaults.verdict);
+      setPurpose(defaults.purpose);
+      setInstrument(defaults.instrument);
+      setReferenceNo(defaults.referenceNo);
+      setExamDate(defaults.examDate);
+      setSection4FollowUp(defaults.section4FollowUp);
+      setPreTestNotes(defaults.preTestNotes);
+      setQuestions(defaults.questions);
+      setLimestoneNotes(defaults.limestoneNotes);
+      setPreTestPhaseText(defaults.preTestPhaseText);
+      setExamPhaseText(defaults.examPhaseText);
+      setOpinionPhaseText(defaults.opinionPhaseText);
+      setPostTestNotes(defaults.postTestNotes);
+      setConclusion(defaults.conclusion);
+    },
+    []
+  );
+
+  const applySavedReport = React.useCallback(
+    (
+      report: NonNullable<Awaited<ReturnType<typeof fetchReport>>>,
+      ctx: ReportSessionContext
+    ) => {
+      const defaults = buildNewReportDefaults(ctx, report.verdict || "NDI");
+      setVerdict(report.verdict || defaults.verdict);
+
+      try {
+        const parsed = JSON.parse(report.content) as StructuredReportData & {
+          reference_no?: string;
+          exam_date?: string;
+          section_4_follow_up?: string;
+          limestone_notes?: string;
+          pre_test_phase_text?: string;
+          exam_phase_text?: string;
+          opinion_phase_text?: string;
+        };
+
+        setPurpose(coalesceField(parsed.purpose, defaults.purpose));
+        setInstrument(coalesceField(parsed.instrument, defaults.instrument));
+        setPreTestNotes(coalesceField(parsed.pre_test_notes, defaults.preTestNotes));
+        setQuestions(parsed.questions?.length ? parsed.questions : defaults.questions);
+        setPostTestNotes(coalesceField(parsed.post_test_notes, defaults.postTestNotes));
+        setConclusion(coalesceField(parsed.conclusion, defaults.conclusion));
+        setReferenceNo(coalesceField(parsed.reference_no, defaults.referenceNo));
+        setExamDate(coalesceField(parsed.exam_date, defaults.examDate));
+        setSection4FollowUp(coalesceField(parsed.section_4_follow_up, defaults.section4FollowUp));
+        setLimestoneNotes(coalesceField(parsed.limestone_notes, defaults.limestoneNotes));
+        setPreTestPhaseText(coalesceField(parsed.pre_test_phase_text, defaults.preTestPhaseText));
+        setExamPhaseText(coalesceField(parsed.exam_phase_text, defaults.examPhaseText));
+        setOpinionPhaseText(
+          coalesceField(
+            parsed.opinion_phase_text,
+            buildOpinionPhaseText(ctx.subjectName || subjectName, report.verdict || defaults.verdict)
+          )
+        );
+      } catch {
+        setConclusion(report.content || defaults.conclusion);
+        applyReportDefaults(ctx, report.verdict || "NDI");
+      }
+    },
+    [applyReportDefaults, subjectName]
+  );
 
   // Load report on open
   React.useEffect(() => {
     if (!open || !examId) return;
 
+    let cancelled = false;
     setLoading(true);
-    fetchReport(examId)
-      .then((report) => {
-        if (report) {
-          setVerdict(report.verdict);
-          try {
-            const parsed = JSON.parse(report.content) as StructuredReportData & {
-              reference_no?: string;
-              exam_date?: string;
-              section_4_follow_up?: string;
-              limestone_notes?: string;
-              pre_test_phase_text?: string;
-              exam_phase_text?: string;
-              opinion_phase_text?: string;
-            };
-            setPurpose(parsed.purpose || "");
-            setInstrument(parsed.instrument || "Lafayette LX6000");
-            setPreTestNotes(parsed.pre_test_notes || "");
-            setQuestions(parsed.questions || []);
-            setPostTestNotes(parsed.post_test_notes || "");
-            setConclusion(parsed.conclusion || "");
-            
-            // Set new fields
-            setReferenceNo(parsed.reference_no || "PIN/CONF/2026/001");
-            setExamDate(parsed.exam_date || "4th May 2026");
-            setSection4FollowUp(parsed.section_4_follow_up || "Nil");
-            setLimestoneNotes(
-              parsed.limestone_notes ||
-                "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.\n\nFour polygrams, including 1 acquaintance and 3 official tests were recorded, and the process ended at about 15:35 hrs (Dubai Time)."
-            );
-            setPreTestPhaseText(
-              parsed.pre_test_phase_text ||
-                `On 04th May 2026 at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`
-            );
-            setExamPhaseText(
-              parsed.exam_phase_text ||
-                "During the examination phase, the relevant and comparison questions were administered to subject with a set of 4 relevant questions. His verbal responses to the relevant questions were as indicated:"
-            );
-            setOpinionPhaseText(
-              parsed.opinion_phase_text ||
-                `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${subjectName || "Candidate A"} as ${report.verdict === "DI" ? "Not Truthful" : "Truthful"}.`
-            );
-          } catch (e) {
-            // Content was plain text fallback
-            setConclusion(report.content || "");
-            setPurpose("");
-            setPreTestNotes("");
-            setQuestions([]);
-            setPostTestNotes("");
-          }
-        } else {
-          // Defaults for new report
-          setVerdict("NDI");
-          setPurpose("Investigation of missing storage vault inventory");
-          setInstrument("Lafayette LX6000");
-          setReferenceNo("PIN/CONF/2026/001");
-          setExamDate("4th May 2026");
-          setSection4FollowUp("Nil");
-          setPreTestNotes("Examinee physical and mental health assessed as fit for testing. Legal rights and examination consent form explained and signed.");
-          setQuestions([
-            { text: "Have you ever shared confidential company information with an unauthorized person?", answer: "No", evaluation: "No Reaction" },
-            { text: "Have you stolen money, leads or any property from a company you worked for?", answer: "No", evaluation: "No Reaction" },
-            { text: "Have you ever used company resources like leads or tools for your own personal gain or for someone else?", answer: "No", evaluation: "No Reaction" },
-            { text: "Is your purpose in applying for this position to intentionally damage or undermine the company?", answer: "No", evaluation: "No Reaction" },
-          ]);
-          setLimestoneNotes(
-            "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.\n\nFour polygrams, including 1 acquaintance and 3 official tests were recorded, and the process ended at about 15:35 hrs (Dubai Time)."
-          );
-          setPreTestPhaseText(
-            `On 04th May 2026 at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`
-          );
-          setExamPhaseText(
-            "During the examination phase, the relevant and comparison questions were administered to subject with a set of 4 relevant questions. His verbal responses to the relevant questions were as indicated:"
-          );
-          setOpinionPhaseText(`Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${subjectName || "Candidate A"} as Truthful.`);
-          setPostTestNotes("Examinee cooperated and the test administration was as per procedure.");
-          setConclusion("Analysis of the physiological records indicates no significant emotional or autonomic nervous system reactions to target items.");
+
+    void (async () => {
+      try {
+        const [report, exam] = await Promise.all([fetchReport(examId), fetchExam(examId)]);
+        const appointment = exam.appointment_id
+          ? await fetchAppointment(exam.appointment_id).catch(() => null)
+          : null;
+        const client = await fetchClient(exam.client_id).catch(() => null);
+        const ctx = buildReportSessionContext(
+          exam,
+          client?.name || appointment?.client?.name || "",
+          appointment
+        );
+        if (ctx.subjectName.trim() === "" && subjectName.trim()) {
+          ctx.subjectName = subjectName.trim();
         }
-      })
-      .catch((err) => {
-        toast.error("Failed to load report data");
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [open, examId, subjectName]);
+
+        if (cancelled) return;
+
+        if (report) {
+          applySavedReport(report, ctx);
+        } else {
+          applyReportDefaults(ctx);
+        }
+      } catch {
+        if (!cancelled) toast.error("Failed to load report data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, examId, subjectName, applyReportDefaults, applySavedReport]);
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, { text: "", answer: "No", evaluation: "No Reaction" }]);
@@ -223,7 +240,7 @@ export function ReportEditorDialog({
       };
 
       await saveDetailedReport(examId, verdict, data);
-      toast.success("Detailed report compiled and locked successfully!");
+      toast.success("Report draft saved successfully.");
       onSaveSuccess();
       onOpenChange(false);
     } catch (err) {
@@ -527,7 +544,7 @@ export function ReportEditorDialog({
                     </div>
                     <div className="grid grid-cols-12 text-[10px]">
                       <div className="col-span-3 font-bold text-zinc-500 uppercase">EXAMINEE</div>
-                      <div className="col-span-9 font-black text-zinc-900">: {subjectName || "Candidate A"}</div>
+                      <div className="col-span-9 font-black text-zinc-900">: {subjectName || "—"}</div>
                     </div>
                   </div>
 
@@ -537,7 +554,7 @@ export function ReportEditorDialog({
                       SECTION 1: PRE-EXAMINATION PHASE
                     </h3>
                     <p className="whitespace-pre-line text-zinc-700">
-                      {preTestPhaseText || `On ${examDate} at about 14:00 hrs (Dubai Time), I commenced to administer a polygraph examination to the above subject.\n\nA screening polygraph test was administered as part of a pre-employment test for Company A.`}
+                      {preTestPhaseText}
                     </p>
                     <p className="whitespace-pre-line text-zinc-700 italic">
                       {preTestNotes}
@@ -618,7 +635,7 @@ export function ReportEditorDialog({
                       SECTION 3: OPINION OF EXAMINER
                     </h3>
                     <p className="whitespace-pre-line text-zinc-700">
-                      {opinionPhaseText || `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${subjectName || "Candidate A"} as ${verdict === "DI" ? "Not Truthful" : "Truthful"}.`}
+                      {opinionPhaseText}
                     </p>
                     <p className="text-zinc-700">
                       {postTestNotes}

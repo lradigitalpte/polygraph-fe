@@ -32,9 +32,28 @@ export type ExamRecord = {
   type: string;
   status: string;
   notes: string;
+  subject?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email?: string;
+  };
+  exam_type?: {
+    id: number;
+    name: string;
+  };
   documents?: ExamDocumentRecord[];
   phases?: ExamPhaseRecord[];
 };
+
+export async function fetchExam(examId: number): Promise<ExamRecord> {
+  const response = await authenticatedFetch(`/api/exams/${examId}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to load exam (${response.status})`);
+  }
+  return response.json();
+}
 
 export type ExamReportRecord = {
   id: number;

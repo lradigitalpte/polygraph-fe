@@ -9,11 +9,8 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
-  Calendar,
-  Clock,
   Loader2,
   Lock,
-  ArrowRight,
   ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,20 +18,15 @@ import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
+  DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
   fetchSecureShares,
   createSecureShare,
   regenerateSecureShare,
+  fetchReport,
+  resolveReportWorkflowStatus,
+  type ReportWorkflowStatus,
   type SecureReportShare,
 } from "@/lib/reports";
 import { formatSubjectName } from "@/lib/subjects";
@@ -52,7 +44,9 @@ export default function ClientReportsPage() {
   // Share modal states
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
+  const [shareExpiryDays, setShareExpiryDays] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   const [sharing, setSharing] = React.useState(false);
+  const [reportWorkflow, setReportWorkflow] = React.useState<Record<number, ReportWorkflowStatus>>({});
 
 
   const handleOpenReportEditor = (examId: number, subjectName: string) => {
@@ -77,8 +71,14 @@ export default function ClientReportsPage() {
   }, [clientId]);
 
   const handleOpenShare = (examId: number, initialEmail?: string) => {
+    const status = reportWorkflow[examId];
+    if (status !== "locked" && status !== "sent") {
+      toast.error("Finalize and lock the report in the Report Builder before emailing it.");
+      return;
+    }
     setSelectedExamId(examId);
     setRecipientEmail(initialEmail || client?.email || "");
+    setShareExpiryDays(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   };
 
   const handleCreateShare = async () => {
@@ -88,7 +88,7 @@ export default function ClientReportsPage() {
     }
     setSharing(true);
     try {
-      await createSecureShare(null, recipientEmail.trim(), selectedExamId);
+      await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays);
       toast.success("Secure PDF encrypted and sent successfully!");
       setSelectedExamId(null);
       void loadShares();
@@ -131,6 +131,45 @@ export default function ClientReportsPage() {
     return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
   }, [appointments]);
 
+  const completedExamIdsKey = React.useMemo(
+    () => completedExams.map((appt) => appt.exam_id).filter(Boolean).join(","),
+    [completedExams]
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const examIds = completedExams
+      .map((appt) => appt.exam_id)
+      .filter((id): id is number => Boolean(id));
+    if (examIds.length === 0) {
+      setReportWorkflow({});
+      return;
+    }
+    void Promise.all(
+      examIds.map(async (examId) => {
+        const report = await fetchReport(examId).catch(() => null);
+        const hasShare = report ? shares.some((share) => share.exam_report_id === report.id) : false;
+        return [
+          examId,
+          resolveReportWorkflowStatus({
+            reportExists: Boolean(report),
+            isLocked: Boolean(report?.is_locked),
+            hasShare,
+          }),
+        ] as const;
+      })
+    )
+      .then((entries) => {
+        if (!cancelled) setReportWorkflow(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (!cancelled) setReportWorkflow({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [completedExamIdsKey, shares]);
+
   if (clientLoading) {
     return (
       <div className="flex justify-center py-20 text-muted-foreground">
@@ -156,7 +195,7 @@ export default function ClientReportsPage() {
             Sessions Ready for Report Sharing
           </CardTitle>
           <CardDescription>
-            Exams that have active documentation records. Sharing will build a password-encrypted PDF and deliver a separate secure link.
+            Write and lock the report in the Report Builder first, then email the encrypted PDF from here.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -188,6 +227,15 @@ export default function ClientReportsPage() {
                           <Badge variant={appt.status === "completed" ? "default" : "outline"}>
                             {appt.status.replace(/_/g, " ")}
                           </Badge>
+                          {reportWorkflow[appt.exam_id!] === "sent" ? (
+                            <Badge className="ml-2 bg-emerald-500/10 text-emerald-700 border-none">Sent</Badge>
+                          ) : reportWorkflow[appt.exam_id!] === "locked" ? (
+                            <Badge className="ml-2 bg-amber-500/10 text-amber-700 border-none">Locked</Badge>
+                          ) : reportWorkflow[appt.exam_id!] === "draft" ? (
+                            <Badge variant="outline" className="ml-2">Draft</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="ml-2">No report</Badge>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right space-x-2">
                           <Button
@@ -197,12 +245,15 @@ export default function ClientReportsPage() {
                             onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
                           >
                             <FileSignature className="h-3.5 w-3.5" />
-                            Write / Edit Report
+                            {reportWorkflow[appt.exam_id!] === "locked" || reportWorkflow[appt.exam_id!] === "sent"
+                              ? "View Locked Report"
+                              : "Write / Edit Report"}
                           </Button>
                           <Button
                             size="sm"
                             className="rounded-xl text-xs gap-1.5 font-bold"
                             onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
+                            disabled={reportWorkflow[appt.exam_id!] !== "locked" && reportWorkflow[appt.exam_id!] !== "sent"}
                           >
                             <Mail className="h-3.5 w-3.5" />
                             Email Secure Report
@@ -285,9 +336,18 @@ export default function ClientReportsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-xs">
-                          <Badge variant={isExpired ? "destructive" : "secondary"}>
-                            {isExpired ? "Expired" : "Active"}
-                          </Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant={isExpired ? "destructive" : "secondary"}>
+                              {isExpired ? "Expired" : "Active"}
+                            </Badge>
+                            <span className="text-muted-foreground">
+                              {new Date(share.expires_at).toLocaleDateString(undefined, {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-right space-x-1.5">
                           <Button
@@ -325,64 +385,16 @@ export default function ClientReportsPage() {
         </CardContent>
       </Card>
 
-      {/* Share Dialog */}
-      <Dialog open={selectedExamId !== null} onOpenChange={(open) => !open && setSelectedExamId(null)}>
-        <DialogContent className="rounded-3xl border-border/50 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileSignature className="h-5 w-5 text-primary" />
-              Secure Document Share
-            </DialogTitle>
-            <DialogDescription>
-              Generate a password-encrypted PDF of the forensic report and send it to the recipient.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="recipient-email">Recipient Email Address</Label>
-              <Input
-                id="recipient-email"
-                type="email"
-                placeholder="client@company.com"
-                value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                An email will be sent containing the encrypted report PDF as an attachment, with a separate secure link they can use to unlock the document.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => setSelectedExamId(null)}
-              disabled={sharing}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="rounded-xl gap-2 font-bold"
-              onClick={() => void handleCreateShare()}
-              disabled={sharing}
-            >
-              {sharing ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <ArrowRight className="h-4 w-4" />
-                  Generate & Share
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShareReportDialog
+        open={selectedExamId !== null}
+        onOpenChange={(open) => !open && setSelectedExamId(null)}
+        recipientEmail={recipientEmail}
+        onRecipientEmailChange={setRecipientEmail}
+        expiryDays={shareExpiryDays}
+        onExpiryDaysChange={setShareExpiryDays}
+        sharing={sharing}
+        onSubmit={handleCreateShare}
+      />
 
     </div>
   );

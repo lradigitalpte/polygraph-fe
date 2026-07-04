@@ -65,7 +65,8 @@ export async function fetchSecureShares(filters?: {
 export async function createSecureShare(
   examReportId: number | null,
   recipientEmail: string,
-  examId?: number
+  examId?: number,
+  expiresInDays = 7
 ): Promise<SecureReportShare> {
   const response = await authenticatedFetch("/api/reports/shares", {
     method: "POST",
@@ -73,6 +74,7 @@ export async function createSecureShare(
       exam_report_id: examReportId || undefined,
       exam_id: examId || undefined,
       recipient_email: recipientEmail,
+      expires_in_days: expiresInDays,
     }),
   });
   const data = await response.json().catch(() => null);
@@ -82,9 +84,10 @@ export async function createSecureShare(
   return data;
 }
 
-export async function regenerateSecureShare(id: number): Promise<SecureReportShare> {
+export async function regenerateSecureShare(id: number, expiresInDays = 7): Promise<SecureReportShare> {
   const response = await authenticatedFetch(`/api/reports/shares/${id}/regenerate`, {
     method: "POST",
+    body: JSON.stringify({ expires_in_days: expiresInDays }),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
@@ -153,6 +156,44 @@ export async function saveDetailedReport(
     throw new Error(payload?.error || `Failed to save report (${response.status})`);
   }
   return payload;
+}
+
+export async function finalizeReport(examId: number): Promise<{
+  id: number;
+  exam_id: number;
+  is_locked: boolean;
+  locked_at?: string | null;
+}> {
+  const response = await authenticatedFetch(`/api/reports/${examId}/finalize`, {
+    method: "POST",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `Failed to finalize report (${response.status})`);
+  }
+  return payload;
+}
+
+export const REPORT_SHARE_EXPIRY_OPTIONS = [
+  { label: "3 days", value: 3 },
+  { label: "7 days (recommended)", value: 7 },
+  { label: "14 days", value: 14 },
+  { label: "30 days", value: 30 },
+] as const;
+
+export const DEFAULT_REPORT_SHARE_EXPIRY_DAYS = 7;
+
+export type ReportWorkflowStatus = "none" | "draft" | "locked" | "sent";
+
+export function resolveReportWorkflowStatus(input: {
+  reportExists: boolean;
+  isLocked: boolean;
+  hasShare: boolean;
+}): ReportWorkflowStatus {
+  if (input.hasShare) return "sent";
+  if (input.isLocked) return "locked";
+  if (input.reportExists) return "draft";
+  return "none";
 }
 
 export async function requestReportOverrideUnlock(examId: number, reason: string): Promise<void> {

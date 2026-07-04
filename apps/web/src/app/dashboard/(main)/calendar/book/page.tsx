@@ -51,6 +51,8 @@ import {
 } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { convertQuotation } from "@/lib/quotations";
+import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
+import { convertCurrency, formatMoney } from "@/lib/client-account";
 import { cn } from "@/lib/utils";
 
 const paymentTypes = ["Bank Transfer", "Credit Card"];
@@ -90,6 +92,9 @@ function BookAppointmentPageContent() {
   const [busyPeriods, setBusyPeriods] = React.useState<BusyPeriodRecord[]>([]);
   const [isDateBlocked, setIsDateBlocked] = React.useState(false);
   const [isLoadingAvailability, setIsLoadingAvailability] = React.useState(false);
+  const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
+
+  const orgCurrency = orgSettings?.currency || "USD";
 
   const [formData, setFormData] = React.useState({
     clientName: "",
@@ -125,6 +130,17 @@ function BookAppointmentPageContent() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  React.useEffect(() => {
+    void fetchOrganizationSettings()
+      .then(setOrgSettings)
+      .catch(() => setOrgSettings(null));
+  }, []);
+
+  const examPriceInOrg = React.useCallback(
+    (usdPrice: number) => convertCurrency(usdPrice, "USD", orgCurrency, orgSettings ?? {}),
+    [orgCurrency, orgSettings],
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -523,12 +539,17 @@ function BookAppointmentPageContent() {
         }
       }
 
-      // Calculate payment status based on collected amount
-      const collectedAmount = Number(formData.collectedAmount) || 0;
+      const orgExamPrice = examPriceInOrg(selectedExamType.price);
+      const collectedInOrg = Number(formData.collectedAmount) || 0;
+      const collectedUSD =
+        collectedInOrg > 0
+          ? convertCurrency(collectedInOrg, orgCurrency, "USD", orgSettings ?? {})
+          : 0;
+
       let paymentStatus = "Unpaid";
-      if (collectedAmount >= selectedExamType.price) {
+      if (collectedInOrg >= orgExamPrice) {
         paymentStatus = "Paid";
-      } else if (collectedAmount > 0) {
+      } else if (collectedInOrg > 0) {
         paymentStatus = "Partial";
       }
 
@@ -552,14 +573,14 @@ function BookAppointmentPageContent() {
           scheduled_at: scheduledAt,
           duration: selectedExamType.duration,
           exam_fee: selectedExamType.price,
-          collected_amount: collectedAmount,
+          collected_amount: collectedUSD,
           payment_status: paymentStatus,
           payment_mode: formData.paymentType,
           notes: `${selectedExamType.name}\n\n${formData.reason}`,
           status: "pending",
         });
         toast.success("Appointment booked", {
-          description: `Invoice for $${selectedExamType.price.toFixed(2)} added to Financial Hub.`,
+          description: `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
         });
       }
       // Return to the originating page (e.g. pending appointments) when provided, so the
@@ -857,7 +878,9 @@ function BookAppointmentPageContent() {
                         {selectedExamType && (
                           <div className="space-y-1 text-xs text-muted-foreground">
                             <p>{selectedExamType.description} Estimated duration: {(selectedExamType.duration / 60).toFixed(1)} hours.</p>
-                            <p className="font-semibold text-foreground">Base price: ${selectedExamType.price.toFixed(2)}</p>
+                            <p className="font-semibold text-foreground">
+                              Base price: {formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency)}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1036,7 +1059,11 @@ function BookAppointmentPageContent() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <Label>Base Exam Fee</Label>
-                            <span className="text-sm font-black text-primary">${selectedExamType?.price.toFixed(2) || "0.00"}</span>
+                            <span className="text-sm font-black text-primary">
+                              {selectedExamType
+                                ? formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency)
+                                : formatMoney(0, orgCurrency)}
+                            </span>
                           </div>
                           <div className="p-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-muted-foreground">
                             From {selectedExamType?.name || "selected exam type"}
@@ -1046,13 +1073,15 @@ function BookAppointmentPageContent() {
                         <div className="space-y-2">
                           <Label htmlFor="collected-amount">Amount Collected</Label>
                           <div className="relative">
-                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">$</span>
+                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground font-bold text-[10px]">
+                              {orgCurrency}
+                            </span>
                             <Input
                               id="collected-amount"
                               type="number"
                               step="0.01"
                               min="0"
-                              max={selectedExamType?.price}
+                              max={selectedExamType ? examPriceInOrg(selectedExamType.price) : undefined}
                               placeholder="0.00"
                               className="h-10 rounded-xl border-border/50 bg-muted/20 pl-8 sm:h-12"
                               value={formData.collectedAmount}
@@ -1061,7 +1090,7 @@ function BookAppointmentPageContent() {
                           </div>
                           <p className="text-[10px] text-muted-foreground">
                             {formData.collectedAmount && selectedExamType
-                              ? `${((Number(formData.collectedAmount) / selectedExamType.price) * 100).toFixed(0)}% of total`
+                              ? `${((Number(formData.collectedAmount) / examPriceInOrg(selectedExamType.price)) * 100).toFixed(0)}% of total`
                               : "Enter collected amount"}
                           </p>
                         </div>
@@ -1096,11 +1125,25 @@ function BookAppointmentPageContent() {
                         <ReviewItem label="Client" value={formData.clientName || "Not selected"} />
                         <ReviewItem label="Subject" value={selectedSubjectLabel} />
                         <ReviewItem label="Exam Type" value={selectedExamType?.name || "Not selected"} />
-                        <ReviewItem label="Price" value={selectedExamType ? `$${selectedExamType.price.toFixed(2)}` : "Not set"} />
+                        <ReviewItem
+                          label="Price"
+                          value={
+                            selectedExamType
+                              ? formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency)
+                              : "Not set"
+                          }
+                        />
                         <ReviewItem label="Examiner" value={selectedExaminer?.name || "Not assigned"} />
                         <ReviewItem label="Time Slot" value={formData.date && formData.time ? `${formData.date} @ ${formData.time}` : "Not scheduled"} />
                         <ReviewItem label="Payment Method" value={formData.paymentType || "Not selected"} />
-                        <ReviewItem label="Collected Amount" value={formData.collectedAmount ? `$${Number(formData.collectedAmount).toFixed(2)}` : "$0.00"} />
+                        <ReviewItem
+                          label="Collected Amount"
+                          value={
+                            formData.collectedAmount
+                              ? formatMoney(Number(formData.collectedAmount), orgCurrency)
+                              : formatMoney(0, orgCurrency)
+                          }
+                        />
                       </div>
                       <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Background</p>
@@ -1124,7 +1167,14 @@ function BookAppointmentPageContent() {
               <SummaryRow label="Client" value={formData.clientName || "Not selected"} />
               <SummaryRow label="Subject" value={selectedSubjectLabel} />
               <SummaryRow label="Type" value={selectedExamType?.name || "Not selected"} />
-              <SummaryRow label="Price" value={selectedExamType ? `$${selectedExamType.price.toFixed(2)}` : "Not set"} />
+              <SummaryRow
+                label="Price"
+                value={
+                  selectedExamType
+                    ? formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency)
+                    : "Not set"
+                }
+              />
               <SummaryRow label="Examiner" value={selectedExaminer?.name || "Not assigned"} />
               <SummaryRow label="Time Slot" value={formData.date && formData.time ? `${formData.date} @ ${formData.time}` : "Not scheduled"} />
               <SummaryRow

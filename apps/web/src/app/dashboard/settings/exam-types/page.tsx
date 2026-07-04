@@ -26,8 +26,8 @@ import {
   updateExamType,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
-import { formatMoney } from "@/lib/client-account";
-import { fetchOrganizationSettings } from "@/lib/settings";
+import { formatMoney, convertCurrency } from "@/lib/client-account";
+import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 type FormState = {
   name: string;
@@ -54,6 +54,7 @@ export default function ExamTypesSettingsPage() {
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [orgCurrency, setOrgCurrency] = React.useState("USD");
+  const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [form, setForm] = React.useState<FormState>(emptyForm);
 
@@ -75,6 +76,7 @@ export default function ExamTypesSettingsPage() {
     void (async () => {
       try {
         const org = await fetchOrganizationSettings();
+        setOrgSettings(org);
         if (org.currency) {
           setOrgCurrency(org.currency);
         }
@@ -94,6 +96,11 @@ export default function ExamTypesSettingsPage() {
     setOpen(true);
   };
 
+  const catalogPriceInOrg = React.useCallback(
+    (usdPrice: number) => convertCurrency(usdPrice, "USD", orgCurrency, orgSettings ?? {}),
+    [orgCurrency, orgSettings],
+  );
+
   const openEdit = (examType: ExamTypeRecord) => {
     setEditingId(examType.id);
     setForm({
@@ -101,7 +108,7 @@ export default function ExamTypesSettingsPage() {
       description: examType.description || "",
       category: examType.category || "",
       duration: String(examType.duration),
-      price: String(examType.price ?? 0),
+      price: String(catalogPriceInOrg(examType.price ?? 0)),
       active: examType.active,
     });
     setOpen(true);
@@ -109,7 +116,7 @@ export default function ExamTypesSettingsPage() {
 
   const handleSave = async () => {
     const duration = Number(form.duration);
-    const price = Number(form.price);
+    const priceInOrg = Number(form.price);
     if (!form.name.trim()) {
       toast.error("Exam type name is required");
       return;
@@ -118,10 +125,11 @@ export default function ExamTypesSettingsPage() {
       toast.error("Duration must be greater than 0");
       return;
     }
-    if (!Number.isFinite(price) || price < 0) {
+    if (!Number.isFinite(priceInOrg) || priceInOrg < 0) {
       toast.error("Price cannot be negative");
       return;
     }
+    const price = convertCurrency(priceInOrg, orgCurrency, "USD", orgSettings ?? {});
 
     setSaving(true);
     try {
@@ -213,7 +221,9 @@ export default function ExamTypesSettingsPage() {
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Base price</span>
-                  <span className="font-semibold text-foreground">{formatMoney(examType.price ?? 0, orgCurrency)}</span>
+                  <span className="font-semibold text-foreground">
+                    {formatMoney(catalogPriceInOrg(examType.price ?? 0), orgCurrency)}
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="gap-2" onClick={() => openEdit(examType)}>
