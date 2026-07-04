@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, CalendarClock, CheckCircle2, Copy, Eye, FileText, Loader2, Mail, RefreshCcw, Send, ShieldCheck } from "lucide-react";
+import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye, FileText, Loader2, Mail, RefreshCcw, Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,15 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { authenticatedFetch } from "@/lib/api-client";
 
@@ -106,6 +114,17 @@ function intakeLink(token: string) {
   return `${base}/intake/${token}`;
 }
 
+const HISTORY_PAGE_SIZES = [5, 10, 15] as const;
+const SUBMISSION_PAGE_SIZES = [10, 25, 50] as const;
+
+function buildPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+}
+
 export default function SendIntakePage() {
   const params = useParams();
   const router = useRouter();
@@ -123,6 +142,10 @@ export default function SendIntakePage() {
   const [resendingId, setResendingId] = React.useState<number | null>(null);
   const [viewing, setViewing] = React.useState<IntakeSubmission | null>(null);
   const [loadingSubmissionId, setLoadingSubmissionId] = React.useState<number | null>(null);
+  const [historyPage, setHistoryPage] = React.useState(1);
+  const [historyPerPage, setHistoryPerPage] = React.useState<number>(5);
+  const [submissionPage, setSubmissionPage] = React.useState(1);
+  const [submissionPerPage, setSubmissionPerPage] = React.useState<number>(10);
 
   // Pre-fill from client once loaded
   React.useEffect(() => {
@@ -138,6 +161,49 @@ export default function SendIntakePage() {
       .catch(() => {/* silent */})
       .finally(() => setLoadingHistory(false));
   }, [clientId]);
+
+  React.useEffect(() => {
+    setHistoryPage(1);
+  }, [history.length, historyPerPage]);
+
+  React.useEffect(() => {
+    setSubmissionPage(1);
+  }, [viewing?.id, submissionPerPage]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(history.length / historyPerPage));
+  const historyPageNumbers = React.useMemo(
+    () => buildPageNumbers(historyPage, historyTotalPages),
+    [historyPage, historyTotalPages],
+  );
+  const paginatedHistory = history.slice(
+    (historyPage - 1) * historyPerPage,
+    historyPage * historyPerPage,
+  );
+
+  React.useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
+
+  const submissionTotal = viewing?.subjects.length ?? 0;
+  const submissionTotalPages = Math.max(1, Math.ceil(submissionTotal / submissionPerPage));
+  const submissionPageNumbers = React.useMemo(
+    () => buildPageNumbers(submissionPage, submissionTotalPages),
+    [submissionPage, submissionTotalPages],
+  );
+  const paginatedSubjects = viewing
+    ? viewing.subjects.slice(
+        (submissionPage - 1) * submissionPerPage,
+        submissionPage * submissionPerPage,
+      )
+    : [];
+
+  React.useEffect(() => {
+    if (submissionPage > submissionTotalPages) {
+      setSubmissionPage(submissionTotalPages);
+    }
+  }, [submissionPage, submissionTotalPages]);
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -198,22 +264,13 @@ export default function SendIntakePage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-16">
-      {/* Header */}
-      <div className="flex items-start gap-3">
-        <Link
-          href={`/dashboard/clients/${clientId}/roster`}
-          className="mt-1 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">Request examinee roster</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Email a secure link to <strong>{client?.name ?? "this organisation"}</strong> so they
-            can submit their list of people to be examined — without logging in.
-          </p>
-        </div>
+    <div className="space-y-6 pb-12">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Request examinee roster</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Email a secure link to <strong>{client?.name ?? "this organisation"}</strong> so they
+          can submit their list of people to be examined — without logging in.
+        </p>
       </div>
 
       {/* Pointer to the separate form-template sender */}
@@ -263,6 +320,8 @@ export default function SendIntakePage() {
         </Card>
       )}
 
+      {/* Send form + history */}
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
       {/* Send form */}
       <Card>
         <CardHeader>
@@ -348,8 +407,9 @@ export default function SendIntakePage() {
               No intake requests sent yet.
             </p>
           ) : (
+            <>
             <ul className="divide-y divide-border text-sm">
-              {history.map((req) => (
+              {paginatedHistory.map((req) => (
                 <li key={req.id} className="py-3 flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-medium truncate">{req.recipient_email}</p>
@@ -438,13 +498,87 @@ export default function SendIntakePage() {
                 </li>
               ))}
             </ul>
+
+            <div className="mt-4 flex flex-col gap-3 border-t border-border/50 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  Showing{" "}
+                  <span className="text-foreground">
+                    {(historyPage - 1) * historyPerPage + 1}–
+                    {Math.min(historyPage * historyPerPage, history.length)}
+                  </span>{" "}
+                  of {history.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                    Per page
+                  </Label>
+                  <Select
+                    value={String(historyPerPage)}
+                    onValueChange={(v) => setHistoryPerPage(Number(v))}
+                  >
+                    <SelectTrigger className="h-8 w-[72px] rounded-lg">
+                      <SelectValue>{historyPerPage}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {HISTORY_PAGE_SIZES.map((size) => (
+                        <SelectItem key={size} value={String(size)}>
+                          {size}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg px-2.5"
+                  disabled={historyPage <= 1}
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                {historyPageNumbers.map((page, index) => {
+                  const prev = historyPageNumbers[index - 1];
+                  const showEllipsis = prev !== undefined && page - prev > 1;
+                  return (
+                    <React.Fragment key={page}>
+                      {showEllipsis && (
+                        <span className="px-1 text-xs text-muted-foreground">…</span>
+                      )}
+                      <Button
+                        variant={historyPage === page ? "default" : "ghost"}
+                        size="sm"
+                        className={cn("h-8 w-8 rounded-lg text-xs font-black")}
+                        onClick={() => setHistoryPage(page)}
+                      >
+                        {page}
+                      </Button>
+                    </React.Fragment>
+                  );
+                })}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg px-2.5"
+                  disabled={historyPage >= historyTotalPages}
+                  onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
+      </div>
 
       {/* Submitted details dialog */}
       <Dialog open={viewing !== null} onOpenChange={(open) => !open && setViewing(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Submitted examinees</DialogTitle>
             <DialogDescription>
@@ -497,8 +631,8 @@ export default function SendIntakePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {viewing.subjects.map((s, i) => (
-                      <tr key={s.id ?? i}>
+                    {paginatedSubjects.map((s, i) => (
+                      <tr key={s.id ?? (submissionPage - 1) * submissionPerPage + i}>
                         <td className="px-3 py-2 font-medium">
                           {`${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() || "—"}
                         </td>
@@ -512,6 +646,80 @@ export default function SendIntakePage() {
                   </tbody>
                 </table>
               </div>
+
+              {submissionTotal > submissionPerPage && (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Showing{" "}
+                      <span className="text-foreground">
+                        {(submissionPage - 1) * submissionPerPage + 1}–
+                        {Math.min(submissionPage * submissionPerPage, submissionTotal)}
+                      </span>{" "}
+                      of {submissionTotal} examinees
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                        Per page
+                      </Label>
+                      <Select
+                        value={String(submissionPerPage)}
+                        onValueChange={(v) => setSubmissionPerPage(Number(v))}
+                      >
+                        <SelectTrigger className="h-8 w-[72px] rounded-lg">
+                          <SelectValue>{submissionPerPage}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SUBMISSION_PAGE_SIZES.map((size) => (
+                            <SelectItem key={size} value={String(size)}>
+                              {size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-2.5"
+                      disabled={submissionPage <= 1}
+                      onClick={() => setSubmissionPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    {submissionPageNumbers.map((page, index) => {
+                      const prev = submissionPageNumbers[index - 1];
+                      const showEllipsis = prev !== undefined && page - prev > 1;
+                      return (
+                        <React.Fragment key={page}>
+                          {showEllipsis && (
+                            <span className="px-1 text-xs text-muted-foreground">…</span>
+                          )}
+                          <Button
+                            variant={submissionPage === page ? "default" : "ghost"}
+                            size="sm"
+                            className={cn("h-8 w-8 rounded-lg text-xs font-black")}
+                            onClick={() => setSubmissionPage(page)}
+                          >
+                            {page}
+                          </Button>
+                        </React.Fragment>
+                      );
+                    })}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-lg px-2.5"
+                      disabled={submissionPage >= submissionTotalPages}
+                      onClick={() => setSubmissionPage((p) => Math.min(submissionTotalPages, p + 1))}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

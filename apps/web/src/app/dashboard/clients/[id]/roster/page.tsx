@@ -19,6 +19,7 @@ import {
   Search,
   Upload,
   UserPlus,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -175,6 +176,81 @@ function parseCsvRows(text: string) {
 type BookingFilter = "all" | "booked" | "unbooked";
 type SessionFilter = "all" | "has_sessions" | "completed" | "none";
 type SortField = "name" | "last_session" | "sessions";
+type DatePreset = "all" | "today" | "week" | "month" | "custom";
+type SessionCountOp = "any" | "eq" | "gte" | "lte";
+
+const BOOKING_FILTER_LABELS: Record<BookingFilter, string> = {
+  all: "All booking",
+  booked: "Exam booked",
+  unbooked: "Not booked",
+};
+
+const SESSION_FILTER_LABELS: Record<SessionFilter, string> = {
+  all: "All sessions",
+  has_sessions: "Has sessions",
+  completed: "Has completed",
+  none: "No sessions",
+};
+
+const SESSION_COUNT_OP_LABELS: Record<SessionCountOp, string> = {
+  any: "Any count",
+  eq: "Exactly",
+  gte: "At least",
+  lte: "At most",
+};
+
+const PAGE_SIZE_OPTIONS = [10, 15, 25, 50] as const;
+
+function parseLocalDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return null;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return null;
+  return new Date(year, month, day);
+}
+
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function presetRange(preset: DatePreset): { from?: Date; to?: Date } {
+  if (preset === "all" || preset === "custom") return {};
+  const now = new Date();
+  const from = startOfDay(now);
+  const to = endOfDay(now);
+  if (preset === "today") return { from, to };
+  if (preset === "week") {
+    const weekStart = new Date(from);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    return { from: weekStart, to: endOfDay(weekEnd) };
+  }
+  if (preset === "month") {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: monthStart, to: endOfDay(monthEnd) };
+  }
+  return {};
+}
+
+function matchesSessionCount(count: number, op: SessionCountOp, value: number): boolean {
+  if (op === "any") return true;
+  if (op === "eq") return count === value;
+  if (op === "gte") return count >= value;
+  return count <= value;
+}
 
 function formatLastSession(iso?: string) {
   if (!iso) return "—";
@@ -205,10 +281,15 @@ export default function ExamineeRosterPage() {
   const [search, setSearch] = React.useState("");
   const [bookingFilter, setBookingFilter] = React.useState<BookingFilter>("all");
   const [sessionFilter, setSessionFilter] = React.useState<SessionFilter>("all");
+  const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+  const [sessionCountOp, setSessionCountOp] = React.useState<SessionCountOp>("any");
+  const [sessionCountValue, setSessionCountValue] = React.useState("");
   const [sortField, setSortField] = React.useState<SortField>("name");
   const [sortAsc, setSortAsc] = React.useState(true);
   const [currentPage, setCurrentPage] = React.useState(1);
-  const itemsPerPage = 15;
+  const [itemsPerPage, setItemsPerPage] = React.useState<number>(10);
   const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -241,7 +322,45 @@ export default function ExamineeRosterPage() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [search, bookingFilter, sessionFilter, sortField, sortAsc]);
+  }, [search, bookingFilter, sessionFilter, datePreset, dateFrom, dateTo, sessionCountOp, sessionCountValue, sortField, sortAsc, itemsPerPage]);
+
+  const lastSessionRange = React.useMemo(() => {
+    if (datePreset === "all") return {};
+    if (datePreset === "custom") {
+      const from = parseLocalDate(dateFrom);
+      const to = parseLocalDate(dateTo);
+      return {
+        from: from ? startOfDay(from) : undefined,
+        to: to ? endOfDay(to) : undefined,
+      };
+    }
+    return presetRange(datePreset);
+  }, [datePreset, dateFrom, dateTo]);
+
+  const sessionCountTarget = React.useMemo(() => {
+    const parsed = parseInt(sessionCountValue, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  }, [sessionCountValue]);
+
+  const hasActiveFilters =
+    Boolean(search.trim()) ||
+    bookingFilter !== "all" ||
+    sessionFilter !== "all" ||
+    datePreset !== "all" ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo) ||
+    sessionCountOp !== "any";
+
+  const clearFilters = () => {
+    setSearch("");
+    setBookingFilter("all");
+    setSessionFilter("all");
+    setDatePreset("all");
+    setDateFrom("");
+    setDateTo("");
+    setSessionCountOp("any");
+    setSessionCountValue("");
+  };
 
   const filtered = React.useMemo(() => {
     const s = search.toLowerCase().trim();
@@ -271,7 +390,27 @@ export default function ExamineeRosterPage() {
         (sessionFilter === "completed" && e.completed_count > 0) ||
         (sessionFilter === "none" && e.session_count === 0);
 
-      return matchesSearch && matchesBooking && matchesSession;
+      let matchesLastSession = true;
+      if (datePreset !== "all") {
+        if (!e.last_scheduled_at) {
+          matchesLastSession = false;
+        } else {
+          const when = new Date(e.last_scheduled_at);
+          if (Number.isNaN(when.getTime())) {
+            matchesLastSession = false;
+          } else {
+            if (lastSessionRange.from && when < lastSessionRange.from) matchesLastSession = false;
+            if (lastSessionRange.to && when > lastSessionRange.to) matchesLastSession = false;
+          }
+        }
+      }
+
+      const matchesSessionCountFilter =
+        sessionCountOp === "any" ||
+        sessionCountTarget === null ||
+        matchesSessionCount(e.session_count, sessionCountOp, sessionCountTarget);
+
+      return matchesSearch && matchesBooking && matchesSession && matchesLastSession && matchesSessionCountFilter;
     });
 
     rows = [...rows].sort((a, b) => {
@@ -289,9 +428,34 @@ export default function ExamineeRosterPage() {
     });
 
     return rows;
-  }, [entries, search, bookingFilter, sessionFilter, sortField, sortAsc]);
+  }, [
+    entries,
+    search,
+    bookingFilter,
+    sessionFilter,
+    datePreset,
+    lastSessionRange,
+    sessionCountOp,
+    sessionCountTarget,
+    sortField,
+    sortAsc,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const pageNumbers = React.useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+    return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+  }, [currentPage, totalPages]);
   const paginated = filtered.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage,
@@ -504,44 +668,141 @@ export default function ExamineeRosterPage() {
         </Card>
       </div>
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-10 h-11 rounded-xl"
-            placeholder="Search name, email, phone, or ref..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+      <div className="space-y-3 rounded-[1.25rem] border border-border/50 bg-card/30 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-10 h-11 rounded-xl"
+              placeholder="Search name, email, phone, or ref..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={bookingFilter} onValueChange={(v) => setBookingFilter(v as BookingFilter)}>
+              <SelectTrigger className="h-11 w-[160px] rounded-xl">
+                <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                <SelectValue>{BOOKING_FILTER_LABELS[bookingFilter]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All booking</SelectItem>
+                <SelectItem value="booked">Exam booked</SelectItem>
+                <SelectItem value="unbooked">Not booked</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionFilter)}>
+              <SelectTrigger className="h-11 w-[160px] rounded-xl">
+                <SelectValue>{SESSION_FILTER_LABELS[sessionFilter]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sessions</SelectItem>
+                <SelectItem value="has_sessions">Has sessions</SelectItem>
+                <SelectItem value="completed">Has completed</SelectItem>
+                <SelectItem value="none">No sessions</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" className="h-11 rounded-xl gap-2" onClick={handleExportCsv} disabled={filtered.length === 0}>
+              <Download className="h-4 w-4" />
+              Export
+            </Button>
+            {hasActiveFilters && (
+              <Button variant="ghost" className="h-11 rounded-xl gap-1.5" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5" />
+                Clear filters
+              </Button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={bookingFilter} onValueChange={(v) => setBookingFilter(v as BookingFilter)}>
-            <SelectTrigger className="h-11 w-[160px] rounded-xl">
-              <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-              <SelectValue placeholder="Booking" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All booking</SelectItem>
-              <SelectItem value="booked">Exam booked</SelectItem>
-              <SelectItem value="unbooked">Not booked</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionFilter)}>
-            <SelectTrigger className="h-11 w-[160px] rounded-xl">
-              <SelectValue placeholder="Sessions" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sessions</SelectItem>
-              <SelectItem value="has_sessions">Has sessions</SelectItem>
-              <SelectItem value="completed">Has completed</SelectItem>
-              <SelectItem value="none">No sessions</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline" className="h-11 rounded-xl gap-2" onClick={handleExportCsv} disabled={filtered.length === 0}>
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
+
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              Last session date
+            </Label>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { value: "all", label: "All dates" },
+                  { value: "today", label: "Today" },
+                  { value: "week", label: "This week" },
+                  { value: "month", label: "This month" },
+                  { value: "custom", label: "Custom range" },
+                ] as const
+              ).map((preset) => (
+                <Button
+                  key={preset.value}
+                  type="button"
+                  variant={datePreset === preset.value ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl h-9"
+                  onClick={() => setDatePreset(preset.value)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                Session count
+              </Label>
+              <Select value={sessionCountOp} onValueChange={(v) => setSessionCountOp(v as SessionCountOp)}>
+                <SelectTrigger className="h-10 w-[140px] rounded-xl">
+                  <SelectValue>{SESSION_COUNT_OP_LABELS[sessionCountOp]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any count</SelectItem>
+                  <SelectItem value="eq">Exactly</SelectItem>
+                  <SelectItem value="gte">At least</SelectItem>
+                  <SelectItem value="lte">At most</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {sessionCountOp !== "any" && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  Count
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="h-10 w-24 rounded-xl"
+                  placeholder="0"
+                  value={sessionCountValue}
+                  onChange={(e) => setSessionCountValue(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
         </div>
+
+        {datePreset === "custom" && (
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/50 bg-background/60 p-3">
+            <div className="grid gap-1.5">
+              <Label className="text-xs text-muted-foreground">From</Label>
+              <Input
+                type="date"
+                className="h-10 w-40 rounded-lg"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs text-muted-foreground">To</Label>
+              <Input
+                type="date"
+                className="h-10 w-40 rounded-lg"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="rounded-[1.5rem] border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
@@ -584,11 +845,11 @@ export default function ExamineeRosterPage() {
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center">
                     <p className="text-muted-foreground mb-4">
-                      {search || bookingFilter !== "all" || sessionFilter !== "all"
+                      {hasActiveFilters
                         ? "No examinees match your filters."
                         : "No examinees yet. Import a CSV or add people one at a time."}
                     </p>
-                    {!search && bookingFilter === "all" && sessionFilter === "all" && (
+                    {!hasActiveFilters && (
                       <div className="flex flex-wrap justify-center gap-2">
                         <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
                           <Upload className="h-4 w-4" />
@@ -695,35 +956,88 @@ export default function ExamineeRosterPage() {
           </table>
         </div>
 
-        {!loading && filtered.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-border/40 bg-muted/10">
-            <p className="text-xs text-muted-foreground">
-              Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length}
-              {filtered.length !== entries.length ? ` (filtered from ${entries.length})` : ""}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 rounded-lg"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-xs font-semibold tabular-nums px-2">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 rounded-lg"
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+        {!loading && (
+          <div className="flex flex-col gap-4 px-6 py-4 border-t border-border/40 bg-muted/10 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                Showing{" "}
+                <span className="text-foreground">
+                  {filtered.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}–
+                  {Math.min(currentPage * itemsPerPage, filtered.length)}
+                </span>{" "}
+                of {filtered.length}
+                {filtered.length !== entries.length ? ` (${entries.length} total)` : ""}
+              </p>
+              <div className="flex items-center gap-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                  Per page
+                </Label>
+                <Select
+                  value={String(itemsPerPage)}
+                  onValueChange={(v) => setItemsPerPage(Number(v))}
+                >
+                  <SelectTrigger className="h-9 w-[88px] rounded-lg">
+                    <SelectValue>{itemsPerPage}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            {filtered.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-3 rounded-xl"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {pageNumbers.map((page, index) => {
+                    const prev = pageNumbers[index - 1];
+                    const showEllipsis = prev !== undefined && page - prev > 1;
+                    return (
+                      <React.Fragment key={page}>
+                        {showEllipsis && (
+                          <span className="px-1 text-xs text-muted-foreground">…</span>
+                        )}
+                        <Button
+                          variant={currentPage === page ? "default" : "ghost"}
+                          size="sm"
+                          className={cn(
+                            "h-9 w-9 rounded-xl text-xs font-black",
+                            currentPage === page && "shadow-md shadow-primary/20",
+                          )}
+                          onClick={() => setCurrentPage(page)}
+                        >
+                          {page}
+                        </Button>
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-3 rounded-xl"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
