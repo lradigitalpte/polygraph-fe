@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import * as React from "react";
-import { CheckCircle2, Pencil, Plus, Shield } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, Pencil, Plus, Search, Shield, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
 import { fetchUsers, type UserRecord } from "@/lib/users";
 import {
@@ -65,6 +73,114 @@ function groupPermissions(permissions: PermissionRecord[]): Array<[string, Permi
   return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+type RoleFilter = "all" | "assigned" | "unassigned";
+type RoleSort = "name" | "users" | "permissions";
+type ActivityFilter = "all" | "success" | "error";
+
+const ROLES_PAGE_SIZES = [4, 6, 8] as const;
+const ACTIVITY_PAGE_SIZES = [5, 10, 15] as const;
+
+function buildPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+}
+
+function PaginationBar({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  pageSizes,
+  onPageChange,
+  onPageSizeChange,
+  label,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  pageSizes: readonly number[];
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+  label: string;
+}) {
+  const pageNumbers = buildPageNumbers(currentPage, totalPages);
+  if (totalItems === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border/50 pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <p className="text-xs text-muted-foreground">
+          Showing{" "}
+          <span className="font-semibold text-foreground">
+            {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalItems)}
+          </span>{" "}
+          of {totalItems} {label}
+        </p>
+        <div className="flex items-center gap-2">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+            Per page
+          </Label>
+          <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
+            <SelectTrigger className="h-8 w-[72px] rounded-lg">
+              <SelectValue>{pageSize}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizes.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-lg px-2.5"
+            disabled={currentPage <= 1}
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          {pageNumbers.map((page, index) => {
+            const prev = pageNumbers[index - 1];
+            const showEllipsis = prev !== undefined && page - prev > 1;
+            return (
+              <React.Fragment key={page}>
+                {showEllipsis && <span className="px-1 text-xs text-muted-foreground">…</span>}
+                <Button
+                  variant={currentPage === page ? "default" : "ghost"}
+                  size="sm"
+                  className={cn("h-8 w-8 rounded-lg text-xs font-black")}
+                  onClick={() => onPageChange(page)}
+                >
+                  {page}
+                </Button>
+              </React.Fragment>
+            );
+          })}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-lg px-2.5"
+            disabled={currentPage >= totalPages}
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RolesPage() {
   const [roles, setRoles] = React.useState<RoleRecord[]>([]);
   const [permissions, setPermissions] = React.useState<PermissionRecord[]>([]);
@@ -79,6 +195,20 @@ export default function RolesPage() {
   const [description, setDescription] = React.useState("");
   const [selectedPermissions, setSelectedPermissions] = React.useState<number[]>([]);
   const groupedPermissions = React.useMemo(() => groupPermissions(permissions), [permissions]);
+
+  const [roleSearch, setRoleSearch] = React.useState("");
+  const [roleFilter, setRoleFilter] = React.useState<RoleFilter>("all");
+  const [roleSort, setRoleSort] = React.useState<RoleSort>("name");
+  const [rolePage, setRolePage] = React.useState(1);
+  const [rolesPerPage, setRolesPerPage] = React.useState<number>(6);
+
+  const [activitySearch, setActivitySearch] = React.useState("");
+  const [activityFilter, setActivityFilter] = React.useState<ActivityFilter>("all");
+  const [activityPage, setActivityPage] = React.useState(1);
+  const [activityPerPage, setActivityPerPage] = React.useState<number>(5);
+
+  const hasRoleFilters = Boolean(roleSearch.trim()) || roleFilter !== "all";
+  const hasActivityFilters = Boolean(activitySearch.trim()) || activityFilter !== "all";
 
   React.useEffect(() => {
     let mounted = true;
@@ -109,6 +239,95 @@ export default function RolesPage() {
       mounted = false;
     };
   }, []);
+
+  React.useEffect(() => {
+    setRolePage(1);
+  }, [roleSearch, roleFilter, roleSort, rolesPerPage]);
+
+  React.useEffect(() => {
+    setActivityPage(1);
+  }, [activitySearch, activityFilter, activityPerPage]);
+
+  const filteredRoles = React.useMemo(() => {
+    const q = roleSearch.trim().toLowerCase();
+    let rows = roles.filter((role) => {
+      const assignedUsers = roleUserCount(role, users);
+      const permissionText = (role.permissions || [])
+        .map((p) => permissionLabel(p))
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch =
+        !q ||
+        role.name.toLowerCase().includes(q) ||
+        (role.description ?? "").toLowerCase().includes(q) ||
+        permissionText.includes(q);
+
+      const matchesFilter =
+        roleFilter === "all" ||
+        (roleFilter === "assigned" && assignedUsers > 0) ||
+        (roleFilter === "unassigned" && assignedUsers === 0);
+
+      return matchesSearch && matchesFilter;
+    });
+
+    rows = [...rows].sort((a, b) => {
+      if (roleSort === "users") {
+        return roleUserCount(b, users) - roleUserCount(a, users);
+      }
+      if (roleSort === "permissions") {
+        return (b.permissions?.length ?? 0) - (a.permissions?.length ?? 0);
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return rows;
+  }, [roles, users, roleSearch, roleFilter, roleSort]);
+
+  const rolesTotalPages = Math.max(1, Math.ceil(filteredRoles.length / rolesPerPage));
+  const paginatedRoles = filteredRoles.slice(
+    (rolePage - 1) * rolesPerPage,
+    rolePage * rolesPerPage,
+  );
+
+  React.useEffect(() => {
+    if (rolePage > rolesTotalPages) {
+      setRolePage(rolesTotalPages);
+    }
+  }, [rolePage, rolesTotalPages]);
+
+  const filteredActivity = React.useMemo(() => {
+    const q = activitySearch.trim().toLowerCase();
+    return activity.filter((log) => {
+      const isError = log.status >= 400;
+      const matchesFilter =
+        activityFilter === "all" ||
+        (activityFilter === "success" && !isError) ||
+        (activityFilter === "error" && isError);
+
+      if (!matchesFilter) return false;
+      if (!q) return true;
+
+      return (
+        log.action.toLowerCase().includes(q) ||
+        (log.userEmail ?? "").toLowerCase().includes(q) ||
+        log.path.toLowerCase().includes(q) ||
+        String(log.status).includes(q)
+      );
+    });
+  }, [activity, activitySearch, activityFilter]);
+
+  const activityTotalPages = Math.max(1, Math.ceil(filteredActivity.length / activityPerPage));
+  const paginatedActivity = filteredActivity.slice(
+    (activityPage - 1) * activityPerPage,
+    activityPage * activityPerPage,
+  );
+
+  React.useEffect(() => {
+    if (activityPage > activityTotalPages) {
+      setActivityPage(activityTotalPages);
+    }
+  }, [activityPage, activityTotalPages]);
 
   const togglePermission = (id: number, checked: boolean) => {
     setSelectedPermissions((current) => {
@@ -197,8 +416,75 @@ export default function RolesPage() {
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
-            {roles.map((role) => {
+          <div className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-10 h-10 rounded-xl"
+                placeholder="Search roles or permissions..."
+                value={roleSearch}
+                onChange={(e) => setRoleSearch(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as RoleFilter)}>
+                <SelectTrigger className="h-10 w-[160px] rounded-xl">
+                  <SelectValue>
+                    {roleFilter === "all"
+                      ? "All roles"
+                      : roleFilter === "assigned"
+                        ? "Has users"
+                        : "No users"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="assigned">Has users assigned</SelectItem>
+                  <SelectItem value="unassigned">No users assigned</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={roleSort} onValueChange={(v) => setRoleSort(v as RoleSort)}>
+                <SelectTrigger className="h-10 w-[160px] rounded-xl">
+                  <SelectValue>
+                    {roleSort === "name"
+                      ? "Sort: Name"
+                      : roleSort === "users"
+                        ? "Sort: Users"
+                        : "Sort: Permissions"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Sort by name</SelectItem>
+                  <SelectItem value="users">Sort by user count</SelectItem>
+                  <SelectItem value="permissions">Sort by permissions</SelectItem>
+                </SelectContent>
+              </Select>
+              {hasRoleFilters && (
+                <Button
+                  variant="ghost"
+                  className="h-10 rounded-xl gap-1.5"
+                  onClick={() => {
+                    setRoleSearch("");
+                    setRoleFilter("all");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {filteredRoles.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                {hasRoleFilters ? "No roles match your filters." : "No roles found."}
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                {paginatedRoles.map((role) => {
               const assignedUsers = roleUserCount(role, users);
               const previewPermissions = (role.permissions || []).slice(0, 4);
               return (
@@ -244,7 +530,20 @@ export default function RolesPage() {
                 </Card>
               );
             })}
-          </div>
+              </div>
+
+              <PaginationBar
+                currentPage={rolePage}
+                totalPages={rolesTotalPages}
+                totalItems={filteredRoles.length}
+                pageSize={rolesPerPage}
+                pageSizes={ROLES_PAGE_SIZES}
+                onPageChange={setRolePage}
+                onPageSizeChange={setRolesPerPage}
+                label="roles"
+              />
+            </>
+          )}
 
           <Card>
             <CardHeader>
@@ -253,12 +552,61 @@ export default function RolesPage() {
                 Latest changes and access events related to roles and permissions.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {activity.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No role activity recorded yet.</div>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    className="pl-10 h-10 rounded-xl"
+                    placeholder="Search activity, user, or path..."
+                    value={activitySearch}
+                    onChange={(e) => setActivitySearch(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    value={activityFilter}
+                    onValueChange={(v) => setActivityFilter(v as ActivityFilter)}
+                  >
+                    <SelectTrigger className="h-10 w-[140px] rounded-xl">
+                      <SelectValue>
+                        {activityFilter === "all"
+                          ? "All events"
+                          : activityFilter === "success"
+                            ? "Success"
+                            : "Errors"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All events</SelectItem>
+                      <SelectItem value="success">Success only</SelectItem>
+                      <SelectItem value="error">Errors only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {hasActivityFilters && (
+                    <Button
+                      variant="ghost"
+                      className="h-10 rounded-xl gap-1.5"
+                      onClick={() => {
+                        setActivitySearch("");
+                        setActivityFilter("all");
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {filteredActivity.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  {hasActivityFilters ? "No activity matches your filters." : "No role activity recorded yet."}
+                </div>
               ) : (
-                <div className="space-y-3">
-                  {activity.slice(0, 8).map((log) => (
+                <>
+                  <div className="space-y-3">
+                    {paginatedActivity.map((log) => (
                     <div key={log.id} className="rounded-lg border p-4">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <div className="font-medium">{log.action}</div>
@@ -267,7 +615,19 @@ export default function RolesPage() {
                       <div className="mt-1 text-xs text-muted-foreground">{log.userEmail || "System"} · {formatRelative(log.createdAt)}</div>
                     </div>
                   ))}
-                </div>
+                  </div>
+
+                  <PaginationBar
+                    currentPage={activityPage}
+                    totalPages={activityTotalPages}
+                    totalItems={filteredActivity.length}
+                    pageSize={activityPerPage}
+                    pageSizes={ACTIVITY_PAGE_SIZES}
+                    onPageChange={setActivityPage}
+                    onPageSizeChange={setActivityPerPage}
+                    label="events"
+                  />
+                </>
               )}
             </CardContent>
           </Card>

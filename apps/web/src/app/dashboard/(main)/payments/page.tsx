@@ -53,7 +53,11 @@ import {
 } from "@/components/ui/select";
 import { 
   Sheet, 
-  SheetContent, 
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
 } from "@/components/ui/sheet";
 import {
   Dialog,
@@ -72,25 +76,29 @@ type Invoice = FinancialInvoice & {
   sentAt?: string;
 };
 
-// ---------- helper: generate + open printable PDF for a quotation ----------
-function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) {
-  const balance = inv.totalAmount - inv.paidAmount;
-  const currency = inv.currency || "USD";
-  const formattedBalance = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(balance);
-  const formattedTotal = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.totalAmount);
-  const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
+function pdfLogoUrl() {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/logo.png`;
+  }
+  return "/logo.png";
+}
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>${inv.code} — Polygraph Quotation</title>
-<style>
+function pdfDocumentHeader() {
+  const logoUrl = pdfLogoUrl();
+  return `<div class="brand">
+  <img src="${logoUrl}" alt="Polygraph UAE" class="logo-img" />
+  <div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
+</div>`;
+}
+
+function pdfSharedStyles() {
+  return `
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Helvetica Neue',sans-serif;color:#111;padding:48px}
-  .logo{font-size:22px;font-weight:900;letter-spacing:-0.03em;color:#000}
+  .brand{margin-bottom:32px}
+  .logo-img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:8px}
   .tagline{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px}
-  h1{font-size:38px;font-weight:900;letter-spacing:-0.04em;margin:40px 0 4px}
+  h1{font-size:38px;font-weight:900;letter-spacing:-0.04em;margin:16px 0 4px}
   .meta{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.12em}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:32px 0}
   .field label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.14em;color:#aaa;display:block;margin-bottom:4px}
@@ -103,11 +111,35 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
   .badge{display:inline-block;background:#f0f0f0;border-radius:99px;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;padding:3px 10px;color:#444}
   .footer{margin-top:64px;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:16px}
   @media print{body{padding:32px}}
-</style>
+  `;
+}
+
+function resolveInvoiceExamType(inv: Invoice): string {
+  const description = inv.items[0]?.description?.trim();
+  if (!description) return "";
+  const parts = description.split(" — ");
+  return parts[0]?.trim() || description;
+}
+
+// ---------- helper: generate + open printable PDF for a quotation ----------
+function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) {
+  const balance = inv.totalAmount - inv.paidAmount;
+  const currency = inv.currency || "USD";
+  const formattedBalance = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(balance);
+  const formattedTotal = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.totalAmount);
+  const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
+  const examinerName = examiner || inv.examinerName || "—";
+  const examTypeLabel = examType || resolveInvoiceExamType(inv);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>${inv.code} — Polygraph Quotation</title>
+<style>${pdfSharedStyles()}</style>
 </head>
 <body>
-<div class="logo">Polygraph Services</div>
-<div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
+${pdfDocumentHeader()}
 
 <h1>${formattedBalance}</h1>
 <div class="meta">Balance Due • <span class="badge">${inv.status}</span></div>
@@ -116,8 +148,8 @@ function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) 
   <div class="field"><label>Quotation No.</label><span>${inv.code}</span></div>
   <div class="field"><label>Issue Date</label><span>${inv.date}</span></div>
   <div class="field"><label>Client</label><span>${inv.client}</span></div>
-  <div class="field"><label>Examiner</label><span>${examiner || "—"}</span></div>
-  ${examType ? `<div class="field"><label>Exam Type</label><span>${examType}</span></div>` : ""}
+  <div class="field"><label>Examiner</label><span>${examinerName}</span></div>
+  ${examTypeLabel ? `<div class="field"><label>Exam Type</label><span>${examTypeLabel}</span></div>` : ""}
   ${inv.sentAt ? `<div class="field"><label>Emailed</label><span>${inv.sentAt}</span></div>` : ""}
 </div>
 
@@ -157,6 +189,8 @@ function downloadReceiptPDF(inv: Invoice) {
   const currency = inv.currency || "USD";
   const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
   const formattedZero = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(0);
+  const examinerName = inv.examinerName || "—";
+  const examTypeLabel = resolveInvoiceExamType(inv);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -164,28 +198,13 @@ function downloadReceiptPDF(inv: Invoice) {
 <meta charset="UTF-8"/>
 <title>${receiptNo} — Payment Receipt</title>
 <style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Helvetica Neue',sans-serif;color:#111;padding:48px}
-  .logo{font-size:22px;font-weight:900;letter-spacing:-0.03em;color:#000}
-  .tagline{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.15em;margin-top:2px}
-  .paid{display:inline-block;margin-top:32px;background:#dcfce7;color:#15803d;border-radius:8px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0.14em;padding:8px 16px}
-  h1{font-size:38px;font-weight:900;letter-spacing:-0.04em;margin:16px 0 4px;color:#15803d}
-  .meta{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.12em}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:32px 0}
-  .field label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:0.14em;color:#aaa;display:block;margin-bottom:4px}
-  .field span{font-size:13px;font-weight:700}
-  table{width:100%;border-collapse:collapse;margin:32px 0}
-  th{font-size:9px;text-transform:uppercase;letter-spacing:0.14em;color:#aaa;border-bottom:1px solid #e5e5e5;padding:8px 0;text-align:left;font-weight:800}
-  td{padding:12px 0;font-size:13px;border-bottom:1px solid #f3f3f3;font-weight:600}
-  .amount{text-align:right}
-  .total-row td{font-weight:900;font-size:15px;border-top:2px solid #000;border-bottom:none;padding-top:16px}
-  .footer{margin-top:64px;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:16px}
-  @media print{body{padding:32px}}
+  ${pdfSharedStyles()}
+  .paid{display:inline-block;margin-top:8px;background:#dcfce7;color:#15803d;border-radius:8px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0.14em;padding:8px 16px}
+  h1{color:#15803d}
 </style>
 </head>
 <body>
-<div class="logo">Polygraph Services</div>
-<div class="tagline">Forensic Examination &amp; Clinical Assessment</div>
+${pdfDocumentHeader()}
 
 <div class="paid">✓ Paid in Full</div>
 <h1>${formattedPaid}</h1>
@@ -196,6 +215,8 @@ function downloadReceiptPDF(inv: Invoice) {
   <div class="field"><label>Invoice No.</label><span>${inv.code}</span></div>
   <div class="field"><label>Client</label><span>${inv.client}</span></div>
   <div class="field"><label>Date</label><span>${inv.date}</span></div>
+  <div class="field"><label>Examiner</label><span>${examinerName}</span></div>
+  ${examTypeLabel ? `<div class="field"><label>Exam Type</label><span>${examTypeLabel}</span></div>` : ""}
 </div>
 
 <table>
@@ -966,7 +987,13 @@ export default function PaymentsPage() {
                     <Button
                       variant="outline"
                       className="h-14 rounded-2xl font-black text-[10px] uppercase tracking-widest border-border/50 hover:bg-muted/20"
-                      onClick={() => downloadQuotationPDF(selectedInvoice, "", "")}
+                      onClick={() =>
+                        downloadQuotationPDF(
+                          selectedInvoice,
+                          selectedInvoice.examinerName || "",
+                          resolveInvoiceExamType(selectedInvoice),
+                        )
+                      }
                     >
                         <Download className="mr-2 h-4 w-4 text-primary" /> PDF
                     </Button>
@@ -1342,24 +1369,29 @@ export default function PaymentsPage() {
 
       {/* Filters Drawer Sheet */}
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent className="rounded-l-[2rem] border-border/50 max-w-sm">
-          <div className="space-y-6 py-6">
-            <div>
-              <h3 className="text-lg font-black flex items-center gap-2">
-                <Filter className="h-5 w-5 text-primary" /> Filter Transactions
-              </h3>
-              <p className="text-xs text-muted-foreground">Narrow down the list by client or payment status.</p>
-            </div>
+        <SheetContent side="right" className="flex h-full max-h-[100dvh] w-full flex-col rounded-l-[2rem] border-border/50 p-0 sm:max-w-sm">
+          <SheetHeader className="border-b border-border/40 px-6 pb-4 pt-6 pr-14 text-left">
+            <SheetTitle className="flex items-center gap-2 text-lg font-black">
+              <Filter className="h-5 w-5 text-primary" />
+              Filter Transactions
+            </SheetTitle>
+            <SheetDescription>
+              Narrow down the list by client or payment status.
+            </SheetDescription>
+          </SheetHeader>
 
+          <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select value={statusFilter} onValueChange={(val) => setStatusFilter(String(val))}>
-                  <SelectTrigger className="rounded-xl h-11 bg-background">
-                    <SelectValue placeholder="All status" />
+                  <SelectTrigger className="h-11 rounded-xl bg-background">
+                    <SelectValue placeholder="All statuses">
+                      {statusFilter === "All" ? "All statuses" : statusFilter}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
-                    <SelectItem value="All">All Statuses</SelectItem>
+                    <SelectItem value="All">All statuses</SelectItem>
                     <SelectItem value="Completed">Completed</SelectItem>
                     <SelectItem value="Pending">Pending</SelectItem>
                     <SelectItem value="Partial">Partial</SelectItem>
@@ -1369,41 +1401,50 @@ export default function PaymentsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Client Account</Label>
+                <Label>Client account</Label>
                 <Select value={clientFilter} onValueChange={(val) => setClientFilter(String(val))}>
-                  <SelectTrigger className="rounded-xl h-11 bg-background">
-                    <SelectValue placeholder="All clients" />
+                  <SelectTrigger className="h-11 rounded-xl bg-background">
+                    <SelectValue placeholder="All clients">
+                      {clientFilter === "All" ? "All clients" : clientFilter}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
-                    <SelectItem value="All">All Clients</SelectItem>
+                    <SelectItem value="All">All clients</SelectItem>
                     {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                      <SelectItem key={c.id} value={c.name}>
+                        {c.name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
-            <div className="pt-6 flex gap-2">
-              <Button
-                variant="outline"
-                className="w-full rounded-xl"
-                onClick={() => {
-                  setStatusFilter("All");
-                  setClientFilter("All");
-                  setFiltersOpen(false);
-                }}
-              >
-                Reset
-              </Button>
-              <Button
-                className="w-full rounded-xl"
-                onClick={() => setFiltersOpen(false)}
-              >
-                Apply Filters
-              </Button>
-            </div>
           </div>
+
+          <SheetFooter className="mt-auto flex shrink-0 flex-row gap-2 border-t border-border/40 bg-background px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-xl sm:flex-1"
+              onClick={() => {
+                setStatusFilter("All");
+                setClientFilter("All");
+                setCurrentPage(1);
+              }}
+            >
+              Reset
+            </Button>
+            <Button
+              type="button"
+              className="w-full rounded-xl sm:flex-1"
+              onClick={() => {
+                setCurrentPage(1);
+                setFiltersOpen(false);
+              }}
+            >
+              Apply filters
+            </Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
 

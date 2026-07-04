@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   Loader2,
   Mail,
@@ -26,6 +28,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -34,6 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import {
@@ -63,6 +73,16 @@ function statusVariant(status: string) {
   if (s === "paid" || s === "accepted") return "default" as const;
   if (s === "partial" || s === "sent") return "secondary" as const;
   return "outline" as const;
+}
+
+const PAGE_SIZE_OPTIONS = [10, 15, 25, 50] as const;
+
+function buildPageNumbers(currentPage: number, totalPages: number): number[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
 }
 
 export default function ClientAccountPage() {
@@ -126,6 +146,28 @@ export default function ClientAccountPage() {
   const [reminderEmail, setReminderEmail] = React.useState("");
   const [reminderSubject, setReminderSubject] = React.useState("");
   const [reminderBody, setReminderBody] = React.useState("");
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [itemsPerPage, setItemsPerPage] = React.useState<number>(10);
+
+  const totalPages = Math.max(1, Math.ceil(entries.length / itemsPerPage));
+  const paginatedEntries = entries.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+  const pageNumbers = React.useMemo(
+    () => buildPageNumbers(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [itemsPerPage, clientId]);
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const load = React.useCallback(async () => {
     if (!Number.isFinite(clientId)) return;
@@ -299,7 +341,7 @@ export default function ClientAccountPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {entries.map((entry) => (
+                    {paginatedEntries.map((entry) => (
                       <TableRow key={`${entry.source}-${entry.id}`}>
                         <TableCell className="text-muted-foreground whitespace-nowrap">
                           {formatDate(entry.date)}
@@ -365,6 +407,83 @@ export default function ClientAccountPage() {
                 </Table>
               )}
             </CardContent>
+            {entries.length > 0 && (
+              <div className="flex flex-col gap-4 border-t border-border/50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                  <p className="text-xs text-muted-foreground">
+                    Showing{" "}
+                    <span className="font-semibold text-foreground">
+                      {(currentPage - 1) * itemsPerPage + 1}–
+                      {Math.min(currentPage * itemsPerPage, entries.length)}
+                    </span>{" "}
+                    of {entries.length} entries
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
+                      Per page
+                    </Label>
+                    <Select
+                      value={String(itemsPerPage)}
+                      onValueChange={(v) => setItemsPerPage(Number(v))}
+                    >
+                      <SelectTrigger className="h-9 w-[88px] rounded-lg">
+                        <SelectValue>{itemsPerPage}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={String(size)}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {totalPages > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-lg px-3"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    {pageNumbers.map((page, index) => {
+                      const prev = pageNumbers[index - 1];
+                      const showEllipsis = prev !== undefined && page - prev > 1;
+                      return (
+                        <React.Fragment key={page}>
+                          {showEllipsis && (
+                            <span className="px-1 text-xs text-muted-foreground">…</span>
+                          )}
+                          <Button
+                            variant={currentPage === page ? "default" : "ghost"}
+                            size="sm"
+                            className={cn("h-9 w-9 rounded-lg text-xs font-black")}
+                            onClick={() => setCurrentPage(page)}
+                          >
+                            {page}
+                          </Button>
+                        </React.Fragment>
+                      );
+                    })}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-lg px-3"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
         </>
       )}

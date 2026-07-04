@@ -15,13 +15,20 @@ import {
 import { cn } from "@/lib/utils";
 
 const settingsNavigation = [
-  { name: "General", href: "/dashboard/settings", icon: SettingsIcon },
+  { name: "General", href: "/dashboard/settings", icon: SettingsIcon, exact: true },
   { name: "Exam Types", href: "/dashboard/settings/exam-types", icon: ClipboardList },
   { name: "Examiner Availability", href: "/dashboard/settings/availability", icon: CalendarClock },
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },
   { name: "Audit Logs", href: "/dashboard/settings/audit", icon: History },
 ];
+
+function isSettingsNavActive(pathname: string, href: string, exact?: boolean) {
+  if (exact) {
+    return pathname === href || pathname === `${href}/`;
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function SettingsSidebar() {
   const pathname = usePathname();
@@ -44,7 +51,7 @@ export function SettingsSidebar() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 pb-6">
         {settingsNavigation.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive = isSettingsNavActive(pathname ?? "", item.href, item.exact);
           return (
             <Link
               key={item.name}

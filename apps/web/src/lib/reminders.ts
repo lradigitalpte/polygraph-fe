@@ -8,6 +8,7 @@ export type ReminderUrgency = "Overdue" | "Pending" | "Upcoming";
 export type PaymentReminderItem = {
   id: string;
   appointmentId: number;
+  quotationId?: number;
   client: string;
   email?: string;
   amount: string;
@@ -118,6 +119,7 @@ export function buildPaymentReminders(entries: AccountLedgerEntry[]): PaymentRem
       return {
         id: e.code,
         appointmentId: e.appointment_id!,
+        quotationId: e.quotation_id,
         client: e.client_name || `Client #${e.client_id}`,
         email: e.client_email,
         amount: formatMoney(e.balance_due, e.currency),

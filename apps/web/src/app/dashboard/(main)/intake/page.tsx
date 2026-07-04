@@ -15,7 +15,6 @@ import {
   FileCheck,
   Map,
   BadgeAlert,
-  Coins,
   FileSpreadsheet,
 } from "lucide-react";
 import Link from "next/link";
@@ -470,8 +469,7 @@ export default function BatchIntakePage() {
   const [examinerId, setExaminerId] = React.useState<string>("");
   const [date, setDate] = React.useState("");
   const [time, setTime] = React.useState("09:00");
-  const [duration, setDuration] = React.useState("150");
-  const [examFee, setExamFee] = React.useState("1300"); // default fee override
+  const [examTypeId, setExamTypeId] = React.useState("");
   const [paymentMode, setPaymentMode] = React.useState("Bank Transfer");
   const [notes, setNotes] = React.useState("");
 
@@ -481,9 +479,7 @@ export default function BatchIntakePage() {
 
   // Mapping state: maps spreadsheet position strings -> System Exam Type ID & Custom Price
   const [uniquePositions, setUniquePositions] = React.useState<string[]>([]);
-  const [positionMapping, setPositionMapping] = React.useState<
-    Record<string, { examTypeId: string; price: string }>
-  >({});
+  const [positionMapping, setPositionMapping] = React.useState<Record<string, string>>({});
 
   // UI state
   const [submitting, setSubmitting] = React.useState(false);
@@ -505,6 +501,17 @@ export default function BatchIntakePage() {
       .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load system config"))
       .finally(() => setLoadingData(false));
   }, []);
+
+  React.useEffect(() => {
+    if (examTypes.length > 0 && !examTypeId) {
+      setExamTypeId(String(examTypes[0].id));
+    }
+  }, [examTypes, examTypeId]);
+
+  const selectedExamType = React.useMemo(
+    () => examTypes.find((type) => String(type.id) === examTypeId),
+    [examTypes, examTypeId],
+  );
 
   // ── Row helpers ──────────────────────────────────────────────────────────
 
@@ -577,7 +584,7 @@ export default function BatchIntakePage() {
       const positions = Array.from(new Set(parsedRaw.map((r) => r.position))).filter(Boolean);
       setUniquePositions(positions);
 
-      const initialMap: Record<string, { examTypeId: string; price: string }> = {};
+      const initialMap: Record<string, string> = {};
       positions.forEach((pos) => {
         const cleanPos = (pos || "General Screening").trim();
         const firstWord =
@@ -586,10 +593,7 @@ export default function BatchIntakePage() {
         const match =
           examTypes.find((t) => t.name.toLowerCase().includes(firstWord)) || examTypes[0];
 
-        initialMap[cleanPos] = {
-          examTypeId: match ? String(match.id) : "",
-          price: match ? String(match.price) : "1300",
-        };
+        initialMap[cleanPos] = match ? String(match.id) : "";
       });
       setPositionMapping(initialMap);
 
@@ -740,26 +744,11 @@ export default function BatchIntakePage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleMappingChange = (position: string, field: "examTypeId" | "price", value: string) => {
-    setPositionMapping((prev) => {
-      const current = prev[position] || { examTypeId: "", price: "" };
-      let price = current.price;
-      if (field === "examTypeId") {
-        const et = examTypes.find((t) => String(t.id) === value);
-        if (et) {
-          price = String(et.price);
-        }
-      }
-
-      return {
-        ...prev,
-        [position]: {
-          ...current,
-          [field]: value,
-          ...(field === "examTypeId" ? { price } : {}),
-        },
-      };
-    });
+  const handleMappingChange = (position: string, examTypeIdValue: string) => {
+    setPositionMapping((prev) => ({
+      ...prev,
+      [position]: examTypeIdValue,
+    }));
   };
 
   // ── Submit ───────────────────────────────────────────────────────────────
@@ -772,6 +761,10 @@ export default function BatchIntakePage() {
       return;
     }
     if (!examinerId) { toast.error("Select an examiner"); return; }
+    if (!isHistoricalMode && !selectedExamType) {
+      toast.error("Select an exam type");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -783,7 +776,7 @@ export default function BatchIntakePage() {
           return;
         }
 
-        const unmapped = uniquePositions.filter((p) => !positionMapping[p]?.examTypeId);
+        const unmapped = uniquePositions.filter((p) => !positionMapping[p]);
         if (unmapped.length > 0) {
           toast.error(`Please map all spreadsheet positions to system exam types (Missing: ${unmapped.join(", ")})`);
           setSubmitting(false);
@@ -794,14 +787,12 @@ export default function BatchIntakePage() {
           client_id?: number;
           import_mode: "corporate" | "individual";
           examiner_id: number;
-          exam_fee?: number;
           rows: BulkImportHistoricalRow[];
         } = {
           import_mode: importMode,
           examiner_id: Number(examinerId),
-          exam_fee: examFee ? Number(examFee) : undefined,
           rows: validRows.map((r) => {
-            const mapping = positionMapping[r.position] || { examTypeId: "", price: "" };
+            const mappedExamTypeId = positionMapping[r.position];
             return {
               first_name: r.first_name.trim(),
               last_name: r.last_name.trim(),
@@ -810,8 +801,7 @@ export default function BatchIntakePage() {
               serial_no: r.serial_no.trim() || undefined,
               scheduled_at: r.scheduled_at,
               status: r.status,
-              exam_type_id: mapping.examTypeId ? Number(mapping.examTypeId) : undefined,
-              price: mapping.price ? Number(mapping.price) : undefined,
+              exam_type_id: mappedExamTypeId ? Number(mappedExamTypeId) : undefined,
               gender: r.gender.trim() || undefined,
               spoken_language: r.language.trim() || undefined,
               experience: r.experience.trim() || undefined,
@@ -841,6 +831,9 @@ export default function BatchIntakePage() {
         }
 
         const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
+        const batchNotes = notes.trim()
+          ? `${selectedExamType!.name}\n\n${notes.trim()}`
+          : selectedExamType!.name;
         const examinees: BulkScheduleRow[] = validRows.map((r) => ({
           first_name: r.first_name.trim(),
           last_name: r.last_name.trim(),
@@ -854,10 +847,10 @@ export default function BatchIntakePage() {
           import_mode: importMode,
           examiner_id: Number(examinerId),
           scheduled_at: scheduledAt,
-          duration: Number(duration) || 60,
-          exam_fee: examFee ? Number(examFee) : undefined,
+          duration: selectedExamType!.duration,
+          exam_fee: selectedExamType!.price,
           payment_mode: paymentMode,
-          notes: notes.trim(),
+          notes: batchNotes,
           examinees,
         };
         if (importMode === "corporate") {
@@ -1039,6 +1032,33 @@ export default function BatchIntakePage() {
               </Select>
             </div>
 
+            {/* Exam type — scheduler only; historical uses per-row mapping below */}
+            {!isHistoricalMode && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="exam-type">Exam type *</Label>
+                <Select value={examTypeId} onValueChange={(v) => setExamTypeId(String(v))}>
+                  <SelectTrigger id="exam-type">
+                    <SelectValue placeholder="Select exam type…">
+                      {selectedExamType?.name}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {examTypes.map((type) => (
+                      <SelectItem key={type.id} value={String(type.id)}>
+                        {type.name} · {type.duration} min · ${type.price} USD
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedExamType && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Duration and billing use this exam type&apos;s catalog settings (
+                    {selectedExamType.duration} minutes, ${selectedExamType.price} USD catalog price).
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Date and Time (Scheduler mode only) */}
             {!isHistoricalMode && (
               <>
@@ -1061,33 +1081,8 @@ export default function BatchIntakePage() {
                     onChange={(e) => setTime(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="duration">Duration per session (min)</Label>
-                  <Input
-                    id="duration"
-                    type="number"
-                    min={15}
-                    max={480}
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                  />
-                </div>
               </>
             )}
-
-            {/* Fee */}
-            <div className="space-y-1.5">
-              <Label htmlFor="fee">{isHistoricalMode ? "Default Fee Override (AED)" : "Exam fee (AED)"}</Label>
-              <Input
-                id="fee"
-                type="number"
-                min={0}
-                step={0.01}
-                placeholder="1300.00"
-                value={examFee}
-                onChange={(e) => setExamFee(e.target.value)}
-              />
-            </div>
 
             {!isHistoricalMode && (
               <>
@@ -1137,22 +1132,22 @@ export default function BatchIntakePage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-12 gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-wider pb-1.5 border-b border-border/40">
-                <div className="col-span-4">
+                <div className="col-span-5">
                   Spreadsheet {importMode === "corporate" ? "Position" : "Case / Type"}
                 </div>
-                <div className="col-span-5">System Exam Type Mapping</div>
-                <div className="col-span-3">Unit Price (AED)</div>
+                <div className="col-span-7">System Exam Type</div>
               </div>
 
               {uniquePositions.map((pos) => {
-                const mapping = positionMapping[pos] || { examTypeId: "", price: "" };
+                const mappedExamTypeId = positionMapping[pos] || "";
+                const mappedType = examTypes.find((type) => String(type.id) === mappedExamTypeId);
                 return (
                   <div key={pos} className="grid grid-cols-12 gap-2 items-center text-sm">
-                    <div className="col-span-4 font-black text-amber-700 dark:text-amber-400 break-all">{pos}</div>
-                    <div className="col-span-5">
+                    <div className="col-span-5 font-black text-amber-700 dark:text-amber-400 break-all">{pos}</div>
+                    <div className="col-span-7">
                       <Select
-                        value={mapping.examTypeId}
-                        onValueChange={(v) => handleMappingChange(pos, "examTypeId", String(v))}
+                        value={mappedExamTypeId}
+                        onValueChange={(v) => handleMappingChange(pos, String(v))}
                       >
                         <SelectTrigger className="h-10 rounded-xl bg-background border-amber-500/30">
                           <SelectValue placeholder="Select mapping..." />
@@ -1160,20 +1155,16 @@ export default function BatchIntakePage() {
                         <SelectContent className="rounded-xl">
                           {examTypes.map((type) => (
                             <SelectItem key={type.id} value={String(type.id)}>
-                              {type.name} ({type.duration} min)
+                              {type.name} · {type.duration} min · ${type.price} USD
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="col-span-3 relative">
-                      <Coins className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        type="number"
-                        value={mapping.price}
-                        onChange={(e) => handleMappingChange(pos, "price", e.target.value)}
-                        className="h-10 rounded-xl pl-9 bg-background border-amber-500/30"
-                      />
+                      {mappedType && (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Uses catalog duration and price for {mappedType.name}.
+                        </p>
+                      )}
                     </div>
                   </div>
                 );

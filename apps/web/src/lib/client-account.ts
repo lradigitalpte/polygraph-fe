@@ -26,6 +26,7 @@ export type AccountLedgerEntry = {
   status: string;
   payment_mode?: string;
   currency?: string;
+  examiner_name?: string;
 };
 
 export type ClientAccountResponse = {

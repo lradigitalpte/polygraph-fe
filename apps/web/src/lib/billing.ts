@@ -232,6 +232,7 @@ export type FinancialInvoice = {
   balanceDue?: number;
   sentAt?: string;
   currency?: string;
+  examinerName?: string;
 };
 
 export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInvoice {
@@ -276,6 +277,7 @@ export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInv
     status: uiStatus,
     items: [{ description: entry.title, amount: total }],
     currency: entry.currency,
+    examinerName: entry.examiner_name,
   };
 }
 

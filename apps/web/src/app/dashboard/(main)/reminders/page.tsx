@@ -24,6 +24,7 @@ import {
   Plus,
   Loader2,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,8 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
+import { deleteInvoice } from "@/lib/billing";
 import { resendFormRequest } from "@/lib/forms";
 import {
   dispatchAppointmentReminder,
@@ -75,6 +78,9 @@ export default function RemindersPage() {
   const [body, setBody] = React.useState("");
   const [toEmail, setToEmail] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+
+  const canManagePayments = can("payment:manage");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -99,6 +105,22 @@ export default function RemindersPage() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  async function handleDeletePaymentReminder(rem: PaymentReminderItem) {
+    setDeletingId(rem.id);
+    try {
+      await deleteInvoice({
+        quotationId: rem.quotationId,
+        appointmentId: rem.appointmentId,
+      });
+      setPaymentReminders((current) => current.filter((item) => item.id !== rem.id));
+      toast.success(`${rem.id} removed from billing`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete invoice");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const openCompose = (target: ComposeTarget | null) => {
     setSelected(target);
@@ -409,7 +431,7 @@ export default function RemindersPage() {
                         <div className="flex gap-2">
                           <Button
                             className="flex-1 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
-                            disabled={sending}
+                            disabled={sending || deletingId === rem.id}
                             onClick={() => void quickSendPayment(rem)}
                           >
                             <Send className="mr-2 h-3.5 w-3.5" />
@@ -423,6 +445,34 @@ export default function RemindersPage() {
                           >
                             <Mail className="h-4 w-4" />
                           </Button>
+                          {canManagePayments && (
+                            <DeleteConfirmDialog
+                              title={`Delete ${rem.id}`}
+                              description={
+                                rem.quotationId
+                                  ? "This permanently removes the invoice from billing. The linked session is kept."
+                                  : "This permanently deletes the session and its billing record."
+                              }
+                              confirmLabel="Delete"
+                              triggerLabel=""
+                              trigger={
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-10 w-10 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  disabled={deletingId === rem.id}
+                                  title="Delete invoice"
+                                >
+                                  {deletingId === rem.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              }
+                              onConfirm={async () => handleDeletePaymentReminder(rem)}
+                            />
+                          )}
                         </div>
                       </CardContent>
                     </Card>

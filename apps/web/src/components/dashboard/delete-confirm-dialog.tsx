@@ -23,6 +23,7 @@ type DeleteConfirmDialogProps = {
   expectedValue?: string;
   triggerLabel: string;
   triggerVariant?: "destructive" | "outline";
+  trigger?: React.ReactNode;
   onConfirm: (typedValue?: string) => Promise<void>;
 };
 
@@ -34,6 +35,7 @@ export function DeleteConfirmDialog({
   expectedValue,
   triggerLabel,
   triggerVariant = "destructive",
+  trigger,
   onConfirm,
 }: DeleteConfirmDialogProps) {
   const [open, setOpen] = React.useState(false);
@@ -57,7 +59,11 @@ export function DeleteConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant={triggerVariant} />}>{triggerLabel}</DialogTrigger>
+      {trigger ? (
+        <DialogTrigger render={trigger as React.ReactElement} />
+      ) : (
+        <DialogTrigger render={<Button variant={triggerVariant} />}>{triggerLabel}</DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
