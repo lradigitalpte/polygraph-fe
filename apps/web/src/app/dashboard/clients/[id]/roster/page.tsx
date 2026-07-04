@@ -5,10 +5,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  ArrowUpDown,
   ArrowRight,
   Calendar,
+  ChevronLeft,
   ChevronRight,
   Download,
+  Filter,
   Loader2,
   Mail,
   Phone,
@@ -39,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
@@ -168,6 +172,24 @@ function parseCsvRows(text: string) {
   return results;
 }
 
+type BookingFilter = "all" | "booked" | "unbooked";
+type SessionFilter = "all" | "has_sessions" | "completed" | "none";
+type SortField = "name" | "last_session" | "sessions";
+
+function formatLastSession(iso?: string) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "—";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
 export default function ExamineeRosterPage() {
   const params = useParams();
   const router = useRouter();
@@ -181,6 +203,12 @@ export default function ExamineeRosterPage() {
   const [entries, setEntries] = React.useState<ExamineeRosterEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
+  const [bookingFilter, setBookingFilter] = React.useState<BookingFilter>("all");
+  const [sessionFilter, setSessionFilter] = React.useState<SessionFilter>("all");
+  const [sortField, setSortField] = React.useState<SortField>("name");
+  const [sortAsc, setSortAsc] = React.useState(true);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const itemsPerPage = 15;
   const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -211,13 +239,108 @@ export default function ExamineeRosterPage() {
     void load();
   }, [load]);
 
-  const filtered = entries.filter((e) => {
-    const s = search.toLowerCase();
-    const name = formatSubjectName(e.subject).toLowerCase();
-    const email = (e.subject.email ?? "").toLowerCase();
-    const phone = (e.subject.phone ?? "").toLowerCase();
-    return name.includes(s) || email.includes(s) || phone.includes(s);
-  });
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, bookingFilter, sessionFilter, sortField, sortAsc]);
+
+  const filtered = React.useMemo(() => {
+    const s = search.toLowerCase().trim();
+    let rows = entries.filter((e) => {
+      const name = formatSubjectName(e.subject).toLowerCase();
+      const email = (e.subject.email ?? "").toLowerCase();
+      const phone = (e.subject.phone ?? "").toLowerCase();
+      const ref = (e.subject.employee_ref ?? "").toLowerCase();
+      const code = formatSubjectCode(e.subject.id).toLowerCase();
+      const matchesSearch =
+        !s ||
+        name.includes(s) ||
+        email.includes(s) ||
+        phone.includes(s) ||
+        ref.includes(s) ||
+        code.includes(s);
+
+      const isBooked = Boolean(e.next_scheduled_at) || (e.upcoming_count ?? 0) > 0;
+      const matchesBooking =
+        bookingFilter === "all" ||
+        (bookingFilter === "booked" && isBooked) ||
+        (bookingFilter === "unbooked" && !isBooked);
+
+      const matchesSession =
+        sessionFilter === "all" ||
+        (sessionFilter === "has_sessions" && e.session_count > 0) ||
+        (sessionFilter === "completed" && e.completed_count > 0) ||
+        (sessionFilter === "none" && e.session_count === 0);
+
+      return matchesSearch && matchesBooking && matchesSession;
+    });
+
+    rows = [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "name") {
+        cmp = formatSubjectName(a.subject).localeCompare(formatSubjectName(b.subject));
+      } else if (sortField === "last_session") {
+        const aTime = a.last_scheduled_at ? new Date(a.last_scheduled_at).getTime() : 0;
+        const bTime = b.last_scheduled_at ? new Date(b.last_scheduled_at).getTime() : 0;
+        cmp = aTime - bTime;
+      } else {
+        cmp = a.session_count - b.session_count;
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+
+    return rows;
+  }, [entries, search, bookingFilter, sessionFilter, sortField, sortAsc]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const paginated = filtered.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+
+  const stats = React.useMemo(() => {
+    const booked = entries.filter(
+      (e) => Boolean(e.next_scheduled_at) || (e.upcoming_count ?? 0) > 0,
+    ).length;
+    const withHistory = entries.filter((e) => e.session_count > 0).length;
+    return { total: entries.length, booked, withHistory };
+  }, [entries]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortAsc((v) => !v);
+    } else {
+      setSortField(field);
+      setSortAsc(field === "name");
+    }
+  };
+
+  const handleExportCsv = () => {
+    const headers = ["Code", "First Name", "Last Name", "Email", "Phone", "Ref ID", "Sessions", "Completed", "Last Session", "Booking Status"];
+    const rows = filtered.map((entry) => {
+      const isBooked = Boolean(entry.next_scheduled_at) || (entry.upcoming_count ?? 0) > 0;
+      return [
+        formatSubjectCode(entry.subject.id),
+        entry.subject.first_name,
+        entry.subject.last_name,
+        entry.subject.email ?? "",
+        entry.subject.phone ?? "",
+        entry.subject.employee_ref ?? "",
+        String(entry.session_count),
+        String(entry.completed_count),
+        formatLastSession(entry.last_scheduled_at),
+        isBooked ? "Booked" : "Not booked",
+      ];
+    });
+    const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `examinee-roster-${clientId}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} examinee(s)`);
+  };
 
   const resetForm = () =>
     setForm({
@@ -360,112 +483,250 @@ export default function ExamineeRosterPage() {
         </CardContent>
       </Card>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-10 h-11 rounded-xl"
-          placeholder="Search name, email, or phone..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-20 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          Loading roster...
-        </div>
-      ) : filtered.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-16 text-center space-y-4">
-            <p className="text-muted-foreground max-w-md mx-auto">
-              {search
-                ? "No examinees match your search."
-                : "No examinees yet. Import a CSV (for large groups) or add people one at a time, then use Book session on each row."}
-            </p>
-            {!search && (
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
-                  <Upload className="h-4 w-4" />
-                  Import CSV
-                </Button>
-                <Button onClick={() => setAddOpen(true)} className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  Add examinee
-                </Button>
-              </div>
-            )}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="border-border/50 bg-card/40">
+          <CardContent className="pt-5 pb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total examinees</p>
+            <p className="text-2xl font-black mt-1">{stats.total}</p>
           </CardContent>
         </Card>
-      ) : (
-        <div className="grid gap-3">
-          {filtered.map((entry) => (
-            <Card key={entry.subject.id} className="hover:border-primary/30 transition-colors">
-              <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <Link
-                  href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`}
-                  className="min-w-0 flex-1"
-                >
-                  <p className="font-bold text-foreground">{formatSubjectName(entry.subject)}</p>
-                  <p className="text-[10px] font-mono text-primary mt-0.5">
-                    {formatSubjectCode(entry.subject.id)}
-                    {entry.subject.employee_ref ? ` · ${entry.subject.employee_ref}` : ""}
-                  </p>
-                  {(entry.subject.email || entry.subject.phone) && (
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
-                      {entry.subject.email && (
-                        <span className="inline-flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          {entry.subject.email}
-                        </span>
-                      )}
-                      {entry.subject.phone && (
-                        <span className="inline-flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {entry.subject.phone}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    <ExamineeBookingStatus entry={entry} />
-                    {entry.session_count > 0 && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        {entry.session_count} session{entry.session_count === 1 ? "" : "s"}
-                        {entry.completed_count > 0
-                          ? ` · ${entry.completed_count} done`
-                          : ""}
-                      </Badge>
-                    )}
-                  </div>
-                </Link>
-                <div className="flex gap-2 shrink-0">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="gap-1"
-                    render={
-                      <Link
-                        href={`/dashboard/calendar/book?clientId=${clientId}&subjectId=${entry.subject.id}`}
-                      />
-                    }
-                  >
-                    <Calendar className="h-3.5 w-3.5" />
-                    Book session
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    render={<Link href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`} />}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <Card className="border-border/50 bg-card/40">
+          <CardContent className="pt-5 pb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Upcoming booked</p>
+            <p className="text-2xl font-black mt-1 text-emerald-600">{stats.booked}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50 bg-card/40">
+          <CardContent className="pt-5 pb-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">With session history</p>
+            <p className="text-2xl font-black mt-1">{stats.withHistory}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-10 h-11 rounded-xl"
+            placeholder="Search name, email, phone, or ref..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-      )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={bookingFilter} onValueChange={(v) => setBookingFilter(v as BookingFilter)}>
+            <SelectTrigger className="h-11 w-[160px] rounded-xl">
+              <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+              <SelectValue placeholder="Booking" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All booking</SelectItem>
+              <SelectItem value="booked">Exam booked</SelectItem>
+              <SelectItem value="unbooked">Not booked</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionFilter)}>
+            <SelectTrigger className="h-11 w-[160px] rounded-xl">
+              <SelectValue placeholder="Sessions" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sessions</SelectItem>
+              <SelectItem value="has_sessions">Has sessions</SelectItem>
+              <SelectItem value="completed">Has completed</SelectItem>
+              <SelectItem value="none">No sessions</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" className="h-11 rounded-xl gap-2" onClick={handleExportCsv} disabled={filtered.length === 0}>
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-[1.5rem] border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left border-collapse">
+            <thead>
+              <tr className="bg-muted/30 border-b border-border/50">
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
+                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("name")}>
+                    Examinee
+                    <ArrowUpDown className={cn("h-3 w-3", sortField === "name" ? "opacity-100" : "opacity-40")} />
+                  </button>
+                </th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Contact</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Booking</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
+                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("sessions")}>
+                    Sessions
+                    <ArrowUpDown className={cn("h-3 w-3", sortField === "sessions" ? "opacity-100" : "opacity-40")} />
+                  </button>
+                </th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
+                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("last_session")}>
+                    Last session
+                    <ArrowUpDown className={cn("h-3 w-3", sortField === "last_session" ? "opacity-100" : "opacity-40")} />
+                  </button>
+                </th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
+                    Loading roster...
+                  </td>
+                </tr>
+              ) : paginated.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <p className="text-muted-foreground mb-4">
+                      {search || bookingFilter !== "all" || sessionFilter !== "all"
+                        ? "No examinees match your filters."
+                        : "No examinees yet. Import a CSV or add people one at a time."}
+                    </p>
+                    {!search && bookingFilter === "all" && sessionFilter === "all" && (
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Import CSV
+                        </Button>
+                        <Button onClick={() => setAddOpen(true)} className="gap-2">
+                          <Plus className="h-4 w-4" />
+                          Add examinee
+                        </Button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                paginated.map((entry) => {
+                  const name = formatSubjectName(entry.subject);
+                  return (
+                    <tr key={entry.subject.id} className="hover:bg-primary/[0.02] transition-colors group">
+                      <td className="px-6 py-4">
+                        <Link
+                          href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`}
+                          className="flex items-center gap-3 min-w-[200px]"
+                        >
+                          <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xs font-black shrink-0">
+                            {getInitials(name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-foreground group-hover:text-primary transition-colors truncate">
+                              {name}
+                            </p>
+                            <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                              {formatSubjectCode(entry.subject.id)}
+                              {entry.subject.employee_ref ? ` · ${entry.subject.employee_ref}` : ""}
+                            </p>
+                          </div>
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-1 min-w-[160px]">
+                          {entry.subject.email ? (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Mail className="h-3.5 w-3.5 shrink-0 text-primary/60" />
+                              <span className="truncate">{entry.subject.email}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/60">No email</span>
+                          )}
+                          {entry.subject.phone ? (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Phone className="h-3.5 w-3.5 shrink-0 text-primary/60" />
+                              <span>{entry.subject.phone}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground/60">No phone</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <ExamineeBookingStatus entry={entry} compact />
+                      </td>
+                      <td className="px-6 py-4">
+                        {entry.session_count > 0 ? (
+                          <Badge variant="secondary" className="text-[10px] font-bold">
+                            {entry.session_count} total
+                            {entry.completed_count > 0 ? ` · ${entry.completed_count} done` : ""}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-xs text-muted-foreground whitespace-nowrap">
+                        {formatLastSession(entry.last_scheduled_at)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="gap-1 rounded-lg h-8"
+                            render={
+                              <Link
+                                href={`/dashboard/calendar/book?clientId=${clientId}&subjectId=${entry.subject.id}`}
+                              />
+                            }
+                          >
+                            <Calendar className="h-3.5 w-3.5" />
+                            Book
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-lg h-8"
+                            render={<Link href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`} />}
+                          >
+                            View
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {!loading && filtered.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-border/40 bg-muted/10">
+            <p className="text-xs text-muted-foreground">
+              Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length}
+              {filtered.length !== entries.length ? ` (filtered from ${entries.length})` : ""}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-xs font-semibold tabular-nums px-2">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 rounded-lg"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90vh] overflow-y-auto">
