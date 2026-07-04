@@ -54,17 +54,14 @@ const CSV_TEMPLATE = `first_name,last_name,email,phone,employee_ref
 Jane,Doe,jane@example.com,+971-50-0001,EMP-001
 John,Smith,john@example.com,+971-50-0002,EMP-002`;
 
-const HISTORICAL_CSV_TEMPLATE = `SN,NAME,PHONE NUMBER,GENDER,CASE,EXPERIENCE,LANGUAGE,DATE,TIME,STATUS,RESULTS,REMARK
+const HISTORICAL_CSV_TEMPLATE_INDIVIDUAL = `SN,NAME,PHONE NUMBER,GENDER,CASE,EXPERIENCE,LANGUAGE,DATE,TIME,STATUS,RESULTS,REMARK
 1,Connor Thomson,-,Male,Infidelity,-,English,2-Feb-2026,1830hrs,COMPLETED,Available,DXB-WI204/2026
-2,Tony Mcnamara,-,Male,Infidelity,-,English,2-Feb-2026,1430hrs,COMPLETED,Available,DXB-WI0205/2026
-3,Fe Angelina Victoria,-,Female,Infidelity,-,English,8-Feb-2026,1315hrs,COMPLETED,Not Available,DXB-WI0220/2026
-4,Antonio Joseph Abi Chaker,-,Male,Infidelity,-,English,22-Feb-2026,1900hrs,FAILED,Available,DXB-WI0236/2026
-5,Pelvisha Atif,-,Female,Infidelity,-,English,9-Feb-2026,1650hrs,COMPLETED,Available,DXB-WI0221/2026
-6,Retchille Nelmida Sas,-,Female,Househelp Sexual Relationship,-,English,1-Apr-2026,0830hrs,FAILED,Available,DXB-WI0238/2026
-7,William Malkin,-,Male,Infidelity,-,English,1-Apr-2026,1100hrs,FAILED,Available,DXB-WI0239/2026
-8,Sabine Nazhal,-,Female,Infidelity,-,English,7-Apr-2026,1545hrs,FAILED,Available,DXB-WI0253/2026
-9,Ekram Menewar,-,Female,Infidelity,-,English,1-Jun-2026,1630hrs,COMPLETED,Available,DXB-EMWC01M6-RN
-10,Mr. Graca Wife,-,Female,Infidelity,-,-,16-Jun-2026,1600hrs,NO SHOW,Not Available,-`;
+2,Tony Mcnamara,-,Male,Infidelity,-,English,2-Feb-2026,1430hrs,COMPLETED,Available,DXB-WI0205/2026`;
+
+const HISTORICAL_CSV_TEMPLATE_CORPORATE = `SN,NAME,PHONE NUMBER,POSITION,GENDER,EXPERIENCE,LANGUAGE,DATE,TIME,MAIL,STATUS,RESULTS,REMARK
+1,Asakura Atsuko,+819050454527,Conversion with exp,Female,Yes,English,6-Jan-2026,1030hrs,SENT,Completed,AVAILABLE,DXB0182/2026
+2,Omar Gaber,+995557543627,Retention with exp,Male,Yes,English,9-Jan-2026,1030hrs,SENT,Completed,Failed,DXB0194/2026
+3,Lesi Yuliasari,+905445469424,Conversion with exp,Female,Yes,English,20-Feb-2026,1100hrs,-,no show,-,-`;
 
 function parseMailColumn(val: string): { email: string; mailStatus: string } {
   const clean = (val || "").trim();
@@ -169,96 +166,179 @@ interface RawHistoricalRow {
   legacy_mail_status: string;
 }
 
-function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
+function detectCsvSeparator(lines: string[]): string {
+  let tabCount = 0;
+  let commaCount = 0;
+  for (const line of lines.slice(0, 20)) {
+    tabCount += (line.match(/\t/g) || []).length;
+    commaCount += (line.match(/,/g) || []).length;
+  }
+  if (tabCount > commaCount) return "\t";
+  if (commaCount > 0) return ",";
+  return ";";
+}
+
+function splitCsvLine(line: string, separator: string): string[] {
+  return line.split(separator).map((c) => c.trim().replace(/^"|"$/g, ""));
+}
+
+type ImportLayoutMode = "corporate" | "individual";
+
+type HistoricalColumnMap = {
+  snIdx: number;
+  nameIdx: number;
+  phoneIdx: number;
+  genderIdx: number;
+  caseIdx: number;
+  experienceIdx: number;
+  languageIdx: number;
+  dateIdx: number;
+  timeIdx: number;
+  mailIdx: number;
+  statusIdx: number;
+  resultsIdx: number;
+  remarkIdx: number;
+};
+
+/** Individual walk-ins: SN, NAME, PHONE, GENDER, CASE, … (no MAIL column) */
+const INDIVIDUAL_COLUMN_MAP: HistoricalColumnMap = {
+  snIdx: 0,
+  nameIdx: 1,
+  phoneIdx: 2,
+  genderIdx: 3,
+  caseIdx: 4,
+  experienceIdx: 5,
+  languageIdx: 6,
+  dateIdx: 7,
+  timeIdx: 8,
+  mailIdx: -1,
+  statusIdx: 9,
+  resultsIdx: 10,
+  remarkIdx: 11,
+};
+
+/** Corporate roster: SN, NAME, PHONE, POSITION, GENDER, …, MAIL, STATUS, RESULTS, REMARK */
+const CORPORATE_COLUMN_MAP: HistoricalColumnMap = {
+  snIdx: 0,
+  nameIdx: 1,
+  phoneIdx: 2,
+  caseIdx: 3,
+  genderIdx: 4,
+  experienceIdx: 5,
+  languageIdx: 6,
+  dateIdx: 7,
+  timeIdx: 8,
+  mailIdx: 9,
+  statusIdx: 10,
+  resultsIdx: 11,
+  remarkIdx: 12,
+};
+
+function looksLikeSnDataRow(cols: string[]): boolean {
+  if (cols.length < 8) return false;
+  const sn = cols[0]?.trim() || "";
+  const name = cols[1]?.trim() || "";
+  return /^\d+$/.test(sn) && name.length >= 2;
+}
+
+function defaultColumnMapForMode(mode: ImportLayoutMode): HistoricalColumnMap {
+  return mode === "corporate" ? { ...CORPORATE_COLUMN_MAP } : { ...INDIVIDUAL_COLUMN_MAP };
+}
+
+function buildColumnMapFromHeaders(headers: string[]): HistoricalColumnMap | null {
+  const find = (pred: (h: string) => boolean) => headers.findIndex(pred);
+  const nameIdx = find((h) => h === "name" || h === "full name" || h === "examinee");
+  if (nameIdx === -1) return null;
+
+  const snIdx = find((h) => h === "sn" || h === "s/n" || h.includes("serial"));
+  const phoneIdx = find((h) => h.includes("phone") || h.includes("mobile"));
+  const genderIdx = find((h) => h.includes("gender") || h === "sex");
+  const caseIdx = find(
+    (h) => h === "case" || h === "case type" || h.startsWith("case ") || h.endsWith(" case")
+  );
+  const positionIdx = find((h) => h.includes("position") || h.includes("job") || h.includes("role"));
+  const experienceIdx = find((h) => h === "experience" || h.startsWith("exp"));
+  const languageIdx = find((h) => h.includes("language") || h === "lang");
+  const dateIdx = find((h) => h.includes("date"));
+  const timeIdx = find((h) => h.includes("time"));
+  const mailIdx = find((h) => h === "mail" || h === "email" || h === "e-mail");
+  const statusIdx = find((h) => h === "status" || h.includes("session status"));
+  const resultsIdx = find((h) => h === "results" || h.includes("result") || h.includes("verdict"));
+  const remarkIdx = find(
+    (h) => h === "remark" || h === "remarks" || h === "reference" || h === "ref no" || h === "ref"
+  );
+
+  return {
+    snIdx,
+    nameIdx,
+    phoneIdx,
+    genderIdx,
+    caseIdx: caseIdx !== -1 ? caseIdx : positionIdx,
+    experienceIdx,
+    languageIdx,
+    dateIdx,
+    timeIdx,
+    mailIdx,
+    statusIdx,
+    resultsIdx,
+    remarkIdx,
+  };
+}
+
+function parseRawHistoricalCsv(text: string, importMode: ImportLayoutMode = "individual"): RawHistoricalRow[] {
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
   if (lines.length === 0) return [];
 
-  // Detect separator: tab (Excel copy/paste), comma, or semicolon
-  let separator = ",";
-  const sampleLine = lines[0];
-  if (sampleLine.includes("\t")) {
-    separator = "\t";
-  } else if (sampleLine.includes(";")) {
-    separator = ";";
-  }
+  const separator = detectCsvSeparator(lines);
 
-  // Look for a header row containing typical words
   let headerIndex = -1;
+  let columnMap: HistoricalColumnMap | null = null;
+
   for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].split(separator).map((c) => c.trim().toLowerCase());
-    if (
-      cols.includes("name") ||
-      cols.includes("first name") ||
-      cols.includes("position") ||
-      cols.includes("case") ||
-      cols.includes("phone number")
-    ) {
+    const headers = splitCsvLine(lines[i], separator).map((h) => h.trim().toLowerCase());
+    const map = buildColumnMapFromHeaders(headers);
+    if (map) {
       headerIndex = i;
+      columnMap = map;
       break;
     }
   }
 
-  let headers: string[] = [];
-  if (headerIndex !== -1) {
-    headers = lines[headerIndex].split(separator).map((h) => h.trim().toLowerCase());
+  if (!columnMap) {
+    for (let i = 0; i < lines.length; i++) {
+      const cols = splitCsvLine(lines[i], separator);
+      if (looksLikeSnDataRow(cols)) {
+        columnMap = defaultColumnMapForMode(importMode);
+        headerIndex = i - 1;
+        break;
+      }
+    }
   }
 
-  let firstNameIdx = headers.findIndex((h) => h.includes("first"));
-  let lastNameIdx = headers.findIndex((h) => h.includes("last"));
-  let nameIdx = headers.indexOf("name");
-  let snIdx = headers.findIndex((h) => h === "sn" || h === "s/n" || h.includes("serial"));
-  let phoneIdx = headers.findIndex((h) => h.includes("phone") || h.includes("mobile"));
-  let caseIdx = headers.findIndex((h) => h === "case" || h.includes("case type") || h.includes("case"));
-  let positionIdx = headers.findIndex((h) => h.includes("position") || h.includes("job") || h.includes("role"));
-  if (caseIdx !== -1) positionIdx = caseIdx;
-  let genderIdx = headers.findIndex((h) => h.includes("gender") || h.includes("sex"));
-  let experienceIdx = headers.findIndex((h) => h.includes("experience") || h.includes("exp"));
-  let languageIdx = headers.findIndex((h) => h.includes("language") || h.includes("lang"));
-  let dateIdx = headers.findIndex((h) => h.includes("date"));
-  let timeIdx = headers.findIndex((h) => h.includes("time"));
-  let mailIdx = headers.findIndex((h) => h.includes("mail") || h.includes("email"));
-  let statusIdx = headers.findIndex((h) => h.includes("status"));
-  let resultsIdx = headers.findIndex((h) => h.includes("result") || h.includes("verdict") || h.includes("avail"));
-  let remarkIdx = headers.findIndex((h) => h.includes("remark") || h.includes("ref") || h.includes("reference"));
-
-  // Fallback Mapping if no header row was detected (i.e. copy-pasted only data rows starting with First Name)
-  if (firstNameIdx === -1 && nameIdx === -1) {
-    firstNameIdx = 0;
-    lastNameIdx = 1;
-    phoneIdx = 2;
-    positionIdx = 3;
-    genderIdx = 4;
-    experienceIdx = 5;
-    languageIdx = 6;
-    dateIdx = 7;
-    timeIdx = 8;
-    mailIdx = 9;
-    statusIdx = 10;
-    resultsIdx = 11;
-    remarkIdx = 12;
-    headerIndex = -1; // start parsing from the very first line (row 0)
+  if (!columnMap) {
+    columnMap = defaultColumnMapForMode(importMode);
+    headerIndex = -1;
   }
+
+  const col = (cols: string[], idx: number) =>
+    idx !== -1 && idx < cols.length ? cols[idx] : "";
 
   const results: RawHistoricalRow[] = [];
   for (let i = headerIndex + 1; i < lines.length; i++) {
     const rawLine = lines[i];
-    const cols = rawLine.split(separator).map((c) => c.trim().replace(/^"|"$/g, ""));
+    const cols = splitCsvLine(rawLine, separator);
     if (cols.length < 2) continue;
 
-    // Determine First Name and Last Name
+    const rawLower = rawLine.toLowerCase();
+    if (isLegendOrHeaderRow(cols, rawLower)) continue;
+
     let firstName = "";
     let lastName = "";
-
-    if (firstNameIdx !== -1 && firstNameIdx < cols.length) {
-      firstName = cols[firstNameIdx];
-      if (lastNameIdx !== -1 && lastNameIdx < cols.length) {
-        lastName = cols[lastNameIdx];
-      }
-    } else if (nameIdx !== -1 && nameIdx < cols.length) {
-      const fullName = cols[nameIdx];
+    const fullName = col(cols, columnMap.nameIdx);
+    if (fullName) {
       const parts = fullName.trim().split(/\s+/);
       firstName = parts[0] || "";
       lastName = parts.slice(1).join(" ") || "Subject";
@@ -266,16 +346,11 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
 
     if (!firstName && !lastName) continue;
 
-    const rawLower = rawLine.toLowerCase();
-    if (isLegendOrHeaderRow(cols, rawLower)) continue;
-
-    // Skip legends, headers or date separators
     if (
       firstName.toLowerCase().includes("legend") ||
       firstName.toLowerCase().includes("colour") ||
-      firstName.toLowerCase().includes("name") ||
-      firstName.toLowerCase().includes("position") ||
-      firstName.toLowerCase().includes("first") ||
+      firstName.toLowerCase() === "name" ||
+      firstName.toLowerCase() === "sn" ||
       rawLower.includes("january") ||
       rawLower.includes("february") ||
       rawLower.includes("march") ||
@@ -292,26 +367,22 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       continue;
     }
 
-    // Skip if first column is date-like indicator (e.g. "12th", "16th")
-    if (/^\d+(st|nd|rd|th)$/i.test(firstName) || /^\d+(st|nd|rd|th)$/i.test(cols[0] || "")) {
-      continue;
-    }
+    if (/^\d+(st|nd|rd|th)$/i.test(firstName)) continue;
 
-    const phone = phoneIdx !== -1 && phoneIdx < cols.length ? cols[phoneIdx] : "";
-    const position =
-      positionIdx !== -1 && positionIdx < cols.length ? cols[positionIdx] : "General Screening";
-    const caseLabel = position || "General Screening";
-    const gender = genderIdx !== -1 && genderIdx < cols.length ? cols[genderIdx] : "";
-    const experience = experienceIdx !== -1 && experienceIdx < cols.length ? cols[experienceIdx] : "";
-    const language = languageIdx !== -1 && languageIdx < cols.length ? cols[languageIdx] : "";
-    const dateStr = dateIdx !== -1 && dateIdx < cols.length ? cols[dateIdx] : "";
-    const timeStr = timeIdx !== -1 && timeIdx < cols.length ? cols[timeIdx] : "";
-    const mailRaw = mailIdx !== -1 && mailIdx < cols.length ? cols[mailIdx] : "";
+    const caseLabel =
+      col(cols, columnMap.caseIdx) || "General Screening";
+    const phone = col(cols, columnMap.phoneIdx);
+    const gender = col(cols, columnMap.genderIdx);
+    const experience = col(cols, columnMap.experienceIdx);
+    const language = col(cols, columnMap.languageIdx);
+    const dateStr = col(cols, columnMap.dateIdx);
+    const timeStr = col(cols, columnMap.timeIdx);
+    const mailRaw = col(cols, columnMap.mailIdx);
     const { email, mailStatus } = parseMailColumn(mailRaw);
-    const statusVal = statusIdx !== -1 && statusIdx < cols.length ? cols[statusIdx] : "Completed";
-    const resultVal = resultsIdx !== -1 && resultsIdx < cols.length ? cols[resultsIdx] : "";
-    const remarkVal = remarkIdx !== -1 && remarkIdx < cols.length ? cols[remarkIdx] : "";
-    const serialNo = snIdx !== -1 && snIdx < cols.length ? cols[snIdx] : cols[0] || "";
+    const statusVal = col(cols, columnMap.statusIdx) || "Completed";
+    const resultVal = col(cols, columnMap.resultsIdx);
+    const remarkVal = col(cols, columnMap.remarkIdx);
+    const serialNo = col(cols, columnMap.snIdx) || cols[0] || "";
 
     results.push({
       first_name: firstName,
@@ -485,14 +556,23 @@ export default function BatchIntakePage() {
     }
   }
 
-  // Parses and populates CSV/TSV text into corresponding layout rows safely
-  const handleParseAndLoad = (text: string, filename?: string) => {
-    if (isHistoricalMode) {
-      const parsedRaw = parseRawHistoricalCsv(text);
+  const lastImportTextRef = React.useRef<string | null>(null);
+
+  const applyHistoricalParse = React.useCallback(
+    (text: string, mode: "corporate" | "individual", filename?: string, quiet = false) => {
+      const parsedRaw = parseRawHistoricalCsv(text, mode);
       if (parsedRaw.length === 0) {
-        toast.error("No valid entries found. Verify columns like NAME, DATE and POSITION");
-        return;
+        if (!quiet) {
+          toast.error(
+            mode === "corporate"
+              ? "No valid entries found. Expected columns: NAME, POSITION, DATE, STATUS…"
+              : "No valid entries found. Expected columns: NAME, GENDER, CASE, DATE, STATUS…"
+          );
+        }
+        return false;
       }
+
+      lastImportTextRef.current = text;
 
       const positions = Array.from(new Set(parsedRaw.map((r) => r.position))).filter(Boolean);
       setUniquePositions(positions);
@@ -500,12 +580,11 @@ export default function BatchIntakePage() {
       const initialMap: Record<string, { examTypeId: string; price: string }> = {};
       positions.forEach((pos) => {
         const cleanPos = (pos || "General Screening").trim();
-        const firstWord = cleanPos.split(" ")[0]?.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").toLowerCase() || "";
+        const firstWord =
+          cleanPos.split(" ")[0]?.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").toLowerCase() || "";
 
-        // Try to match position text to an existing exam type
-        const match = examTypes.find((t) =>
-          t.name.toLowerCase().includes(firstWord)
-        ) || examTypes[0];
+        const match =
+          examTypes.find((t) => t.name.toLowerCase().includes(firstWord)) || examTypes[0];
 
         initialMap[cleanPos] = {
           examTypeId: match ? String(match.id) : "",
@@ -568,26 +647,42 @@ export default function BatchIntakePage() {
       setHistRows(convertedRows);
       setCsvText("");
       setShowCsvImport(false);
-      toast.success(
-        filename
-          ? `Successfully loaded ${convertedRows.length} rows from ${filename}!`
-          : `Loaded ${convertedRows.length} rows. Map positions below.`
-      );
-    } else {
-      const parsed = parseCsvRows(text);
-      if (parsed.length === 0) {
-        toast.error("Paste CSV with standard header row and examinees");
-        return;
+      if (!quiet) {
+        toast.success(
+          filename
+            ? `Loaded ${convertedRows.length} rows from ${filename} (${mode === "corporate" ? "corporate" : "individual"} column layout)`
+            : `Loaded ${convertedRows.length} rows using ${mode === "corporate" ? "corporate" : "individual"} columns. Map case types below.`
+        );
       }
-      setRows(parsed);
-      setCsvText("");
-      setShowCsvImport(false);
-      toast.success(
-        filename
-          ? `Successfully loaded ${parsed.length} rows from ${filename}!`
-          : `Loaded ${parsed.length} rows from CSV`
-      );
+      return true;
+    },
+    [examTypes]
+  );
+
+  React.useEffect(() => {
+    if (!isHistoricalMode || !lastImportTextRef.current) return;
+    applyHistoricalParse(lastImportTextRef.current, importMode, undefined, true);
+  }, [importMode, isHistoricalMode, applyHistoricalParse]);
+
+  // Parses and populates CSV/TSV text into corresponding layout rows safely
+  const handleParseAndLoad = (text: string, filename?: string) => {
+    if (isHistoricalMode) {
+      applyHistoricalParse(text, importMode, filename);
+      return;
     }
+    const parsed = parseCsvRows(text);
+    if (parsed.length === 0) {
+      toast.error("Paste CSV with standard header row and examinees");
+      return;
+    }
+    setRows(parsed);
+    setCsvText("");
+    setShowCsvImport(false);
+    toast.success(
+      filename
+        ? `Successfully loaded ${parsed.length} rows from ${filename}!`
+        : `Loaded ${parsed.length} rows from CSV`
+    );
   };
 
   const handleCsvImport = () => {
@@ -627,12 +722,20 @@ export default function BatchIntakePage() {
   };
 
   const downloadTemplate = () => {
-    const templateContent = isHistoricalMode ? HISTORICAL_CSV_TEMPLATE : CSV_TEMPLATE;
+    const templateContent = isHistoricalMode
+      ? importMode === "corporate"
+        ? HISTORICAL_CSV_TEMPLATE_CORPORATE
+        : HISTORICAL_CSV_TEMPLATE_INDIVIDUAL
+      : CSV_TEMPLATE;
     const blob = new Blob([templateContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = isHistoricalMode ? "historical-import-template.csv" : "batch-intake-template.csv";
+    a.download = isHistoricalMode
+      ? importMode === "corporate"
+        ? "historical-import-corporate-template.csv"
+        : "historical-import-individual-template.csv"
+      : "batch-intake-template.csv";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -876,6 +979,21 @@ export default function BatchIntakePage() {
                   Corporate / organisation
                 </Button>
               </div>
+              {isHistoricalMode && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
+                  {importMode === "individual" ? (
+                    <>
+                      <span className="font-semibold text-foreground">Individual columns:</span>{" "}
+                      SN, NAME, PHONE, GENDER, <span className="font-semibold">CASE</span>, EXPERIENCE, LANGUAGE, DATE, TIME, STATUS, RESULTS, REMARK
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-foreground">Corporate columns:</span>{" "}
+                      SN, NAME, PHONE, <span className="font-semibold">POSITION</span>, GENDER, EXPERIENCE, LANGUAGE, DATE, TIME, MAIL, STATUS, RESULTS, REMARK
+                    </>
+                  )}
+                </p>
+              )}
             </div>
 
             {/* Client — corporate mode only */}
@@ -1009,15 +1127,19 @@ export default function BatchIntakePage() {
           <Card className="border-amber-500/20 bg-amber-500/[0.02]">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2 text-amber-600 dark:text-amber-500">
-                <Map className="h-5 w-5" /> Case Type to Exam Type Mapping
+                <Map className="h-5 w-5" />{" "}
+                {importMode === "corporate" ? "Position to Exam Type Mapping" : "Case Type to Exam Type Mapping"}
               </CardTitle>
               <CardDescription>
-                We found {uniquePositions.length} unique case types in your spreadsheet. Map each to a system exam type for billing and report protocols.
+                We found {uniquePositions.length} unique{" "}
+                {importMode === "corporate" ? "positions" : "case types"} in your spreadsheet. Map each to a system exam type for billing and report protocols.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-12 gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-wider pb-1.5 border-b border-border/40">
-                <div className="col-span-4">Spreadsheet Case / Type</div>
+                <div className="col-span-4">
+                  Spreadsheet {importMode === "corporate" ? "Position" : "Case / Type"}
+                </div>
                 <div className="col-span-5">System Exam Type Mapping</div>
                 <div className="col-span-3">Unit Price (AED)</div>
               </div>
@@ -1139,7 +1261,13 @@ export default function BatchIntakePage() {
 
                 <Textarea
                   rows={5}
-                  placeholder={isHistoricalMode ? HISTORICAL_CSV_TEMPLATE : CSV_TEMPLATE}
+                  placeholder={
+                    isHistoricalMode
+                      ? importMode === "corporate"
+                        ? HISTORICAL_CSV_TEMPLATE_CORPORATE
+                        : HISTORICAL_CSV_TEMPLATE_INDIVIDUAL
+                      : CSV_TEMPLATE
+                  }
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
                   className="font-mono text-xs rounded-2xl bg-background"
@@ -1176,20 +1304,19 @@ export default function BatchIntakePage() {
               </div>
             ) : (
               histRows.length > 0 && (
-                <div className="hidden sm:grid grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_1.2fr_0.8fr_0.8fr_2.5rem] gap-1 px-1">
+                <div className="hidden sm:grid grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_0.9fr_0.9fr_2.5rem] gap-1 px-1">
                   {[
                     "First name",
                     "Last name",
                     "Phone",
                     "Ref / SN",
                     "Scheduled Time",
-                    "Position Label",
+                    "Case type",
                     "Gender",
                     "Language",
                     "Experience",
-                    "Legacy Mail",
-                    "Status",
-                    "Legacy Results",
+                    "Session status",
+                    "Legacy results",
                     "",
                   ].map((h) => (
                     <span key={h} className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground truncate" title={h}>
@@ -1281,7 +1408,7 @@ export default function BatchIntakePage() {
                 histRows.map((row, i) => (
                   <div
                     key={row._key}
-                    className="grid gap-1 sm:grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_1.2fr_0.8fr_0.8fr_2.5rem] items-center text-[10px]"
+                    className="grid gap-1 sm:grid-cols-[0.8fr_0.8fr_0.8fr_0.8fr_1.2fr_1fr_0.7fr_0.7fr_0.7fr_0.9fr_0.9fr_2.5rem] items-center text-[10px]"
                   >
                     <Input
                       placeholder="First"
@@ -1334,12 +1461,6 @@ export default function BatchIntakePage() {
                       onChange={(e) => updateRow(row._key, "experience", e.target.value)}
                       className="h-9 rounded-xl text-[10px] px-2"
                     />
-                    <Input
-                      placeholder="Legacy mail"
-                      value={row.legacy_mail_status || row.email}
-                      onChange={(e) => updateRow(row._key, "legacy_mail_status", e.target.value)}
-                      className="h-9 rounded-xl text-[10px] px-2"
-                    />
                     <Select
                       value={row.status}
                       onValueChange={(v) => updateRow(row._key, "status", String(v))}
@@ -1349,6 +1470,7 @@ export default function BatchIntakePage() {
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
                         <SelectItem value="Completed">Completed</SelectItem>
+                        <SelectItem value="COMPLETED">COMPLETED</SelectItem>
                         <SelectItem value="FAILED">Failed</SelectItem>
                         <SelectItem value="NO SHOW">No Show</SelectItem>
                         <SelectItem value="Re-test">Re-test</SelectItem>
