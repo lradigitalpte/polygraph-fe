@@ -54,10 +54,50 @@ const CSV_TEMPLATE = `first_name,last_name,email,phone,employee_ref
 Jane,Doe,jane@example.com,+971-50-0001,EMP-001
 John,Smith,john@example.com,+971-50-0002,EMP-002`;
 
-const HISTORICAL_CSV_TEMPLATE = `SN,NAME,PHONE NUMBER,POSITION,GENDER,EXPERIENCE,LANGUAGE,DATE,TIME,MAIL,STATUS,RESULTS,REMARK
-1,Asakura Atsuko,+819050454527,Conversion with exp,Female,Yes,English,6-Jan-2026,1030hrs,SENT,Completed,AVAILABLE,DXB0182/2026
-2,Omar Gaber,+995557543627,Retention with exp,Male,Yes,English,9-Jan-2026,1030hrs,SENT,Completed,Failed,DXB0194/2026
-3,Lesi Yuliasari,+905445469424,Conversion with exp,Female,Yes,English,20-Feb-2026,1100hrs,-,no show,-,-`;
+const HISTORICAL_CSV_TEMPLATE = `SN,NAME,PHONE NUMBER,GENDER,CASE,EXPERIENCE,LANGUAGE,DATE,TIME,STATUS,RESULTS,REMARK
+1,Connor Thomson,-,Male,Infidelity,-,English,2-Feb-2026,1830hrs,COMPLETED,Available,DXB-WI204/2026
+2,Tony Mcnamara,-,Male,Infidelity,-,English,2-Feb-2026,1430hrs,COMPLETED,Available,DXB-WI0205/2026
+3,Fe Angelina Victoria,-,Female,Infidelity,-,English,8-Feb-2026,1315hrs,COMPLETED,Not Available,DXB-WI0220/2026
+4,Antonio Joseph Abi Chaker,-,Male,Infidelity,-,English,22-Feb-2026,1900hrs,FAILED,Available,DXB-WI0236/2026
+5,Pelvisha Atif,-,Female,Infidelity,-,English,9-Feb-2026,1650hrs,COMPLETED,Available,DXB-WI0221/2026
+6,Retchille Nelmida Sas,-,Female,Househelp Sexual Relationship,-,English,1-Apr-2026,0830hrs,FAILED,Available,DXB-WI0238/2026
+7,William Malkin,-,Male,Infidelity,-,English,1-Apr-2026,1100hrs,FAILED,Available,DXB-WI0239/2026
+8,Sabine Nazhal,-,Female,Infidelity,-,English,7-Apr-2026,1545hrs,FAILED,Available,DXB-WI0253/2026
+9,Ekram Menewar,-,Female,Infidelity,-,English,1-Jun-2026,1630hrs,COMPLETED,Available,DXB-EMWC01M6-RN
+10,Mr. Graca Wife,-,Female,Infidelity,-,-,16-Jun-2026,1600hrs,NO SHOW,Not Available,-`;
+
+function parseMailColumn(val: string): { email: string; mailStatus: string } {
+  const clean = (val || "").trim();
+  if (!clean || clean === "-") return { email: "", mailStatus: "" };
+  const lower = clean.toLowerCase();
+  if (lower === "sent" || lower === "mailed") {
+    return { email: "", mailStatus: "sent" };
+  }
+  if (clean.includes("@")) return { email: clean, mailStatus: "" };
+  return { email: "", mailStatus: clean };
+}
+
+function isLegendOrHeaderRow(cols: string[], rawLower: string): boolean {
+  const joined = cols.join(" ").toLowerCase();
+  if (
+    joined.includes("legend") ||
+    joined.includes("colour") ||
+    joined.includes("color") ||
+    joined.includes("meaning") ||
+    joined.includes("passed stest") ||
+    joined.includes("passed test") ||
+    joined.includes("failed test") ||
+    joined.includes("yet to take") ||
+    joined.includes("no show") && joined.includes("red") ||
+    joined.includes("re-test") && joined.includes("purple")
+  ) {
+    return true;
+  }
+  const first = (cols[0] || "").toLowerCase();
+  if (first === "sn" || first === "s/n" || first === "name") return true;
+  if (rawLower.includes("phone number") && rawLower.includes("gender")) return true;
+  return false;
+}
 
 // ─── CSV/TSV helpers ────────────────────────────────────────────────────────
 
@@ -115,15 +155,18 @@ interface RawHistoricalRow {
   last_name: string;
   phone: string;
   employee_ref: string;
+  serial_no: string;
   position: string;
+  case_label: string;
   date_str: string;
   time_str: string;
   status: string;
-  verdict: string;
+  legacy_results: string;
   gender: string;
   experience: string;
   language: string;
   email: string;
+  legacy_mail_status: string;
 }
 
 function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
@@ -150,6 +193,7 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       cols.includes("name") ||
       cols.includes("first name") ||
       cols.includes("position") ||
+      cols.includes("case") ||
       cols.includes("phone number")
     ) {
       headerIndex = i;
@@ -165,8 +209,11 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
   let firstNameIdx = headers.findIndex((h) => h.includes("first"));
   let lastNameIdx = headers.findIndex((h) => h.includes("last"));
   let nameIdx = headers.indexOf("name");
+  let snIdx = headers.findIndex((h) => h === "sn" || h === "s/n" || h.includes("serial"));
   let phoneIdx = headers.findIndex((h) => h.includes("phone") || h.includes("mobile"));
+  let caseIdx = headers.findIndex((h) => h === "case" || h.includes("case type") || h.includes("case"));
   let positionIdx = headers.findIndex((h) => h.includes("position") || h.includes("job") || h.includes("role"));
+  if (caseIdx !== -1) positionIdx = caseIdx;
   let genderIdx = headers.findIndex((h) => h.includes("gender") || h.includes("sex"));
   let experienceIdx = headers.findIndex((h) => h.includes("experience") || h.includes("exp"));
   let languageIdx = headers.findIndex((h) => h.includes("language") || h.includes("lang"));
@@ -219,8 +266,10 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
 
     if (!firstName && !lastName) continue;
 
-    // Skip legends, headers or date separators
     const rawLower = rawLine.toLowerCase();
+    if (isLegendOrHeaderRow(cols, rawLower)) continue;
+
+    // Skip legends, headers or date separators
     if (
       firstName.toLowerCase().includes("legend") ||
       firstName.toLowerCase().includes("colour") ||
@@ -248,39 +297,39 @@ function parseRawHistoricalCsv(text: string): RawHistoricalRow[] {
       continue;
     }
 
-    const phone = (phoneIdx !== -1 && phoneIdx < cols.length) ? cols[phoneIdx] : "";
-    const position = (positionIdx !== -1 && positionIdx < cols.length) ? cols[positionIdx] : "General Screening";
-    const gender = (genderIdx !== -1 && genderIdx < cols.length) ? cols[genderIdx] : "";
-    const experience = (experienceIdx !== -1 && experienceIdx < cols.length) ? cols[experienceIdx] : "";
-    const language = (languageIdx !== -1 && languageIdx < cols.length) ? cols[languageIdx] : "";
-    const dateStr = (dateIdx !== -1 && dateIdx < cols.length) ? cols[dateIdx] : "";
-    const timeStr = (timeIdx !== -1 && timeIdx < cols.length) ? cols[timeIdx] : "";
-    const email = (mailIdx !== -1 && mailIdx < cols.length) ? cols[mailIdx] : "";
-    const statusVal = (statusIdx !== -1 && statusIdx < cols.length) ? cols[statusIdx] : "Completed";
-    const resultVal = (resultsIdx !== -1 && resultsIdx < cols.length) ? cols[resultsIdx] : "AVAILABLE";
-    const remarkVal = (remarkIdx !== -1 && remarkIdx < cols.length) ? cols[remarkIdx] : "";
-
-    let verdict = "NDI";
-    if (resultVal.toLowerCase().includes("fail")) {
-      verdict = "DI";
-    } else if (resultVal.toLowerCase().includes("inconclusive")) {
-      verdict = "Inconclusive";
-    }
+    const phone = phoneIdx !== -1 && phoneIdx < cols.length ? cols[phoneIdx] : "";
+    const position =
+      positionIdx !== -1 && positionIdx < cols.length ? cols[positionIdx] : "General Screening";
+    const caseLabel = position || "General Screening";
+    const gender = genderIdx !== -1 && genderIdx < cols.length ? cols[genderIdx] : "";
+    const experience = experienceIdx !== -1 && experienceIdx < cols.length ? cols[experienceIdx] : "";
+    const language = languageIdx !== -1 && languageIdx < cols.length ? cols[languageIdx] : "";
+    const dateStr = dateIdx !== -1 && dateIdx < cols.length ? cols[dateIdx] : "";
+    const timeStr = timeIdx !== -1 && timeIdx < cols.length ? cols[timeIdx] : "";
+    const mailRaw = mailIdx !== -1 && mailIdx < cols.length ? cols[mailIdx] : "";
+    const { email, mailStatus } = parseMailColumn(mailRaw);
+    const statusVal = statusIdx !== -1 && statusIdx < cols.length ? cols[statusIdx] : "Completed";
+    const resultVal = resultsIdx !== -1 && resultsIdx < cols.length ? cols[resultsIdx] : "";
+    const remarkVal = remarkIdx !== -1 && remarkIdx < cols.length ? cols[remarkIdx] : "";
+    const serialNo = snIdx !== -1 && snIdx < cols.length ? cols[snIdx] : cols[0] || "";
 
     results.push({
       first_name: firstName,
       last_name: lastName,
-      phone,
-      employee_ref: remarkVal,
-      position: position || "General Screening",
+      phone: phone === "-" ? "" : phone,
+      employee_ref: remarkVal === "-" ? "" : remarkVal,
+      serial_no: serialNo,
+      position: caseLabel,
+      case_label: caseLabel,
       date_str: dateStr,
       time_str: timeStr,
       status: statusVal || "Completed",
-      verdict,
+      legacy_results: resultVal === "-" ? "" : resultVal,
       gender,
-      experience,
-      language,
+      experience: experience === "-" ? "" : experience,
+      language: language === "-" ? "" : language,
       email,
+      legacy_mail_status: mailStatus,
     });
   }
 
@@ -305,10 +354,13 @@ type HistoricalExamineeRow = {
   last_name: string;
   phone: string;
   employee_ref: string;
+  serial_no: string;
   scheduled_at: string;
   status: string;
-  verdict: string;
+  legacy_results: string;
+  legacy_mail_status: string;
   position: string;
+  case_label: string;
   gender: string;
   experience: string;
   language: string;
@@ -334,6 +386,7 @@ export default function BatchIntakePage() {
 
   // Mode state
   const [isHistoricalMode, setIsHistoricalMode] = React.useState(false);
+  const [importMode, setImportMode] = React.useState<"corporate" | "individual">("individual");
 
   // Config data loaded from backend APIs
   const [clients, setClients] = React.useState<ClientRecord[]>([]);
@@ -394,10 +447,13 @@ export default function BatchIntakePage() {
           last_name: "",
           phone: "",
           employee_ref: "",
+          serial_no: "",
           scheduled_at: new Date().toISOString(),
           status: "Completed",
-          verdict: "NDI",
+          legacy_results: "",
+          legacy_mail_status: "",
           position: uniquePositions[0] || "General Screening",
+          case_label: uniquePositions[0] || "General Screening",
           gender: "Male",
           experience: "Yes",
           language: "English",
@@ -495,10 +551,13 @@ export default function BatchIntakePage() {
           last_name: r.last_name,
           phone: r.phone,
           employee_ref: r.employee_ref,
+          serial_no: r.serial_no,
           scheduled_at: scheduledAt,
           status: r.status,
-          verdict: r.verdict,
+          legacy_results: r.legacy_results,
+          legacy_mail_status: r.legacy_mail_status,
           position: r.position,
+          case_label: r.case_label,
           gender: r.gender,
           experience: r.experience,
           language: r.language,
@@ -605,7 +664,10 @@ export default function BatchIntakePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!clientId) { toast.error("Select a client / organisation"); return; }
+    if (importMode === "corporate" && !clientId) {
+      toast.error("Select a client / organisation");
+      return;
+    }
     if (!examinerId) { toast.error("Select an examiner"); return; }
 
     setSubmitting(true);
@@ -626,12 +688,13 @@ export default function BatchIntakePage() {
         }
 
         const payload: {
-          client_id: number;
+          client_id?: number;
+          import_mode: "corporate" | "individual";
           examiner_id: number;
           exam_fee?: number;
           rows: BulkImportHistoricalRow[];
         } = {
-          client_id: Number(clientId),
+          import_mode: importMode,
           examiner_id: Number(examinerId),
           exam_fee: examFee ? Number(examFee) : undefined,
           rows: validRows.map((r) => {
@@ -641,24 +704,30 @@ export default function BatchIntakePage() {
               last_name: r.last_name.trim(),
               phone: r.phone.trim() || undefined,
               employee_ref: r.employee_ref.trim() || undefined,
+              serial_no: r.serial_no.trim() || undefined,
               scheduled_at: r.scheduled_at,
               status: r.status,
-              verdict: r.verdict,
               exam_type_id: mapping.examTypeId ? Number(mapping.examTypeId) : undefined,
               price: mapping.price ? Number(mapping.price) : undefined,
               gender: r.gender.trim() || undefined,
               spoken_language: r.language.trim() || undefined,
               experience: r.experience.trim() || undefined,
               email: r.email.trim() || undefined,
+              case_label: r.case_label.trim() || r.position.trim() || undefined,
+              legacy_results: r.legacy_results.trim() || undefined,
+              legacy_mail_status: r.legacy_mail_status.trim() || undefined,
             };
           }),
         };
+        if (importMode === "corporate") {
+          payload.client_id = Number(clientId);
+        }
 
         const result = await bulkImportHistorical(payload);
         toast.success(
-          `Migration Success: Imported ${result.imported} completed exams, created booking history, and fully paid ledger entries!`
+          `Imported ${result.imported} historical record${result.imported !== 1 ? "s" : ""}. Billing history created — examiners can now write formal reports in Reports.`
         );
-        router.push(`/dashboard/clients/${clientId}/roster`);
+        router.push(importMode === "corporate" ? `/dashboard/clients/${clientId}/roster` : "/dashboard/clients");
       } else {
         if (!date) { toast.error("Pick a session date"); setSubmitting(false); return; }
         const validRows = rows.filter((r) => r.first_name.trim() || r.last_name.trim());
@@ -678,8 +747,8 @@ export default function BatchIntakePage() {
           offset_minutes: r.offset_minutes || 0,
         }));
 
-        const result = await bulkSchedule({
-          client_id: Number(clientId),
+        const schedulePayload: Parameters<typeof bulkSchedule>[0] = {
+          import_mode: importMode,
           examiner_id: Number(examinerId),
           scheduled_at: scheduledAt,
           duration: Number(duration) || 60,
@@ -687,12 +756,17 @@ export default function BatchIntakePage() {
           payment_mode: paymentMode,
           notes: notes.trim(),
           examinees,
-        });
+        };
+        if (importMode === "corporate") {
+          schedulePayload.client_id = Number(clientId);
+        }
+
+        const result = await bulkSchedule(schedulePayload);
 
         toast.success(
           `Batch scheduled: ${result.scheduled} appointment${result.scheduled !== 1 ? "s" : ""} created`
         );
-        router.push(`/dashboard/clients/${clientId}/roster`);
+        router.push(importMode === "corporate" ? `/dashboard/clients/${clientId}/roster` : "/dashboard/calendar");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bulk operation failed");
@@ -770,12 +844,42 @@ export default function BatchIntakePage() {
             </CardTitle>
             <CardDescription>
               {isHistoricalMode
-                ? "Configure defaults for examiner and default invoice pricing. Session dates and results are extracted from the spreadsheet."
-                : "These settings apply to every appointment in this batch."}
+                ? importMode === "individual"
+                  ? "Each row creates an Individual client, booking history, and an open exam for the examiner to write the formal report."
+                  : "Import under one organisation account. Legacy spreadsheet results are kept for reference only — formal reports are written in Reports."
+                : importMode === "individual"
+                  ? "Each examinee becomes their own Individual client with a booked appointment. No organisation picker needed."
+                  : "These settings apply to every appointment in this batch."}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            {/* Client */}
+            {/* Import mode */}
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Account type</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={importMode === "individual" ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => setImportMode("individual")}
+                >
+                  Individual clients
+                </Button>
+                <Button
+                  type="button"
+                  variant={importMode === "corporate" ? "default" : "outline"}
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => setImportMode("corporate")}
+                >
+                  Corporate / organisation
+                </Button>
+              </div>
+            </div>
+
+            {/* Client — corporate mode only */}
+            {importMode === "corporate" && (
             <div className="space-y-1.5">
               <Label htmlFor="client">Organisation / Client *</Label>
               <Select value={clientId} onValueChange={(v) => setClientId(String(v))}>
@@ -796,6 +900,7 @@ export default function BatchIntakePage() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             {/* Examiner */}
             <div className="space-y-1.5">
@@ -904,15 +1009,15 @@ export default function BatchIntakePage() {
           <Card className="border-amber-500/20 bg-amber-500/[0.02]">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2 text-amber-600 dark:text-amber-500">
-                <Map className="h-5 w-5" /> CSV Position to Exam Type Mapping Wizard
+                <Map className="h-5 w-5" /> Case Type to Exam Type Mapping
               </CardTitle>
               <CardDescription>
-                We found {uniquePositions.length} unique positions in your spreadsheet. Map each to an active exam type to automatically pull the correct protocol duration and billable prices.
+                We found {uniquePositions.length} unique case types in your spreadsheet. Map each to a system exam type for billing and report protocols.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-12 gap-2 text-[10px] font-black uppercase text-muted-foreground tracking-wider pb-1.5 border-b border-border/40">
-                <div className="col-span-4">Spreadsheet Position / Column</div>
+                <div className="col-span-4">Spreadsheet Case / Type</div>
                 <div className="col-span-5">System Exam Type Mapping</div>
                 <div className="col-span-3">Unit Price (AED)</div>
               </div>
@@ -1082,9 +1187,9 @@ export default function BatchIntakePage() {
                     "Gender",
                     "Language",
                     "Experience",
-                    "Email",
+                    "Legacy Mail",
                     "Status",
-                    "Verdict",
+                    "Legacy Results",
                     "",
                   ].map((h) => (
                     <span key={h} className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground truncate" title={h}>
@@ -1230,10 +1335,10 @@ export default function BatchIntakePage() {
                       className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Input
-                      placeholder="Email"
-                      value={row.email}
-                      onChange={(e) => updateRow(row._key, "email", e.target.value)}
-                      className="h-9 rounded-xl text-[10px] px-2 font-mono text-[8px]"
+                      placeholder="Legacy mail"
+                      value={row.legacy_mail_status || row.email}
+                      onChange={(e) => updateRow(row._key, "legacy_mail_status", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2"
                     />
                     <Select
                       value={row.status}
@@ -1244,22 +1349,17 @@ export default function BatchIntakePage() {
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
                         <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="no show">No Show</SelectItem>
+                        <SelectItem value="FAILED">Failed</SelectItem>
+                        <SelectItem value="NO SHOW">No Show</SelectItem>
+                        <SelectItem value="Re-test">Re-test</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select
-                      value={row.verdict}
-                      onValueChange={(v) => updateRow(row._key, "verdict", String(v))}
-                    >
-                      <SelectTrigger className="h-9 rounded-xl text-[9px] bg-background px-1.5">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-xl">
-                        <SelectItem value="NDI">NDI (Passed)</SelectItem>
-                        <SelectItem value="DI">DI (Failed)</SelectItem>
-                        <SelectItem value="Inconclusive">Inconclusive</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      placeholder="Legacy results"
+                      value={row.legacy_results}
+                      onChange={(e) => updateRow(row._key, "legacy_results", e.target.value)}
+                      className="h-9 rounded-xl text-[10px] px-2"
+                    />
                     <Button
                       type="button"
                       variant="ghost"

@@ -268,7 +268,8 @@ export type BulkScheduleResultItem = {
 };
 
 export async function bulkSchedule(input: {
-  client_id: number;
+  client_id?: number;
+  import_mode?: "corporate" | "individual";
   examiner_id: number;
   scheduled_at: string;
   duration: number;
@@ -355,17 +356,22 @@ export type BulkImportHistoricalRow = {
   employee_ref?: string;
   scheduled_at: string;
   status: string;
-  verdict: string;
+  verdict?: string;
   exam_type_id?: number;
   price?: number;
   gender?: string;
   spoken_language?: string;
   experience?: string;
   email?: string;
+  case_label?: string;
+  legacy_results?: string;
+  legacy_mail_status?: string;
+  serial_no?: string;
 };
 
 export async function bulkImportHistorical(input: {
-  client_id: number;
+  client_id?: number;
+  import_mode?: "corporate" | "individual";
   examiner_id: number;
   exam_fee?: number;
   rows: BulkImportHistoricalRow[];

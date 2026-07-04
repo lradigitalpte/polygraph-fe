@@ -321,21 +321,21 @@ export default function RemindersPage() {
           <TabsList className="bg-transparent h-12 p-0 gap-8">
             <TabsTrigger
               value="payment"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
+              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
             >
               <Wallet className="mr-2 h-4 w-4" />
               Payment Due ({filteredPayment.length})
             </TabsTrigger>
             <TabsTrigger
               value="forms"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
+              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
             >
               <ClipboardList className="mr-2 h-4 w-4" />
               Forms ({filteredForms.length})
             </TabsTrigger>
             <TabsTrigger
               value="general"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
+              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
             >
               <Calendar className="mr-2 h-4 w-4" />
               Sessions ({filteredSession.length})

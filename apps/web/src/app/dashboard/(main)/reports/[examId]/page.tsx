@@ -47,7 +47,7 @@ import {
   coalesceField,
   type ReportSessionContext,
 } from "@/lib/report-template";
-import { fetchReport, finalizeReport, requestReportOverrideUnlock, saveDetailedReport, type StructuredReportData } from "@/lib/reports";
+import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta, type StructuredReportData } from "@/lib/reports";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
@@ -72,6 +72,8 @@ export default function ReportBuilderPage() {
   const [finalizeDialogOpen, setFinalizeDialogOpen] = React.useState(false);
   const [finalizing, setFinalizing] = React.useState(false);
   const [lockedAt, setLockedAt] = React.useState<string | null>(null);
+  const [legacyMeta, setLegacyMeta] = React.useState<LegacyImportMeta | null>(null);
+  const [hasSavedReport, setHasSavedReport] = React.useState(false);
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -190,10 +192,18 @@ export default function ReportBuilderPage() {
         setSubjectName(ctx.subjectName || querySubjectName);
         setClientName(ctx.clientName);
 
+        const legacy = parseLegacyImportNotes(appointment?.notes);
+        setLegacyMeta(legacy.legacyStatus || legacy.legacyResults ? legacy : null);
+
         if (report) {
+          setHasSavedReport(true);
           applySavedReport(report, ctx);
         } else {
+          setHasSavedReport(false);
           applyReportDefaults(ctx);
+          if (legacy.reference) {
+            setReferenceNo(legacy.reference);
+          }
         }
       } catch (err) {
         if (cancelled) return;
@@ -443,6 +453,26 @@ export default function ReportBuilderPage() {
                   This report is immutable{lockedAt ? ` since ${new Date(lockedAt).toLocaleString()}` : ""}. Return to Forensic Reports to email the secure PDF to the client.
                   {canOverrideLockedReport ? " An authorized admin can unlock it for revision if needed." : ""}
                 </p>
+              </div>
+            ) : legacyMeta && !hasSavedReport ? (
+              <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-950">
+                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
+                  <Activity className="h-4 w-4" /> Assessment complete — write formal report
+                </div>
+                <p className="mt-2 text-xs text-blue-900/80">
+                  The examination session is marked complete from your legacy import. Spreadsheet status/results below are reference only — write the official Polygraph report here, then finalize and send.
+                </p>
+                <div className="mt-3 grid gap-1 text-xs text-blue-900/90">
+                  {legacyMeta.legacyStatus && (
+                    <p><span className="font-semibold">Legacy session status:</span> {legacyMeta.legacyStatus}</p>
+                  )}
+                  {legacyMeta.legacyResults && (
+                    <p><span className="font-semibold">Legacy result:</span> {legacyMeta.legacyResults}</p>
+                  )}
+                  {legacyMeta.reference && (
+                    <p><span className="font-semibold">Reference:</span> {legacyMeta.reference}</p>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-950">

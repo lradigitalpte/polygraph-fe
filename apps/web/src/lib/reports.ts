@@ -185,6 +185,30 @@ export const DEFAULT_REPORT_SHARE_EXPIRY_DAYS = 7;
 
 export type ReportWorkflowStatus = "none" | "draft" | "locked" | "sent";
 
+export type LegacyImportMeta = {
+  reference?: string;
+  caseLabel?: string;
+  legacyStatus?: string;
+  legacyResults?: string;
+  legacyMail?: string;
+};
+
+/** Parse reference fields stored in appointment notes during historical import. */
+export function parseLegacyImportNotes(notes?: string | null): LegacyImportMeta {
+  if (!notes?.trim()) return {};
+  const pick = (label: string) => {
+    const match = notes.match(new RegExp(`${label}:\\s*([^|]+)`, "i"));
+    return match?.[1]?.trim() || undefined;
+  };
+  return {
+    reference: pick("Ref"),
+    caseLabel: pick("Case"),
+    legacyStatus: pick("Legacy status"),
+    legacyResults: pick("Legacy results"),
+    legacyMail: pick("Legacy mail"),
+  };
+}
+
 export function resolveReportWorkflowStatus(input: {
   reportExists: boolean;
   isLocked: boolean;
