@@ -1,5 +1,6 @@
 import type { AppointmentRecord } from "@/lib/exam-booking";
 import type { ExamRecord } from "@/lib/exam-documentation";
+import { formatClinicClock } from "@/lib/clinic-time";
 
 export type ReportSessionContext = {
   subjectName: string;
@@ -44,11 +45,7 @@ export function formatReportExamDate(date: Date): string {
 }
 
 export function formatReportDateTime(date: Date): string {
-  const time = date.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  const time = formatClinicClock(date);
   return `${formatReportExamDate(date)} at about ${time} hrs (Dubai Time)`;
 }
 

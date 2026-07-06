@@ -41,6 +41,12 @@ import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialo
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { formatMoney, catalogPriceInCurrency, CATALOG_PRICE_CURRENCY } from "@/lib/client-account";
+import {
+  clinicDateTimeToISO,
+  formatClinicClock,
+  formatClinicDateLabel,
+  parseClinicDateTimeFields,
+} from "@/lib/clinic-time";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 type LedgerRow = {
@@ -246,13 +252,9 @@ export default function ExamsPage() {
     const matchedType = examTypes.find((et) => et.name === row.type);
     setEditExamType(matchedType || null);
     setEditPrice(String(row.amount));
-    const d = new Date(row.scheduledAt);
-    if (!Number.isNaN(d.getTime())) {
-      // Local date/time strings for the date & time inputs.
-      const pad = (n: number) => String(n).padStart(2, "0");
-      setRescheduleDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-      setRescheduleTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
-    }
+    const { date, time } = parseClinicDateTimeFields(row.scheduledAt);
+    setRescheduleDate(date);
+    setRescheduleTime(time);
     setIsSheetOpen(true);
   };
 
@@ -262,20 +264,16 @@ export default function ExamsPage() {
       toast.error("Pick a new date and time");
       return;
     }
-    const newDate = new Date(`${rescheduleDate}T${rescheduleTime}`);
-    if (Number.isNaN(newDate.getTime())) {
-      toast.error("Invalid date or time");
-      return;
-    }
+    const scheduledAt = clinicDateTimeToISO(rescheduleDate, rescheduleTime);
     setSavingReschedule(true);
     try {
-      await rescheduleAppointment(selectedExam.id, { scheduled_at: newDate.toISOString() });
-      const dateLabel = newDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      const timeLabel = newDate.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      await rescheduleAppointment(selectedExam.id, { scheduled_at: scheduledAt });
+      const dateLabel = formatClinicDateLabel(scheduledAt);
+      const timeLabel = formatClinicClock(scheduledAt);
       setRows((current) =>
         current.map((row) =>
           row.id === selectedExam.id
-            ? { ...row, scheduledAt: newDate.toISOString(), dateLabel, timeLabel }
+            ? { ...row, scheduledAt, dateLabel, timeLabel }
             : row,
         ),
       );
@@ -797,8 +795,8 @@ function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): Le
       examinerInitials: initials(examiner?.name || `E${appointment.examiner_id}`),
       examinerColor: examiner?.color || "bg-slate-600",
       type: parsed.title,
-      dateLabel: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
-      timeLabel: date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+      dateLabel: formatClinicDateLabel(date),
+      timeLabel: formatClinicClock(date),
       amount: Number(appointment.exam_fee || 0),
       collected: Number(appointment.collected_amount || 0),
       payment: normalizePaymentStatus(appointment.payment_status),

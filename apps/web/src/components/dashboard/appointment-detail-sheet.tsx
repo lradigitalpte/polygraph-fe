@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type { AppointmentRecord } from "@/lib/exam-booking";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 import {
   fetchExamByAppointment,
   formatAppointmentCode,
@@ -44,16 +45,7 @@ import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchSubject, formatSubjectName, type SubjectRecord } from "@/lib/subjects";
 
 function formatDateTime(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatClinicDateTime(iso);
 }
 
 function formatDuration(minutes: number) {

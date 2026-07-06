@@ -23,6 +23,8 @@ export type AvailabilityBlockRecord = {
 export type BusyPeriodRecord = {
   start_time?: string;
   end_time?: string;
+  start_at?: string;
+  end_at?: string;
   source: "block" | "appointment";
   reason?: string;
   is_full_day?: boolean;

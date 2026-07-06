@@ -46,6 +46,7 @@ import {
   type BulkImportHistoricalRow,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
+import { clinicDateTimeToISO, clinicTodayDateString } from "@/lib/clinic-time";
 
 // ─── CSV templates ──────────────────────────────────────────────────────────
 
@@ -830,7 +831,7 @@ export default function BatchIntakePage() {
           return;
         }
 
-        const scheduledAt = new Date(`${date}T${time}:00`).toISOString();
+        const scheduledAt = clinicDateTimeToISO(date, time);
         const batchNotes = notes.trim()
           ? `${selectedExamType!.name}\n\n${notes.trim()}`
           : selectedExamType!.name;
@@ -1069,11 +1070,11 @@ export default function BatchIntakePage() {
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={clinicTodayDateString()}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="time">Start time *</Label>
+                  <Label htmlFor="time">Start time (Dubai) *</Label>
                   <Input
                     id="time"
                     type="time"

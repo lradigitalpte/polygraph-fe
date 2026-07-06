@@ -35,6 +35,15 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import { resolveAppointmentParties } from "@/lib/appointment-display";
+import {
+  clinicDateKey,
+  clinicDayOfMonth,
+  clinicTodayDateString,
+  clinicWeekdayShort,
+  formatClinicClock,
+  formatClinicGridDate,
+  isSameClinicDay,
+} from "@/lib/clinic-time";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchExamByAppointment, type ExamPhaseRecord } from "@/lib/exam-documentation";
 
@@ -168,8 +177,8 @@ export default function CalendarPage() {
   );
 
   const appointmentsToday = React.useMemo(() => {
-    const today = new Date();
-    return filteredAppointments.filter((item) => isSameDay(item.scheduledAt, today)).length;
+    const todayKey = clinicTodayDateString();
+    return filteredAppointments.filter((item) => clinicDateKey(item.scheduledAt) === todayKey).length;
   }, [filteredAppointments]);
 
   const capacity = React.useMemo(() => {
@@ -338,9 +347,11 @@ export default function CalendarPage() {
                 </div>
               ))}
               {monthCells.map((cell) => {
-                const isToday = isSameDay(cell.dateObj, startOfDay(new Date()));
+                const isToday = isSameClinicDay(cell.dateObj, new Date());
                 const isCurrentMonth = cell.dateObj.getMonth() === cursorDate.getMonth();
-                const dayAppointments = filteredAppointments.filter((app) => isSameDay(app.scheduledAt, cell.dateObj));
+                const dayAppointments = filteredAppointments.filter((app) =>
+                  isSameClinicDay(app.scheduledAt, cell.dateObj),
+                );
                 return (
                   <div
                     key={cell.dateObj.toISOString()}
@@ -436,13 +447,13 @@ export default function CalendarPage() {
                     key={day.name}
                     className={cn(
                       "h-14 flex flex-col items-center justify-center border-r border-border/50 last:border-r-0 px-2",
-                      isSameDay(day.dateObj, new Date()) && "bg-primary/[0.05]"
+                      isSameClinicDay(day.dateObj, new Date()) && "bg-primary/[0.05]"
                     )}
                   >
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">{day.name}</span>
                     <span className={cn(
                       "text-sm font-black",
-                      isSameDay(day.dateObj, new Date()) ? "text-primary" : "text-foreground"
+                      isSameClinicDay(day.dateObj, new Date()) ? "text-primary" : "text-foreground"
                     )}>{day.date.split(" ")[1]}</span>
                   </div>
                 ))}
@@ -476,7 +487,7 @@ export default function CalendarPage() {
                     {visibleDays.map((day) => (
                       <div key={day.dateObj.toISOString()} className="relative h-full">
                         {filteredAppointments
-                          .filter(app => isSameDay(app.scheduledAt, day.dateObj))
+                          .filter((app) => isSameClinicDay(app.scheduledAt, day.dateObj))
                           .map(app => {
                             const startHour = parseInt(app.time.split(":")[0]);
                             const startMin = parseInt(app.time.split(":")[1] || "0");
@@ -698,12 +709,8 @@ function mapExaminers(examiners: UserRecord[]): CalendarExaminer[] {
 }
 
 function mapAppointments(appointments: AppointmentRecord[]): CalendarAppointment[] {
-  const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
   return appointments.map((appointment) => {
     const scheduledAt = new Date(appointment.scheduled_at);
-    const hours = scheduledAt.getHours().toString().padStart(2, "0");
-    const minutes = scheduledAt.getMinutes().toString().padStart(2, "0");
     const durationHours = appointment.duration / 60;
     const parsedNotes = parseNotes(appointment.notes);
     const tone = getStatusTone(appointment.status);
@@ -716,14 +723,14 @@ function mapAppointments(appointments: AppointmentRecord[]): CalendarAppointment
       client: parties.primaryName,
       accountName: parties.accountName,
       examinerId: String(appointment.examiner_id),
-      time: `${hours}:${minutes}`,
+      time: formatClinicClock(scheduledAt),
       duration: `${durationHours % 1 === 0 ? durationHours.toFixed(0) : durationHours.toFixed(1)}h`,
       type: parsedNotes.title,
       status: getStatusLabel(appointment.status),
       paymentStatus: String(appointment.payment_status || ""),
       examFee: Number(appointment.exam_fee || 0),
-      dayNum: scheduledAt.getDate(),
-      dayName: weekdayNames[scheduledAt.getDay()],
+      dayNum: clinicDayOfMonth(scheduledAt),
+      dayName: clinicWeekdayShort(scheduledAt),
       color: tone.color,
       dot: tone.dot,
       reason: parsedNotes.reason,
@@ -774,13 +781,6 @@ function getStatusTone(status: string): { color: string; dot: string } {
   return { color: "bg-amber-500/10 border-amber-500/20 text-amber-700", dot: "bg-amber-500" };
 }
 
-function isSameDay(left: Date, right: Date): boolean {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -820,8 +820,8 @@ function buildWeekDays(referenceDate: Date): CalendarDay[] {
     const dateObj = new Date(start);
     dateObj.setDate(start.getDate() + index);
     return {
-      name: dateObj.toLocaleDateString(undefined, { weekday: "short" }),
-      date: dateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      name: clinicWeekdayShort(dateObj),
+      date: formatClinicGridDate(dateObj),
       dateObj,
     };
   });

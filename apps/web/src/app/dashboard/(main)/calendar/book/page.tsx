@@ -53,11 +53,18 @@ import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { convertQuotation } from "@/lib/quotations";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 import { catalogPriceInCurrency, convertCurrency, formatMoney } from "@/lib/client-account";
+import {
+  clinicDateTimeToISO,
+  clinicTodayDateString,
+  isClinicSunday,
+} from "@/lib/clinic-time";
+import {
+  filterAvailableBookingSlots,
+  generateBookingTimeSlots,
+} from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
 
 const paymentTypes = ["Bank Transfer", "Credit Card"];
-
-const baseTimeSlots = ["08:30", "10:00", "11:30", "13:00", "14:30", "16:00"];
 
 const STEP_LABELS = ["Who & exam", "Examiner & time", "Payment", "Review"];
 
@@ -312,8 +319,7 @@ function BookAppointmentPageContent() {
         return;
       }
 
-      const selectedDate = new Date(`${formData.date}T00:00:00`);
-      if (selectedDate.getDay() === 0) {
+      if (isClinicSunday(formData.date)) {
         setBusyPeriods([]);
         setIsDateBlocked(true);
         setIsLoadingAvailability(false);
@@ -414,29 +420,13 @@ function BookAppointmentPageContent() {
       return [];
     }
 
-    const isToday = formData.date === localDateString();
-    const nowMinutes = isToday ? new Date().getHours() * 60 + new Date().getMinutes() : 0;
+    const duration = selectedExamType?.duration ?? 150;
+    const candidateSlots = generateBookingTimeSlots(duration);
 
-    return baseTimeSlots.filter((slot) => {
-      const slotMinutes = toMinutes(slot);
-      const duration = selectedExamType?.duration ?? 150;
-      const slotEnd = slotMinutes + duration;
-
-      if (isToday && slotMinutes <= nowMinutes) {
-        return false;
-      }
-
-      return !busyPeriods.some((period) => {
-        if (period.is_full_day) {
-          return true;
-        }
-        if (!period.start_time || !period.end_time) {
-          return false;
-        }
-        const periodStart = toMinutes(period.start_time);
-        const periodEnd = toMinutes(period.end_time);
-        return slotMinutes < periodEnd && slotEnd > periodStart;
-      });
+    return filterAvailableBookingSlots(candidateSlots, {
+      date: formData.date,
+      durationMinutes: duration,
+      busyPeriods,
     });
   }, [busyPeriods, formData.date, formData.examinerId, isDateBlocked, selectedExamType?.duration]);
 
@@ -457,8 +447,7 @@ function BookAppointmentPageContent() {
     if (!formData.date) {
       return null;
     }
-    const selectedDate = new Date(`${formData.date}T00:00:00`);
-    if (selectedDate.getDay() === 0) {
+    if (isClinicSunday(formData.date)) {
       return { label: "Clinic closed on Sundays", type: "error" as const };
     }
     if (isDateBlocked) {
@@ -553,7 +542,7 @@ function BookAppointmentPageContent() {
         paymentStatus = "Partial";
       }
 
-      const scheduledAt = new Date(`${formData.date}T${formData.time}:00`).toISOString();
+      const scheduledAt = clinicDateTimeToISO(formData.date, formData.time);
 
       if (convertQuotationId) {
         // Converting an existing quotation into a booking — the quote's amount carries
@@ -954,7 +943,7 @@ function BookAppointmentPageContent() {
                                 isDateBlocked && "border-destructive/50 ring-1 ring-destructive/20",
                               )}
                               value={formData.date}
-                              min={localDateString()}
+                              min={clinicTodayDateString()}
                               onChange={(event) => {
                                 handleInputChange("date", event.target.value);
                                 handleInputChange("time", "");
@@ -980,7 +969,9 @@ function BookAppointmentPageContent() {
                         </div>
 
                         <div className="space-y-3">
-                          <Label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Available Slots</Label>
+                          <Label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                            Available Slots (Dubai time)
+                          </Label>
                           {presetTime && (
                             <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[11px] font-semibold text-primary">
                               <Clock className="h-3 w-3" />
@@ -998,7 +989,7 @@ function BookAppointmentPageContent() {
                               </p>
                             </div>
                           ) : (
-                            <div className="grid max-h-35 grid-cols-2 gap-2 overflow-y-auto pr-2">
+                            <div className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto pr-2 sm:grid-cols-4">
                               {availableSlots.length > 0 ? (
                                 availableSlots.map((slot) => (
                                   <button
@@ -1254,16 +1245,4 @@ export default function BookAppointmentPage() {
       <BookAppointmentPageContent />
     </React.Suspense>
   );
-}
-
-function localDateString(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function toMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
 }

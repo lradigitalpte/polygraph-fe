@@ -2,17 +2,10 @@ import { CalendarCheck, CalendarX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ExamineeRosterEntry } from "@/lib/clients";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 function formatSessionDateTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatClinicDateTime(iso);
 }
 
 function formatStatusLabel(status?: string): string | undefined {
