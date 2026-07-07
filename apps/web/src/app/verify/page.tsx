@@ -19,38 +19,38 @@ export default function VerificationEntryPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-12 text-slate-100">
+    <main className="min-h-screen bg-gradient-to-br from-white via-red-50/40 to-neutral-100 px-4 py-12 text-neutral-900">
       <div className="mx-auto max-w-lg">
         <div className="mb-8 flex items-center gap-4">
-          <img src="/logo.png" alt="Polygraph UAE" className="h-12 w-auto object-contain" />
+          <img src="/logo-print.png" alt="Polygraph UAE" className="h-12 w-auto object-contain" />
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-400">Official verification</p>
+            <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-600">Official verification</p>
             <h1 className="text-2xl font-black">Verify a forensic report</h1>
           </div>
         </div>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-7 shadow-2xl">
+        <section className="rounded-2xl border border-red-100 bg-white p-7 shadow-xl shadow-red-950/5">
           <div className="mb-6 flex gap-3">
-            <ShieldCheck className="h-7 w-7 shrink-0 text-emerald-400" />
+            <ShieldCheck className="h-7 w-7 shrink-0 text-red-600" />
             <div>
               <h2 className="font-bold">Enter the report verification code</h2>
-              <p className="mt-1 text-sm text-slate-400">The code is printed beside the QR code on the issued PDF.</p>
+              <p className="mt-1 text-sm text-neutral-500">The code is printed beside the QR code on the issued PDF.</p>
             </div>
           </div>
 
           <form className="space-y-4" onSubmit={continueToVerification}>
             <div className="space-y-2">
-              <Label htmlFor="verification-code" className="text-slate-200">Verification code</Label>
+              <Label htmlFor="verification-code" className="text-neutral-700">Verification code</Label>
               <Input
                 id="verification-code"
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
                 placeholder="ABCDE-FGHIJ-KLMNO-PQRST"
                 autoComplete="off"
-                className="h-12 border-slate-700 bg-slate-950 font-mono uppercase text-white"
+                className="h-12 border-neutral-300 bg-neutral-50 font-mono uppercase text-neutral-950 focus-visible:border-red-500 focus-visible:ring-red-500/20"
               />
             </div>
-            <Button type="submit" disabled={!normalized} className="h-12 w-full gap-2 bg-red-600 font-bold hover:bg-red-500">
+            <Button type="submit" disabled={!normalized} className="h-12 w-full gap-2 bg-red-600 font-bold text-white hover:bg-red-700">
               <FileCheck2 className="h-4 w-4" /> Continue to PDF Verification
             </Button>
           </form>

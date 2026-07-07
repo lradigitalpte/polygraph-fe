@@ -79,6 +79,7 @@ export default function ReportBuilderPage() {
   const [examinerId, setExaminerId] = React.useState("");
   const [authorizationConfirmed, setAuthorizationConfirmed] = React.useState(false);
   const [examinerSignature, setExaminerSignature] = React.useState<{ image: string; title: string; organization: string } | null>(null);
+  const [signatureError, setSignatureError] = React.useState("");
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -200,7 +201,9 @@ export default function ReportBuilderPage() {
         const assignedExaminerId = exam.examiner_id ? String(exam.examiner_id) : "";
         setExaminerId(assignedExaminerId);
         if (assignedExaminerId) {
-          setExaminerSignature(await fetchExaminerSignature(Number(assignedExaminerId)).catch(() => null));
+          const signature = await fetchExaminerSignature(Number(assignedExaminerId)).catch(() => null);
+          setExaminerSignature(signature);
+          setSignatureError(signature ? "" : "This examiner has not uploaded a report signature in My Profile.");
         }
 
         const legacy = parseLegacyImportNotes(appointment?.notes);
@@ -959,9 +962,22 @@ export default function ReportBuilderPage() {
                 const id = String(value ?? "");
                 setExaminerId(id);
                 setAuthorizationConfirmed(false);
-                void fetchExaminerSignature(Number(id)).then(setExaminerSignature).catch(() => setExaminerSignature(null));
+                setSignatureError("");
+                void fetchExaminerSignature(Number(id))
+                  .then((signature) => {
+                    setExaminerSignature(signature);
+                    setSignatureError("");
+                  })
+                  .catch(() => {
+                    setExaminerSignature(null);
+                    setSignatureError("This examiner has not uploaded a report signature in My Profile.");
+                  });
               }}>
-                <SelectTrigger><SelectValue placeholder="Select examiner" /></SelectTrigger>
+                <SelectTrigger>
+                  <span className="truncate">
+                    {examiners.find((item) => String(item.id) === examinerId)?.name || "Select examiner"}
+                  </span>
+                </SelectTrigger>
                 <SelectContent>
                   {examiners.map((examiner) => <SelectItem key={examiner.id} value={String(examiner.id)}>{examiner.name}{examiner.has_signature ? "" : " (signature missing)"}</SelectItem>)}
                 </SelectContent>
@@ -972,6 +988,11 @@ export default function ReportBuilderPage() {
                 <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
                 <p className="font-bold">{examiners.find((item) => String(item.id) === examinerId)?.name}</p>
                 <p className="text-xs">{examinerSignature.title}</p><p className="text-xs">{examinerSignature.organization}</p>
+              </div>
+            )}
+            {signatureError && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+                {signatureError} Ask the examiner to open My Profile → Report Signature and upload a PNG signature before finalizing.
               </div>
             )}
             <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">

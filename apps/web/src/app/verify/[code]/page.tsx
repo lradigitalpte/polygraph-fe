@@ -33,35 +33,35 @@ export default function VerifyReportPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-12 text-slate-100">
+    <main className="min-h-screen bg-gradient-to-br from-white via-red-50/40 to-neutral-100 px-4 py-12 text-neutral-900">
       <div className="mx-auto max-w-xl">
         <div className="mb-8 flex items-center gap-4">
-          <img src="/logo.png" alt="Polygraph UAE" className="h-12 w-auto rounded bg-white p-2" />
+          <img src="/logo-print.png" alt="Polygraph UAE" className="h-12 w-auto object-contain" />
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-400">Official verification</p>
+            <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-600">Official verification</p>
             <h1 className="text-2xl font-black">Verify a forensic report</h1>
           </div>
         </div>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <section className="rounded-2xl border border-red-100 bg-white p-6 shadow-xl shadow-red-950/5">
           {record ? (
-            <div className="mb-6 flex gap-3 rounded-xl border border-emerald-800 bg-emerald-950/50 p-4">
-              <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-emerald-400" />
+            <div className="mb-6 flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <ShieldCheck className="mt-0.5 h-6 w-6 shrink-0 text-emerald-600" />
               <div>
-                <p className="font-bold text-emerald-300">Verification record found</p>
-                <p className="mt-1 font-mono text-sm text-slate-300">{record.verification_code}</p>
-                {record.issued_at && <p className="mt-1 text-xs text-slate-400">Issued {new Date(record.issued_at).toLocaleString()}</p>}
+                <p className="font-bold text-emerald-800">Verification record found</p>
+                <p className="mt-1 font-mono text-sm text-neutral-800">{record.verification_code}</p>
+                {record.issued_at && <p className="mt-1 text-xs text-neutral-500">Issued {new Date(record.issued_at).toLocaleString()}</p>}
               </div>
             </div>
           ) : !error ? (
-            <p className="mb-6 text-sm text-slate-400">Checking verification record…</p>
+            <p className="mb-6 text-sm text-neutral-500">Checking verification record…</p>
           ) : null}
 
-          <div className="rounded-xl border border-dashed border-slate-600 p-7 text-center">
-            <Upload className="mx-auto mb-3 h-9 w-9 text-slate-400" />
+          <div className="rounded-xl border border-dashed border-red-200 bg-red-50/30 p-7 text-center">
+            <Upload className="mx-auto mb-3 h-9 w-9 text-red-600" />
             <p className="font-semibold">Upload the received PDF</p>
-            <p className="mt-1 text-sm text-slate-400">We compare its SHA-256 fingerprint with the originally issued file.</p>
-            <label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 text-sm font-bold hover:bg-red-500">
+            <p className="mt-1 text-sm text-neutral-500">We compare its SHA-256 fingerprint with the originally issued file.</p>
+            <label className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-700">
               <FileCheck2 className="h-4 w-4" />
               {checking ? "Verifying…" : "Choose PDF"}
               <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={checking || !record} onChange={(event) => void handleFile(event.target.files?.[0])} />
@@ -69,22 +69,22 @@ export default function VerifyReportPage() {
           </div>
 
           {result && (
-            <div className={`mt-6 flex gap-3 rounded-xl border p-4 ${result.valid ? "border-emerald-700 bg-emerald-950/50" : "border-red-700 bg-red-950/50"}`}>
-              {result.valid ? <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-400" /> : <TriangleAlert className="h-7 w-7 shrink-0 text-red-400" />}
+            <div className={`mt-6 flex gap-3 rounded-xl border p-4 ${result.valid ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+              {result.valid ? <CheckCircle2 className="h-7 w-7 shrink-0 text-emerald-600" /> : <TriangleAlert className="h-7 w-7 shrink-0 text-red-600" />}
               <div>
-                <p className={`font-black ${result.valid ? "text-emerald-300" : "text-red-300"}`}>{result.valid ? "AUTHENTIC REPORT" : "VERIFICATION FAILED"}</p>
-                <p className="mt-1 text-sm text-slate-300">{result.message}</p>
+                <p className={`font-black ${result.valid ? "text-emerald-800" : "text-red-800"}`}>{result.valid ? "AUTHENTIC REPORT" : "VERIFICATION FAILED"}</p>
+                <p className="mt-1 text-sm text-neutral-700">{result.message}</p>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="mt-6 flex gap-3 rounded-xl border border-red-800 bg-red-950/50 p-4 text-sm text-red-200">
+            <div className="mt-6 flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               <TriangleAlert className="h-5 w-5 shrink-0" /> {error}
             </div>
           )}
         </section>
-        <p className="mt-5 text-center text-xs text-slate-500">The uploaded file is processed only to calculate its cryptographic fingerprint.</p>
+        <p className="mt-5 text-center text-xs text-neutral-500">The uploaded file is processed only to calculate its cryptographic fingerprint.</p>
       </div>
     </main>
   );
