@@ -521,7 +521,7 @@ export function ReportEditorDialog({
                 <div>
                   <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                     <div className="flex items-center gap-2">
-                      <img src="/logo.png" alt="Polygraph UAE" className="h-10 object-contain" />
+                      <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
                       <div className="flex flex-col">
                         <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
                       </div>
@@ -614,7 +614,7 @@ export function ReportEditorDialog({
                   {/* Header page 2 */}
                   <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                     <div className="flex items-center gap-2">
-                      <img src="/logo.png" alt="Polygraph UAE" className="h-10 object-contain" />
+                      <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
                       <div className="flex flex-col">
                         <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
                       </div>

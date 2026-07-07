@@ -39,3 +39,27 @@ export async function deleteMyAccount(): Promise<void> {
     throw new Error(payload?.error || `Failed to delete account (${response.status})`);
   }
 }
+
+export type ExaminerSignature = { image: string; title: string; organization: string };
+
+export async function fetchMySignature(): Promise<ExaminerSignature | null> {
+  const response = await authenticatedFetch("/api/me/signature");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Failed to load signature");
+  return response.json();
+}
+
+export async function uploadMySignature(file: File, title: string, organization: string): Promise<void> {
+  const form = new FormData();
+  form.append("signature", file);
+  form.append("title", title);
+  form.append("organization", organization);
+  const response = await authenticatedFetch("/api/me/signature", { method: "POST", body: form });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "Failed to upload signature");
+}
+
+export async function deleteMySignature(): Promise<void> {
+  const response = await authenticatedFetch("/api/me/signature", { method: "DELETE" });
+  if (!response.ok) throw new Error("Failed to delete signature");
+}

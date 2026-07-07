@@ -116,6 +116,36 @@ export async function fetchPublicSharedReport(token: string): Promise<SecureRepo
   return data as SecureReportShare;
 }
 
+export type ReportVerificationResult = {
+  valid: boolean;
+  verification_code?: string;
+  issued_at?: string;
+  report_locked?: boolean;
+  message?: string;
+  error?: string;
+};
+
+export async function fetchReportVerification(code: string): Promise<ReportVerificationResult> {
+  const response = await fetch(`${API_BASE}/api/public/report-verification/${encodeURIComponent(code)}`, {
+    headers: { Accept: "application/json" },
+  });
+  const data = (await response.json().catch(() => ({}))) as ReportVerificationResult;
+  if (!response.ok) throw new Error(data.error || "Verification record not found");
+  return data;
+}
+
+export async function verifyReportPDF(code: string, file: File): Promise<ReportVerificationResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${API_BASE}/api/public/report-verification/${encodeURIComponent(code)}`, {
+    method: "POST",
+    body: form,
+  });
+  const data = (await response.json().catch(() => ({}))) as ReportVerificationResult;
+  if (!response.ok) throw new Error(data.error || "Unable to verify this PDF");
+  return data;
+}
+
 export type StructuredReportData = {
   purpose: string;
   instrument: string;
@@ -158,7 +188,7 @@ export async function saveDetailedReport(
   return payload;
 }
 
-export async function finalizeReport(examId: number): Promise<{
+export async function finalizeReport(examId: number, examinerId: number, authorizationConfirmed: boolean): Promise<{
   id: number;
   exam_id: number;
   is_locked: boolean;
@@ -166,6 +196,7 @@ export async function finalizeReport(examId: number): Promise<{
 }> {
   const response = await authenticatedFetch(`/api/reports/${examId}/finalize`, {
     method: "POST",
+    body: JSON.stringify({ examiner_id: examinerId, authorization_confirmed: authorizationConfirmed }),
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {

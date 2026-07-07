@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
-import { deleteMyAccount, fetchMe, updateMe } from "@/lib/account";
+import { deleteMyAccount, deleteMySignature, fetchMe, fetchMySignature, updateMe, uploadMySignature } from "@/lib/account";
 
 function initials(name: string, email: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -26,6 +26,10 @@ export default function ProfilePage() {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [roleName, setRoleName] = React.useState("");
+  const [signatureImage, setSignatureImage] = React.useState("");
+  const [signatureTitle, setSignatureTitle] = React.useState("Private Polygraph Examiner");
+  const [signatureOrganization, setSignatureOrganization] = React.useState("Polygraph International HR Consultancy LLC");
+  const [signatureSaving, setSignatureSaving] = React.useState(false);
 
   React.useEffect(() => {
     void (async () => {
@@ -35,6 +39,12 @@ export default function ProfilePage() {
         setName(me.name);
         setEmail(me.email);
         setRoleName(me.role?.name ?? "");
+        const signature = await fetchMySignature();
+        if (signature) {
+          setSignatureImage(signature.image);
+          setSignatureTitle(signature.title);
+          setSignatureOrganization(signature.organization);
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load profile");
       } finally {
@@ -54,6 +64,19 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSignatureUpload = async (file?: File) => {
+    if (!file) return;
+    setSignatureSaving(true);
+    try {
+      await uploadMySignature(file, signatureTitle.trim(), signatureOrganization.trim());
+      const signature = await fetchMySignature();
+      setSignatureImage(signature?.image ?? "");
+      toast.success("Examiner signature saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload signature");
+    } finally { setSignatureSaving(false); }
   };
 
   const handleDeleteAccount = async () => {
@@ -113,6 +136,28 @@ export default function ProfilePage() {
           )}
         </CardContent>
       </Card>
+
+      {roleName.toLowerCase() === "examiner" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Report Signature</CardTitle>
+            <CardDescription>Your signature is applied only when an authorized user finalizes a report under your recorded authorization.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {signatureImage && <div className="w-fit rounded-xl border bg-white p-4"><img src={signatureImage} alt="Saved signature" className="h-20 max-w-72 object-contain" /></div>}
+            <div className="grid gap-2"><Label htmlFor="signature-title">Professional title</Label><Input id="signature-title" value={signatureTitle} onChange={(e) => setSignatureTitle(e.target.value)} /></div>
+            <div className="grid gap-2"><Label htmlFor="signature-org">Organization</Label><Input id="signature-org" value={signatureOrganization} onChange={(e) => setSignatureOrganization(e.target.value)} /></div>
+            <div className="flex flex-wrap gap-3">
+              <label className="inline-flex cursor-pointer items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                {signatureSaving ? "Uploading..." : signatureImage ? "Replace Signature PNG" : "Upload Signature PNG"}
+                <input type="file" accept="image/png,.png" className="hidden" disabled={signatureSaving || !signatureTitle.trim() || !signatureOrganization.trim()} onChange={(e) => void handleSignatureUpload(e.target.files?.[0])} />
+              </label>
+              {signatureImage && <Button type="button" variant="outline" onClick={() => void deleteMySignature().then(() => { setSignatureImage(""); toast.success("Signature removed"); })}>Remove</Button>}
+            </div>
+            <p className="text-xs text-muted-foreground">Use a transparent PNG, maximum 1 MB. A snapshot is retained in each finalized report.</p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-destructive/20">
         <CardHeader>

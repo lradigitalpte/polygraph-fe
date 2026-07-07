@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { fetchAppointment, fetchExam } from "@/lib/exam-documentation";
 import { fetchClient } from "@/lib/clients";
+import { fetchExaminerSignature, fetchExaminers, type UserRecord } from "@/lib/users";
 import {
   buildNewReportDefaults,
   buildOpinionPhaseText,
@@ -74,6 +75,10 @@ export default function ReportBuilderPage() {
   const [lockedAt, setLockedAt] = React.useState<string | null>(null);
   const [legacyMeta, setLegacyMeta] = React.useState<LegacyImportMeta | null>(null);
   const [hasSavedReport, setHasSavedReport] = React.useState(false);
+  const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
+  const [examinerId, setExaminerId] = React.useState("");
+  const [authorizationConfirmed, setAuthorizationConfirmed] = React.useState(false);
+  const [examinerSignature, setExaminerSignature] = React.useState<{ image: string; title: string; organization: string } | null>(null);
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -175,7 +180,7 @@ export default function ReportBuilderPage() {
 
     void (async () => {
       try {
-        const [report, exam] = await Promise.all([fetchReport(examId), fetchExam(examId)]);
+        const [report, exam, examinerRoster] = await Promise.all([fetchReport(examId), fetchExam(examId), fetchExaminers()]);
 
         const appointment = exam.appointment_id
           ? await fetchAppointment(exam.appointment_id).catch(() => null)
@@ -191,6 +196,12 @@ export default function ReportBuilderPage() {
 
         setSubjectName(ctx.subjectName || querySubjectName);
         setClientName(ctx.clientName);
+        setExaminers(examinerRoster);
+        const assignedExaminerId = exam.examiner_id ? String(exam.examiner_id) : "";
+        setExaminerId(assignedExaminerId);
+        if (assignedExaminerId) {
+          setExaminerSignature(await fetchExaminerSignature(Number(assignedExaminerId)).catch(() => null));
+        }
 
         const legacy = parseLegacyImportNotes(appointment?.notes);
         setLegacyMeta(legacy.legacyStatus || legacy.legacyResults ? legacy : null);
@@ -293,7 +304,11 @@ export default function ReportBuilderPage() {
     setFinalizing(true);
     try {
       await saveDetailedReport(examId, verdict, buildReportPayload());
-      const result = await finalizeReport(examId);
+      if (!examinerId || !authorizationConfirmed) {
+        toast.error("Select the examiner and confirm their authorization");
+        return;
+      }
+      const result = await finalizeReport(examId, Number(examinerId), authorizationConfirmed);
       setIsLocked(true);
       setLockedAt(result.locked_at ?? new Date().toISOString());
       setFinalizeDialogOpen(false);
@@ -399,7 +414,7 @@ export default function ReportBuilderPage() {
               disabled={saving || finalizing || loading}
             >
               <Lock className="h-4 w-4" />
-              Finalize & Lock
+              Finalize & Sign
             </Button>
           ) : null}
           <Button
@@ -764,7 +779,7 @@ export default function ReportBuilderPage() {
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <div className="flex items-center gap-2">
-                    <img src="/logo.png" alt="Polygraph UAE" className="h-10 object-contain" />
+                    <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
                     <div className="flex flex-col">
                       <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
                     </div>
@@ -851,7 +866,7 @@ export default function ReportBuilderPage() {
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <div className="flex items-center gap-2">
-                    <img src="/logo.png" alt="Polygraph UAE" className="h-10 object-contain" />
+                    <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
                     <div className="flex flex-col">
                       <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
                     </div>
@@ -900,6 +915,17 @@ export default function ReportBuilderPage() {
                     {conclusion || "Analysis of the physiological records indicates..."}
                   </p>
                 </div>
+
+                {examinerSignature && (
+                  <div className="mt-8 text-zinc-800">
+                    <p className="text-[8px] font-bold">Electronically signed by:</p>
+                    <img src={examinerSignature.image} alt="Examiner signature" className="mt-1 h-14 max-w-48 object-contain" />
+                    <p className="text-[9px] font-black">{examiners.find((item) => String(item.id) === examinerId)?.name}</p>
+                    <p className="text-[8px]">{examinerSignature.title}</p>
+                    <p className="text-[8px]">{examinerSignature.organization}</p>
+                    <p className="mt-1 text-[7px] text-zinc-500">Signing date and verification code are added when the final PDF is issued.</p>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-zinc-200 pt-6 mt-8 space-y-4">
@@ -921,18 +947,45 @@ export default function ReportBuilderPage() {
       <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
         <DialogContent className="rounded-3xl">
           <DialogHeader>
-            <DialogTitle>Finalize and lock this report?</DialogTitle>
+            <DialogTitle>Finalize and electronically sign this report?</DialogTitle>
             <DialogDescription>
-              This saves your latest changes, marks the report as final, and prevents further edits. After locking, you can email the secure PDF from Forensic Reports. Only an admin override can reopen a locked report.
+              Select the responsible examiner. Their saved signature will be placed on the PDF and the authorization will be recorded privately in the audit log.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Signing examiner</Label>
+              <Select value={examinerId} onValueChange={(value) => {
+                const id = String(value ?? "");
+                setExaminerId(id);
+                setAuthorizationConfirmed(false);
+                void fetchExaminerSignature(Number(id)).then(setExaminerSignature).catch(() => setExaminerSignature(null));
+              }}>
+                <SelectTrigger><SelectValue placeholder="Select examiner" /></SelectTrigger>
+                <SelectContent>
+                  {examiners.map((examiner) => <SelectItem key={examiner.id} value={String(examiner.id)}>{examiner.name}{examiner.has_signature ? "" : " (signature missing)"}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {examinerSignature && (
+              <div className="rounded-xl border bg-white p-3 text-zinc-900">
+                <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
+                <p className="font-bold">{examiners.find((item) => String(item.id) === examinerId)?.name}</p>
+                <p className="text-xs">{examinerSignature.title}</p><p className="text-xs">{examinerSignature.organization}</p>
+              </div>
+            )}
+            <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
+              <input type="checkbox" className="mt-1" checked={authorizationConfirmed} onChange={(e) => setAuthorizationConfirmed(e.target.checked)} />
+              <span>I confirm that I have received this examiner&apos;s authorization to apply their signature to this final report.</span>
+            </label>
+          </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setFinalizeDialogOpen(false)} disabled={finalizing}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => void handleFinalize()} disabled={finalizing} className="gap-2">
+            <Button type="button" onClick={() => void handleFinalize()} disabled={finalizing || !examinerSignature || !authorizationConfirmed} className="gap-2">
               {finalizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-              Finalize & Lock
+              Finalize & Sign
             </Button>
           </DialogFooter>
         </DialogContent>

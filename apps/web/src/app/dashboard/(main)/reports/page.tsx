@@ -19,6 +19,7 @@ import {
   HelpCircle,
   ClipboardList,
   Lock,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -312,6 +313,15 @@ export default function ReportsDashboard() {
             Audit, view, and rotate secure report links generated for subjects and clients. Reports are sent as password-encrypted PDFs with temporary self-unlock tokens.
           </p>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="relative z-10 h-11 rounded-xl px-5 font-bold"
+          onClick={() => router.push("/verify")}
+        >
+          <ShieldCheck className="mr-2 h-4 w-4" />
+          Verify PDF
+        </Button>
       </div>
 
       {/* Statistics widgets */}
@@ -781,7 +791,6 @@ export default function ReportsDashboard() {
     </div>
   );
 }
-
 
 
 

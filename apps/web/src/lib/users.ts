@@ -26,6 +26,9 @@ export type UserRecord = {
   password_reset_sent_at?: string;
   created_at: string;
   updated_at: string;
+  has_signature?: boolean;
+  signature_title?: string;
+  signature_organization?: string;
 };
 
 export type UserActivityRecord = {
@@ -57,6 +60,13 @@ export async function fetchExaminers(search?: string): Promise<UserRecord[]> {
     throw new Error(payload?.error || `Failed to load examiners (${response.status})`);
   }
   return response.json();
+}
+
+export async function fetchExaminerSignature(id: number): Promise<{ image: string; title: string; organization: string }> {
+  const response = await authenticatedFetch(`/api/users/${id}/signature`);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "Examiner signature is not configured");
+  return payload;
 }
 
 export async function fetchUser(id: number): Promise<UserRecord> {
