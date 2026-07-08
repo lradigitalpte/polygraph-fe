@@ -12,6 +12,22 @@ type CurrentUserData = {
   permissions: string[];
 };
 
+// Permissions a pure "Examiner" role never has by default (see backend seeder:
+// examiners get Subjects/Exams + availability/appointment/client:view only).
+// If an Examiner account has ANY of these, it was granted elevated/override
+// access and should get the full operations UI — not the curated examiner-only
+// workspace. Keeps the examiner experience intact for real examiners while
+// respecting per-user permission overrides for privileged accounts.
+const ELEVATED_PERMISSIONS = [
+  "payment:view",
+  "payment:manage",
+  "user:view",
+  "lead:view",
+  "reminder:view",
+  "audit:view",
+  "role:manage",
+];
+
 // Module-level cache shared by EVERY useCurrentUser() consumer (sidebar, top nav,
 // pages). Without this, each component independently fetches session + /api/me +
 // /api/me/permissions on every page — the cause of the slow, flickery nav load.
@@ -99,7 +115,17 @@ export function useCurrentUser() {
     [permissions],
   );
 
-  return { user, loading, permissions, can };
+  const isExaminer = user?.role?.name === "Examiner";
+
+  // True only when the account is an Examiner AND has no elevated/override
+  // permissions. Privileged examiners fall through to the full ops experience.
+  const hasElevatedAccess = React.useMemo(
+    () => ELEVATED_PERMISSIONS.some((permission) => permissions.includes(permission)),
+    [permissions],
+  );
+  const showExaminerWorkspace = !!isExaminer && !hasElevatedAccess;
+
+  return { user, loading, permissions, can, isExaminer, hasElevatedAccess, showExaminerWorkspace };
 }
 
 export function userInitials(name: string, email: string): string {

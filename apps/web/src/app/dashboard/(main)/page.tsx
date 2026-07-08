@@ -202,7 +202,7 @@ function badgeVariantForStatus(status: DashboardExam["status"]): "success" | "wa
 }
 
 export default function DashboardPage() {
-  const { user } = useCurrentUser();
+  const { user, showExaminerWorkspace: showExaminerView } = useCurrentUser();
   const [appointments, setAppointments] = React.useState<AppointmentRecord[]>([]);
   const [subjects, setSubjects] = React.useState<SubjectRecord[]>([]);
   const [leads, setLeads] = React.useState<LeadRecord[]>([]);
@@ -219,12 +219,11 @@ export default function DashboardPage() {
     async function load() {
       setIsLoading(true);
 
-      const isExaminer = user?.role?.name === "Examiner";
       const promises = [
         fetchAppointments(),
         fetchSubjects(),
-        isExaminer ? Promise.resolve([]) : fetchLeads(),
-        isExaminer ? Promise.resolve([]) : fetchAuditLogs(200),
+        showExaminerView ? Promise.resolve([]) : fetchLeads(),
+        showExaminerView ? Promise.resolve([]) : fetchAuditLogs(200),
         fetchExaminers(),
       ] as const;
 
@@ -254,7 +253,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, showExaminerView]);
 
   const mappedExams = React.useMemo<DashboardExam[]>(() => {
     const examinerMap = new Map<number, string>();
@@ -262,11 +261,9 @@ export default function DashboardPage() {
       examinerMap.set(examiner.id, examiner.name);
     });
 
-    const isExaminer = user?.role?.name === "Examiner";
-
     return appointments
       .filter((appointment) => {
-        if (isExaminer && user) {
+        if (showExaminerView && user) {
           return appointment.examiner_id === user.id;
         }
         return true;
@@ -287,7 +284,7 @@ export default function DashboardPage() {
           scheduledAt,
         };
       });
-  }, [appointments, examiners, user]);
+  }, [appointments, examiners, user, showExaminerView]);
 
   const analytics = React.useMemo(() => {
     const now = new Date();
@@ -449,7 +446,7 @@ export default function DashboardPage() {
 
   const throughputPath = React.useMemo(() => buildChart(analytics.throughput), [analytics.throughput]);
 
-  const isExaminerRole = user?.role?.name === "Examiner";
+  const isExaminerRole = showExaminerView;
 
   const pendingReports = mappedExams.filter((exam) => exam.status === "Confirmed" || exam.status === "Pending").length;
   const myCompletedExams = mappedExams.filter((exam) => exam.status === "Completed").length;
@@ -534,19 +531,19 @@ export default function DashboardPage() {
           <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge className="rounded-none px-3 py-1 uppercase tracking-[0.24em]" variant="outline">
-                {user?.role?.name === "Examiner" ? "Examiner Portal" : "Live Operations"}
+                {showExaminerView ? "Examiner Portal" : "Live Operations"}
               </Badge>
               <span className="text-muted-foreground text-xs uppercase tracking-[0.24em]">
-                {user?.role?.name === "Examiner" ? "My Forensic Workspace" : "Polygraph Command Center"}
+                {showExaminerView ? "My Forensic Workspace" : "Polygraph Command Center"}
               </span>
             </div>
 
             <div className="max-w-2xl space-y-3">
               <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                {user?.role?.name === "Examiner" ? `Welcome, ${user.name.split(" ")[0]}` : "Dashboard Overview"}
+                {showExaminerView ? `Welcome, ${user?.name?.split(" ")[0] ?? ""}` : "Dashboard Overview"}
               </h1>
               <p className="text-muted-foreground max-w-xl text-sm sm:text-base">
-                {user?.role?.name === "Examiner"
+                {showExaminerView
                   ? "Your assigned exams, today's schedule, and personal performance metrics."
                   : "Live intelligence from appointments, subjects, leads, and audit activity."}
               </p>
@@ -563,7 +560,7 @@ export default function DashboardPage() {
                 <p className="mt-2 text-3xl font-semibold">{analytics.avgDurationHours.toFixed(1)}h</p>
                 <p className="text-muted-foreground mt-1 text-xs">Based on appointment durations</p>
               </div>
-              {user?.role?.name === "Examiner" ? (
+              {showExaminerView ? (
                 <div className="border border-border/70 bg-background/70 p-4 backdrop-blur-sm">
                   <p className="text-muted-foreground text-[11px] uppercase tracking-[0.24em]">Pending Reports</p>
                   <p className="mt-2 text-3xl font-semibold">
@@ -734,11 +731,11 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="text-base">Quick Actions</CardTitle>
               <CardDescription>
-                {user?.role?.name === "Examiner" ? "Your key tools and shortcuts" : "Common tasks for the operations team"}
+                {showExaminerView ? "Your key tools and shortcuts" : "Common tasks for the operations team"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {(user?.role?.name === "Examiner" ? examinerQuickActions : quickActions).map((item) => {
+              {(showExaminerView ? examinerQuickActions : quickActions).map((item) => {
                 const Icon = item.icon;
 
                 return (
@@ -769,22 +766,22 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle className="text-base">
-                  {user?.role?.name === "Examiner" ? "My Work Summary" : "Operational Watchlist"}
+                  {showExaminerView ? "My Work Summary" : "Operational Watchlist"}
                 </CardTitle>
                 <CardDescription>
-                  {user?.role?.name === "Examiner"
+                  {showExaminerView
                     ? "Status of exams assigned to you"
                     : "Items that may slow delivery or require intervention"}
                 </CardDescription>
               </div>
               <Badge className="rounded-none" variant="warning">
-                {user?.role?.name === "Examiner"
+                {showExaminerView
                   ? `${mappedExams.filter((e) => e.status === "Pending" || e.status === "Confirmed").length} active`
                   : `${analytics.alerts} alerts`}
               </Badge>
             </div>
           </CardHeader>
-          {user?.role?.name === "Examiner" ? (
+          {showExaminerView ? (
             <CardContent className="grid gap-3 md:grid-cols-3">
               <div className="border border-border/70 bg-background/60 p-4">
                 <CheckCircle2 className="mb-3 h-4 w-4 text-emerald-500" />
@@ -846,10 +843,10 @@ export default function DashboardPage() {
         <Card className="border-border/70 bg-card/80">
           <CardHeader>
             <CardTitle className="text-base">
-              {user?.role?.name === "Examiner" ? "My Schedule Today" : "Today\u0027s Queue"}
+              {showExaminerView ? "My Schedule Today" : "Today\u0027s Queue"}
             </CardTitle>
             <CardDescription>
-              {user?.role?.name === "Examiner" ? "Your assigned appointments for today" : "Upcoming milestones and live checkpoints"}
+              {showExaminerView ? "Your assigned appointments for today" : "Upcoming milestones and live checkpoints"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -870,7 +867,7 @@ export default function DashboardPage() {
                     </Badge>
                   </div>
                   <p className="text-muted-foreground mt-1 text-xs">
-                    {user?.role?.name === "Examiner"
+                    {showExaminerView
                       ? `Subject: ${item.subject}`
                       : `Examiner: ${item.owner}`}
                   </p>

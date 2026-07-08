@@ -62,23 +62,33 @@ const examinerNav: NavItem[] = [
   { name: "My Profile", href: "/dashboard/profile", icon: UserCircle },
 ];
 
+// Personal shortcuts kept for examiners who are escalated into the ops nav, so
+// a privileged examiner still reaches their own availability/profile tools.
+const examinerPersonalNav: NavItem[] = [
+  { name: "My Availability", href: "/dashboard/profile/availability", icon: CalendarClock },
+  { name: "My Profile", href: "/dashboard/profile", icon: UserCircle },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { isSidebarCollapsed, toggleSidebar } = useUIStore();
-  const { user, loading, can } = useCurrentUser();
+  const { user, loading, can, isExaminer, showExaminerWorkspace } = useCurrentUser();
 
-  const isExaminer = user?.role?.name === "Examiner";
-
-  // Examiners get their own curated nav. Everyone else gets the ops nav, with
+  // Pure examiners get their own curated nav. Everyone else — including
+  // examiners granted elevated/override permissions — gets the ops nav, with
   // permission-gated items filtered out (and hidden while permissions load).
-  const filteredNavigation = isExaminer
+  const filteredNavigation = showExaminerWorkspace
     ? examinerNav
-    : staffNav.filter((item) => {
-        if (!item.requires) return true;
-        if (loading) return false;
-        return can(item.requires);
-      });
+    : (() => {
+        const ops = staffNav.filter((item) => {
+          if (!item.requires) return true;
+          if (loading) return false;
+          return can(item.requires);
+        });
+        // Privileged examiners keep their personal availability/profile links.
+        return isExaminer ? [...ops, ...examinerPersonalNav] : ops;
+      })();
 
   const handleSignOut = async () => {
     clearCurrentUserCache();

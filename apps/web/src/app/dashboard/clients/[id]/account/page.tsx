@@ -90,15 +90,15 @@ export default function ClientAccountPage() {
   const router = useRouter();
   const clientId = Number(params.id);
   const { client } = useClientDetail();
-  const { user, loading: userLoading, can } = useCurrentUser();
-  const isExaminer = user?.role?.name === "Examiner";
+  const { loading: userLoading, can, showExaminerWorkspace } = useCurrentUser();
 
   React.useEffect(() => {
-    if (!userLoading && (!can("client:manage") || isExaminer)) {
+    // Pure examiners are redirected; examiners with elevated/override access keep billing.
+    if (!userLoading && (!can("client:manage") || showExaminerWorkspace)) {
       toast.error("You don't have access to billing information.");
       router.replace(`/dashboard/clients/${clientId}`);
     }
-  }, [userLoading, can, router, clientId, isExaminer]);
+  }, [userLoading, can, router, clientId, showExaminerWorkspace]);
 
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
   const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);

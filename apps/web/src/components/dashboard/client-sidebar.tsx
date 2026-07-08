@@ -26,9 +26,10 @@ export function ClientSidebar() {
   const params = useParams();
   const id = params.id;
   const { client, loading } = useClientDetail();
-  const { user, can } = useCurrentUser();
-  const isExaminer = user?.role?.name === "Examiner";
-  const canViewBilling = can("client:manage") && !isExaminer;
+  const { can, showExaminerWorkspace } = useCurrentUser();
+  // Pure examiners never see billing. Examiners granted elevated/override access
+  // (showExaminerWorkspace === false) are treated like ops staff and keep it.
+  const canViewBilling = can("client:manage") && !showExaminerWorkspace;
   const displayName = client?.name ?? (loading ? "Loading..." : `Client ${id}`);
   const initials = client ? getClientInitials(client.name) : "--";
   const isOrg = isOrganizationClient(client);
