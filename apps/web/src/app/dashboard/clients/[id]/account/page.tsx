@@ -103,8 +103,8 @@ export default function ClientAccountPage() {
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
   const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "USD" });
-  const orgCurrency = orgSettings?.currency || "USD";
+  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
+  const orgCurrency = orgSettings?.currency || "AED";
 
   React.useEffect(() => {
     void (async () => {

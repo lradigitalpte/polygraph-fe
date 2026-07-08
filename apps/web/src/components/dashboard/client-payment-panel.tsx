@@ -64,7 +64,7 @@ export function ClientPaymentPanel({
   const [reminderSubject, setReminderSubject] = React.useState("");
   const [reminderBody, setReminderBody] = React.useState("");
 
-  const [orgCurrency, setOrgCurrency] = React.useState("USD");
+  const [orgCurrency, setOrgCurrency] = React.useState("AED");
 
   React.useEffect(() => {
     void (async () => {

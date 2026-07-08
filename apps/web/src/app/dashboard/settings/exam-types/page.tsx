@@ -53,7 +53,7 @@ export default function ExamTypesSettingsPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
-  const [orgCurrency, setOrgCurrency] = React.useState("USD");
+  const [orgCurrency, setOrgCurrency] = React.useState("AED");
   const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [form, setForm] = React.useState<FormState>(emptyForm);

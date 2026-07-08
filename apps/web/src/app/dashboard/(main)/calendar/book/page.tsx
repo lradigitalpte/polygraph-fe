@@ -101,7 +101,7 @@ function BookAppointmentPageContent() {
   const [isLoadingAvailability, setIsLoadingAvailability] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
 
-  const orgCurrency = orgSettings?.currency || "USD";
+  const orgCurrency = orgSettings?.currency || "AED";
 
   const [formData, setFormData] = React.useState({
     clientName: "",

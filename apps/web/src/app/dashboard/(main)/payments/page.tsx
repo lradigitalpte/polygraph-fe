@@ -124,7 +124,7 @@ function resolveInvoiceExamType(inv: Invoice): string {
 // ---------- helper: generate + open printable PDF for a quotation ----------
 function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) {
   const balance = inv.totalAmount - inv.paidAmount;
-  const currency = inv.currency || "USD";
+  const currency = inv.currency || "AED";
   const formattedBalance = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(balance);
   const formattedTotal = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.totalAmount);
   const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
@@ -186,7 +186,7 @@ function isPaidInFull(status: string): boolean {
 // ---------- helper: printable PAID receipt (shown once an invoice is settled) ----------
 function downloadReceiptPDF(inv: Invoice) {
   const receiptNo = inv.code.replace(/^INV-/, "RCPT-");
-  const currency = inv.currency || "USD";
+  const currency = inv.currency || "AED";
   const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
   const formattedZero = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(0);
   const examinerName = inv.examinerName || "—";
@@ -298,8 +298,8 @@ export default function PaymentsPage() {
   const [isSendQuoteOpen, setIsSendQuoteOpen] = React.useState(false);
   const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "" });
   const [sendingSaving, setSendingSaving] = React.useState(false);
-  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "USD" });
-  const orgCurrency = orgSettings?.currency || "USD";
+  const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
+  const orgCurrency = orgSettings?.currency || "AED";
 
   // New quotation form state
   const [form, setForm] = React.useState<{
@@ -325,7 +325,7 @@ export default function PaymentsPage() {
     showClientList: false,
     showExamTypeList: false,
     showExaminerList: false,
-    currency: "USD",
+    currency: "AED",
   });
 
   const filteredFormClients = clients.filter((c) =>
@@ -360,7 +360,7 @@ export default function PaymentsPage() {
         fetchClients(),
         fetchExamTypes(),
         fetchExaminers(),
-        fetchOrganizationSettings().catch(() => ({ currency: "USD" })),
+        fetchOrganizationSettings().catch(() => ({ currency: "AED" })),
       ]);
 
       if (org) {

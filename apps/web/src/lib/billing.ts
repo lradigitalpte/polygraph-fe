@@ -45,9 +45,9 @@ async function fetchBillingLedgerFallback(clientId?: number): Promise<ClientAcco
     fetchQuotations(),
     fetchAppointments(),
     fetchExamTypes(),
-    fetchOrganizationSettings().catch(() => ({ currency: "USD" } as OrganizationSettings)),
+    fetchOrganizationSettings().catch(() => ({ currency: "AED" } as OrganizationSettings)),
   ]);
-  const orgCurrency = org?.currency || "USD";
+  const orgCurrency = org?.currency || "AED";
   const orgSettings = {
     usd_aed_rate: org?.usd_aed_rate,
     usd_gbp_rate: org?.usd_gbp_rate,

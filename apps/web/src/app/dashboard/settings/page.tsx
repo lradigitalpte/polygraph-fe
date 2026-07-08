@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const [name, setName] = React.useState("");
   const [supportEmail, setSupportEmail] = React.useState("");
   const [address, setAddress] = React.useState("");
-  const [currency, setCurrency] = React.useState("USD");
+  const [currency, setCurrency] = React.useState("AED");
   const [usdAedRate, setUsdAedRate] = React.useState("3.6725");
   const [usdGbpRate, setUsdGbpRate] = React.useState("0.7850");
   const [usdEurRate, setUsdEurRate] = React.useState("0.9250");
@@ -44,7 +44,7 @@ export default function SettingsPage() {
         setName(org.name);
         setSupportEmail(org.support_email ?? "");
         setAddress(org.address ?? "");
-        setCurrency(org.currency ?? "USD");
+        setCurrency(org.currency ?? "AED");
         setUsdAedRate(String(org.usd_aed_rate ?? 3.6725));
         setUsdGbpRate(String(org.usd_gbp_rate ?? 0.7850));
         setUsdEurRate(String(org.usd_eur_rate ?? 0.9250));
@@ -69,7 +69,7 @@ export default function SettingsPage() {
         usd_eur_rate: parseFloat(usdEurRate) || 0.9250,
       });
       setName(org.name);
-      setCurrency(org.currency ?? "USD");
+      setCurrency(org.currency ?? "AED");
       setUsdAedRate(String(org.usd_aed_rate ?? 3.6725));
       setUsdGbpRate(String(org.usd_gbp_rate ?? 0.7850));
       setUsdEurRate(String(org.usd_eur_rate ?? 0.9250));
