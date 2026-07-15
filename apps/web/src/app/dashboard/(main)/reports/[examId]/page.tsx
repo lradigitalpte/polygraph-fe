@@ -9,10 +9,8 @@ import {
   Loader2,
   Activity,
   BrainCircuit,
-  AlertCircle,
   Eye,
   EyeOff,
-  FileText,
   Printer,
   Lock,
   ArrowLeft,
@@ -42,13 +40,16 @@ import { fetchAppointment, fetchExam } from "@/lib/exam-documentation";
 import { fetchClient } from "@/lib/clients";
 import { fetchExaminerSignature, fetchExaminers, type UserRecord } from "@/lib/users";
 import {
-  buildNewReportDefaults,
-  buildOpinionPhaseText,
+  buildEmptyReportContent,
   buildReportSessionContext,
-  coalesceField,
+  formatReportPersonName,
+  formatVerdictLabel,
+  parseReportContent,
+  verdictColorClass,
+  type ReportContent,
   type ReportSessionContext,
 } from "@/lib/report-template";
-import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta, type StructuredReportData } from "@/lib/reports";
+import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta } from "@/lib/reports";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
@@ -61,7 +62,7 @@ export default function ReportBuilderPage() {
   const canOverrideLockedReport = can("exam:report:override");
 
   const [loading, setLoading] = React.useState(false);
-  const [subjectName, setSubjectName] = React.useState(querySubjectName);
+  const [subjectName, setSubjectName] = React.useState(() => formatReportPersonName(querySubjectName));
   const [clientName, setClientName] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
@@ -84,45 +85,44 @@ export default function ReportBuilderPage() {
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
   const [purpose, setPurpose] = React.useState("");
-  const [instrument, setInstrument] = React.useState("Lafayette LX6000");
+  const [instrument, setInstrument] = React.useState("");
   const [referenceNo, setReferenceNo] = React.useState("");
   const [examDate, setExamDate] = React.useState("");
   const [preTestPhaseText, setPreTestPhaseText] = React.useState("");
   const [preTestNotes, setPreTestNotes] = React.useState("");
   const [questions, setQuestions] = React.useState<{ text: string; answer: string; evaluation: string }[]>([]);
-  const [examPhaseText, setExamPhaseText] = React.useState("During the examination phase, the relevant and comparison questions were administered to subject with a set of 4 relevant questions. His verbal responses to the relevant questions were as indicated:");
-  const [limestoneNotes, setLimestoneNotes] = React.useState(
-    "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.\n\nFour polygrams, including 1 acquaintance and 3 official tests were recorded, and the process ended at about 15:35 hrs (Dubai Time)."
-  );
+  const [examPhaseText, setExamPhaseText] = React.useState("");
+  const [limestoneNotes, setLimestoneNotes] = React.useState("");
   const [opinionPhaseText, setOpinionPhaseText] = React.useState("");
   const [postTestNotes, setPostTestNotes] = React.useState("");
-  const [section4FollowUp, setSection4FollowUp] = React.useState("Nil");
-  const [conclusion, setConclusion] = React.useState("");
+  const [section4FollowUp, setSection4FollowUp] = React.useState("");
   const readOnly = isLocked;
 
   React.useEffect(() => {
     setMounted(true);
   }, []);
 
+  const applyReportContent = React.useCallback((content: ReportContent) => {
+    setPurpose(content.purpose);
+    setInstrument(content.instrument);
+    setReferenceNo(content.reference_no);
+    setExamDate(content.exam_date);
+    setSection4FollowUp(content.section_4_follow_up);
+    setPreTestNotes(content.pre_test_notes);
+    setQuestions(content.questions);
+    setLimestoneNotes(content.limestone_notes);
+    setPreTestPhaseText(content.pre_test_phase_text);
+    setExamPhaseText(content.exam_phase_text);
+    setOpinionPhaseText(content.opinion_phase_text);
+    setPostTestNotes(content.post_test_notes);
+  }, []);
+
   const applyReportDefaults = React.useCallback(
     (ctx: ReportSessionContext, verdictValue = "NDI") => {
-      const defaults = buildNewReportDefaults(ctx, verdictValue);
-      setVerdict(defaults.verdict);
-      setPurpose(defaults.purpose);
-      setInstrument(defaults.instrument);
-      setReferenceNo(defaults.referenceNo);
-      setExamDate(defaults.examDate);
-      setSection4FollowUp(defaults.section4FollowUp);
-      setPreTestNotes(defaults.preTestNotes);
-      setQuestions(defaults.questions);
-      setLimestoneNotes(defaults.limestoneNotes);
-      setPreTestPhaseText(defaults.preTestPhaseText);
-      setExamPhaseText(defaults.examPhaseText);
-      setOpinionPhaseText(defaults.opinionPhaseText);
-      setPostTestNotes(defaults.postTestNotes);
-      setConclusion(defaults.conclusion);
+      setVerdict(verdictValue);
+      applyReportContent(buildEmptyReportContent(ctx));
     },
-    []
+    [applyReportContent]
   );
 
   const applySavedReport = React.useCallback(
@@ -130,46 +130,18 @@ export default function ReportBuilderPage() {
       report: NonNullable<Awaited<ReturnType<typeof fetchReport>>>,
       ctx: ReportSessionContext
     ) => {
-      const defaults = buildNewReportDefaults(ctx, report.verdict || "NDI");
-      setVerdict(report.verdict || defaults.verdict);
+      const fallback = buildEmptyReportContent(ctx);
+      setVerdict(report.verdict || "NDI");
       setIsLocked(Boolean(report.is_locked));
       setLockedAt(report.locked_at ?? null);
 
       try {
-        const parsed = JSON.parse(report.content) as StructuredReportData & {
-          reference_no?: string;
-          exam_date?: string;
-          section_4_follow_up?: string;
-          limestone_notes?: string;
-          pre_test_phase_text?: string;
-          exam_phase_text?: string;
-          opinion_phase_text?: string;
-        };
-
-        setPurpose(coalesceField(parsed.purpose, defaults.purpose));
-        setInstrument(coalesceField(parsed.instrument, defaults.instrument));
-        setPreTestNotes(coalesceField(parsed.pre_test_notes, defaults.preTestNotes));
-        setQuestions(parsed.questions?.length ? parsed.questions : defaults.questions);
-        setPostTestNotes(coalesceField(parsed.post_test_notes, defaults.postTestNotes));
-        setConclusion(coalesceField(parsed.conclusion, defaults.conclusion));
-        setReferenceNo(coalesceField(parsed.reference_no, defaults.referenceNo));
-        setExamDate(coalesceField(parsed.exam_date, defaults.examDate));
-        setSection4FollowUp(coalesceField(parsed.section_4_follow_up, defaults.section4FollowUp));
-        setLimestoneNotes(coalesceField(parsed.limestone_notes, defaults.limestoneNotes));
-        setPreTestPhaseText(coalesceField(parsed.pre_test_phase_text, defaults.preTestPhaseText));
-        setExamPhaseText(coalesceField(parsed.exam_phase_text, defaults.examPhaseText));
-        setOpinionPhaseText(
-          coalesceField(
-            parsed.opinion_phase_text,
-            buildOpinionPhaseText(ctx.subjectName, report.verdict || defaults.verdict)
-          )
-        );
+        applyReportContent(parseReportContent(report.content, fallback));
       } catch {
-        setConclusion(report.content || defaults.conclusion);
         applyReportDefaults(ctx, report.verdict || "NDI");
       }
     },
-    [applyReportDefaults]
+    [applyReportContent, applyReportDefaults]
   );
 
   // Load exam context + any saved report
@@ -195,7 +167,7 @@ export default function ReportBuilderPage() {
 
         if (cancelled) return;
 
-        setSubjectName(ctx.subjectName || querySubjectName);
+        setSubjectName(formatReportPersonName(ctx.subjectName || querySubjectName));
         setClientName(ctx.clientName);
         setExaminers(examinerRoster);
         const assignedExaminerId = exam.examiner_id ? String(exam.examiner_id) : "";
@@ -252,13 +224,12 @@ export default function ReportBuilderPage() {
     );
   };
 
-  const buildReportPayload = () => ({
+  const buildReportPayload = (): ReportContent => ({
     purpose,
     instrument,
     pre_test_notes: preTestNotes,
     questions,
     post_test_notes: postTestNotes,
-    conclusion,
     reference_no: referenceNo,
     exam_date: examDate,
     section_4_follow_up: section4FollowUp,
@@ -277,10 +248,6 @@ export default function ReportBuilderPage() {
       toast.error("Please select a verdict");
       return;
     }
-    if (!conclusion.trim()) {
-      toast.error("Please fill in the professional conclusion");
-      return;
-    }
 
     setSaving(true);
     try {
@@ -297,10 +264,6 @@ export default function ReportBuilderPage() {
     if (isLocked) return;
     if (!verdict) {
       toast.error("Please select a verdict");
-      return;
-    }
-    if (!conclusion.trim()) {
-      toast.error("Please fill in the professional conclusion before finalizing");
       return;
     }
 
@@ -535,11 +498,7 @@ export default function ReportBuilderPage() {
               </Label>
               <Select
                 value={verdict}
-                onValueChange={(val) => {
-                  const next = String(val);
-                  setVerdict(next);
-                  setOpinionPhaseText(buildOpinionPhaseText(subjectName, next));
-                }}
+                onValueChange={(val) => setVerdict(String(val))}
                 disabled={readOnly}
               >
                 <SelectTrigger className="rounded-xl h-11 bg-background">
@@ -576,7 +535,7 @@ export default function ReportBuilderPage() {
                   value={preTestNotes}
                   onChange={(e) => setPreTestNotes(e.target.value)}
                   disabled={readOnly}
-                  placeholder="Examinee physical and mental health assessed as fit..."
+                  placeholder="Consent and fitness notes..."
                   className="rounded-xl text-xs bg-card"
                 />
               </div>
@@ -714,7 +673,7 @@ export default function ReportBuilderPage() {
                   value={postTestNotes}
                   onChange={(e) => setPostTestNotes(e.target.value)}
                   disabled={readOnly}
-                  placeholder="Examinee cooperated..."
+                  placeholder="Post-test notes..."
                   className="rounded-xl text-xs bg-card"
                 />
               </div>
@@ -733,22 +692,6 @@ export default function ReportBuilderPage() {
                   className="h-10 rounded-xl bg-card border-border/50 text-xs"
                 />
               </div>
-            </div>
-
-            {/* Professional Conclusion */}
-            <div className="space-y-2">
-              <Label htmlFor="conclusion" className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1">
-                <AlertCircle className="h-4 w-4 text-primary shrink-0" /> Conclusion Text Paragraph
-              </Label>
-              <Textarea
-                id="conclusion"
-                placeholder="Write the comprehensive conclusion text..."
-                rows={3}
-                className="rounded-xl text-xs bg-card border-primary/20"
-                value={conclusion}
-                onChange={(e) => setConclusion(e.target.value)}
-                disabled={readOnly}
-              />
             </div>
           </div>
 
@@ -809,7 +752,7 @@ export default function ReportBuilderPage() {
                 </div>
 
                 <div className="mt-8 space-y-3">
-                  <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
+                  <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 1: PRE-EXAMINATION PHASE
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
@@ -821,7 +764,7 @@ export default function ReportBuilderPage() {
                 </div>
 
                 <div className="mt-8 space-y-3">
-                  <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
+                  <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 2: EXAMINATION PHASE
                   </h3>
                   <p className="text-zinc-700 whitespace-pre-line">
@@ -848,6 +791,12 @@ export default function ReportBuilderPage() {
                       </tbody>
                     </table>
                   )}
+
+                  {limestoneNotes.trim() ? (
+                    <p className="text-zinc-700 whitespace-pre-line mt-4">
+                      {limestoneNotes}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -864,7 +813,7 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
-            {/* Visual Preview Template Page 2 */}
+            {/* Visual Preview Template Page 2 — Section 3 always starts here */}
             <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col justify-between text-[11px] leading-relaxed select-none border border-zinc-200">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
@@ -878,13 +827,7 @@ export default function ReportBuilderPage() {
                 </div>
 
                 <div className="mt-8 space-y-3">
-                  <p className="text-zinc-700 whitespace-pre-line">
-                    {limestoneNotes}
-                  </p>
-                </div>
-
-                <div className="mt-8 space-y-3">
-                  <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
+                  <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 3: OPINION OF EXAMINER
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
@@ -895,27 +838,18 @@ export default function ReportBuilderPage() {
                   </p>
                   <div className="flex items-center gap-2 mt-4 pt-2">
                     <span className="font-black text-xs uppercase text-zinc-800">Result:</span>
-                    <span className={`font-black text-xs uppercase ${verdict === "DI" ? "text-red-600" : verdict === "NDI" ? "text-emerald-600" : "text-zinc-500"}`}>
-                      {verdict === "DI" ? "NOT TRUTHFUL" : verdict === "NDI" ? "TRUTHFUL / NO DECEPTION INDICATED" : "INCONCLUSIVE"}
+                    <span className={`font-black text-xs uppercase ${verdictColorClass(verdict)}`}>
+                      {formatVerdictLabel(verdict)}
                     </span>
                   </div>
                 </div>
 
                 <div className="mt-8 space-y-3">
-                  <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
+                  <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 4: FOLLOW-UP BY REQUESTING AGENCY
                   </h3>
                   <p className="text-zinc-700 font-semibold italic">
                     {section4FollowUp}
-                  </p>
-                </div>
-
-                <div className="mt-8 space-y-3 border-l-4 border-primary/20 bg-zinc-50 p-4 rounded-xl">
-                  <h4 className="font-black text-xs uppercase text-zinc-800 flex items-center gap-1.5">
-                    <FileText className="h-4 w-4 text-zinc-600" /> Professional Findings Summary
-                  </h4>
-                  <p className="text-zinc-600 whitespace-pre-line">
-                    {conclusion || "Analysis of the physiological records indicates..."}
                   </p>
                 </div>
 

@@ -156,7 +156,15 @@ export type StructuredReportData = {
     evaluation: string;
   }[];
   post_test_notes: string;
-  conclusion: string;
+  reference_no?: string;
+  exam_date?: string;
+  section_4_follow_up?: string;
+  limestone_notes?: string;
+  pre_test_phase_text?: string;
+  exam_phase_text?: string;
+  opinion_phase_text?: string;
+  /** @deprecated Removed from builder UI; kept optional for older saved reports. */
+  conclusion?: string;
 };
 
 export async function fetchReport(examId: number): Promise<ExamReportRecord | null> {

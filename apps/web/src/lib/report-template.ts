@@ -13,6 +13,28 @@ export type ReportSessionContext = {
   examinerNotes: string;
 };
 
+export type ReportQuestion = {
+  text: string;
+  answer: string;
+  evaluation: string;
+};
+
+/** Full report JSON saved by the builder — source of truth for PDF + preview. */
+export type ReportContent = {
+  purpose: string;
+  instrument: string;
+  pre_test_notes: string;
+  questions: ReportQuestion[];
+  post_test_notes: string;
+  reference_no: string;
+  exam_date: string;
+  section_4_follow_up: string;
+  limestone_notes: string;
+  pre_test_phase_text: string;
+  exam_phase_text: string;
+  opinion_phase_text: string;
+};
+
 function ordinal(day: number): string {
   if (day >= 11 && day <= 13) return `${day}th`;
   switch (day % 10) {
@@ -27,12 +49,16 @@ function ordinal(day: number): string {
   }
 }
 
+export function formatReportPersonName(name: string): string {
+  return name.trim().toUpperCase();
+}
+
 export function formatSubjectName(subject?: {
   first_name?: string;
   last_name?: string;
 }): string {
   if (!subject) return "";
-  return `${subject.first_name ?? ""} ${subject.last_name ?? ""}`.trim();
+  return formatReportPersonName(`${subject.first_name ?? ""} ${subject.last_name ?? ""}`);
 }
 
 export function formatReportReference(examId: number, date: Date): string {
@@ -49,17 +75,6 @@ export function formatReportDateTime(date: Date): string {
   return `${formatReportExamDate(date)} at about ${time} hrs (Dubai Time)`;
 }
 
-export function buildOpinionPhaseText(subjectName: string, verdict: string): string {
-  const label =
-    verdict === "DI"
-      ? "Not Truthful"
-      : verdict === "Inconclusive"
-        ? "Inconclusive"
-        : "Truthful";
-  const name = subjectName.trim() || "the above subject";
-  return `Based on the diagnostic evaluations and analysis of the polygrams, I am in the opinion that the examination on ${name} as ${label}.`;
-}
-
 export function resolveExamDate(exam: ExamRecord, appointment?: AppointmentRecord | null): Date {
   const raw = appointment?.scheduled_at || exam.date;
   const parsed = new Date(raw);
@@ -71,82 +86,79 @@ export function buildReportSessionContext(
   clientName: string,
   appointment?: AppointmentRecord | null
 ): ReportSessionContext {
-  const subjectName =
-    formatSubjectName(exam.subject) ||
-    formatSubjectName(appointment?.subject) ||
-    "";
   const examDate = resolveExamDate(exam, appointment);
   const examType = (exam.type || appointment?.notes?.split("\n")[0] || "Polygraph examination").trim();
-  const appointmentNotes = (appointment?.notes || "").trim();
-  const examinerNotes = (exam.notes || "").trim();
 
   return {
-    subjectName,
+    subjectName:
+      formatSubjectName(exam.subject) ||
+      formatSubjectName(appointment?.subject) ||
+      "",
     clientName: clientName.trim(),
     examType,
     referenceNo: formatReportReference(exam.id, examDate),
     formattedExamDate: formatReportExamDate(examDate),
     formattedDateTime: formatReportDateTime(examDate),
-    appointmentNotes,
-    examinerNotes,
+    appointmentNotes: (appointment?.notes || "").trim(),
+    examinerNotes: (exam.notes || "").trim(),
   };
 }
 
-export type NewReportDefaults = {
-  referenceNo: string;
-  examDate: string;
-  purpose: string;
-  instrument: string;
-  preTestNotes: string;
-  preTestPhaseText: string;
-  examPhaseText: string;
-  limestoneNotes: string;
-  opinionPhaseText: string;
-  postTestNotes: string;
-  conclusion: string;
-  section4FollowUp: string;
-  questions: { text: string; answer: string; evaluation: string }[];
-  verdict: string;
-};
-
-export function buildNewReportDefaults(
-  ctx: ReportSessionContext,
-  verdict = "NDI"
-): NewReportDefaults {
-  const clientPhrase = ctx.clientName ? ` for ${ctx.clientName}` : "";
-  const examPurpose = ctx.appointmentNotes || ctx.examType;
-
-  let preTestIntro = `On ${ctx.formattedDateTime}, I commenced to administer a polygraph examination to the above subject.`;
-  if (examPurpose) {
-    preTestIntro += `\n\n${examPurpose.endsWith(".") ? examPurpose : `${examPurpose}.`}`;
-  } else if (ctx.examType) {
-    preTestIntro += `\n\nA ${ctx.examType.toLowerCase()} was administered${clientPhrase}.`;
-  }
-
+/** New/regenerated reports: only session fields prefilled. Body text stays empty. */
+export function buildEmptyReportContent(ctx: ReportSessionContext): ReportContent {
   return {
-    referenceNo: ctx.referenceNo,
-    examDate: ctx.formattedExamDate,
-    purpose: examPurpose,
-    instrument: "Lafayette LX6000",
-    preTestNotes:
-      ctx.examinerNotes ||
-      "Examinee physical and mental health assessed as fit for testing. Legal rights and examination consent form explained and signed.",
-    preTestPhaseText: preTestIntro,
-    examPhaseText:
-      "During the examination phase, the relevant and comparison questions were administered to the subject. Verbal responses to the relevant questions were as indicated:",
-    limestoneNotes:
-      "The examination was conducted with a Limestone Technologies Computerised Polygraph, recording the blood pressure, pulse rate, galvanic skin response and breathing pattern of the subject.",
-    opinionPhaseText: buildOpinionPhaseText(ctx.subjectName, verdict),
-    postTestNotes: "Examinee cooperated and the test administration was as per procedure.",
-    conclusion: "",
-    section4FollowUp: "Nil",
+    purpose: ctx.appointmentNotes || ctx.examType,
+    instrument: "",
+    pre_test_notes: ctx.examinerNotes,
     questions: [],
-    verdict,
+    post_test_notes: "",
+    reference_no: ctx.referenceNo,
+    exam_date: ctx.formattedExamDate,
+    section_4_follow_up: "",
+    limestone_notes: "",
+    pre_test_phase_text: "",
+    exam_phase_text: "",
+    opinion_phase_text: "",
   };
 }
 
+/** Use saved value when present (including empty string). Fallback only for missing keys. */
 export function coalesceField<T>(value: T | undefined | null, fallback: T): T {
   if (value === undefined || value === null) return fallback;
-  if (typeof value === "string" && value.trim() === "") return fallback;
   return value;
+}
+
+type ParsedReportJson = Partial<ReportContent> & {
+  conclusion?: string;
+};
+
+/** Parse saved report JSON; missing keys fall back to empty-report defaults. Empty strings are kept. */
+export function parseReportContent(raw: string, fallback: ReportContent): ReportContent {
+  const parsed = JSON.parse(raw) as ParsedReportJson;
+  return {
+    purpose: coalesceField(parsed.purpose, fallback.purpose),
+    instrument: coalesceField(parsed.instrument, fallback.instrument),
+    pre_test_notes: coalesceField(parsed.pre_test_notes, fallback.pre_test_notes),
+    questions: parsed.questions?.length ? parsed.questions : fallback.questions,
+    post_test_notes: coalesceField(parsed.post_test_notes, fallback.post_test_notes),
+    reference_no: coalesceField(parsed.reference_no, fallback.reference_no),
+    exam_date: coalesceField(parsed.exam_date, fallback.exam_date),
+    section_4_follow_up: coalesceField(parsed.section_4_follow_up, fallback.section_4_follow_up),
+    limestone_notes: coalesceField(parsed.limestone_notes, fallback.limestone_notes),
+    pre_test_phase_text: coalesceField(parsed.pre_test_phase_text, fallback.pre_test_phase_text),
+    exam_phase_text: coalesceField(parsed.exam_phase_text, fallback.exam_phase_text),
+    opinion_phase_text: coalesceField(parsed.opinion_phase_text, fallback.opinion_phase_text),
+  };
+}
+
+export function formatVerdictLabel(verdict: string): string {
+  if (verdict === "DI") return "NOT TRUTHFUL";
+  if (verdict === "NDI") return "TRUTHFUL / NO DECEPTION INDICATED";
+  return "INCONCLUSIVE";
+}
+
+export function verdictColorClass(verdict: string): string {
+  if (verdict === "DI") return "text-red-600";
+  if (verdict === "NDI") return "text-emerald-600";
+  return "text-zinc-500";
 }
