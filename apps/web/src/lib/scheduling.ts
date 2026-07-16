@@ -74,20 +74,29 @@ export function filterAvailableBookingSlots(
     date: string;
     durationMinutes: number;
     busyPeriods: BusyPeriodRecord[];
+    /** When false (default for legacy callers), hide times that have already passed today. */
+    allowPastSlots?: boolean;
     isToday?: boolean;
     nowMinutes?: number;
   },
 ): string[] {
   const duration =
     options.durationMinutes > 0 ? options.durationMinutes : DEFAULT_EXAM_DURATION_MINUTES;
+  const allowPastSlots = options.allowPastSlots ?? false;
   const isToday = options.isToday ?? options.date === clinicTodayDateString();
   const nowMinutes = options.nowMinutes ?? clinicNowMinutes();
+  const isPastDate = options.date < clinicTodayDateString();
 
   return candidateSlots.filter((slot) => {
     const slotMinutes = toMinutes(slot);
     const slotEnd = slotMinutes + duration;
 
-    if (isToday && slotMinutes <= nowMinutes) {
+    // Past calendar days are only useful when backdating is enabled.
+    if (isPastDate && !allowPastSlots) {
+      return false;
+    }
+
+    if (!allowPastSlots && isToday && slotMinutes <= nowMinutes) {
       return false;
     }
 

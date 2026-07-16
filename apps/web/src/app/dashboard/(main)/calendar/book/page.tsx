@@ -9,6 +9,7 @@ import {
   Calendar as CalendarIcon,
   Clock,
   CreditCard,
+  History,
   Info,
   Languages,
   Loader2,
@@ -56,6 +57,7 @@ import { catalogPriceInCurrency, convertCurrency, formatMoney } from "@/lib/clie
 import {
   clinicDateTimeToISO,
   clinicTodayDateString,
+  isClinicDateTimePast,
   isClinicSunday,
 } from "@/lib/clinic-time";
 import {
@@ -427,8 +429,18 @@ function BookAppointmentPageContent() {
       date: formData.date,
       durationMinutes: duration,
       busyPeriods,
+      allowPastSlots: true,
     });
   }, [busyPeriods, formData.date, formData.examinerId, isDateBlocked, selectedExamType?.duration]);
+
+  const isBackdatedBooking = React.useMemo(() => {
+    if (!formData.date || !formData.time) {
+      return false;
+    }
+    return isClinicDateTimePast(formData.date, formData.time);
+  }, [formData.date, formData.time]);
+
+  const isPastDateSelected = Boolean(formData.date && formData.date < clinicTodayDateString());
 
   const isStepValid = () => {
     if (step === 1) {
@@ -453,9 +465,12 @@ function BookAppointmentPageContent() {
     if (isDateBlocked) {
       return { label: "Examiner blocked for this date", type: "warning" as const };
     }
+    if (isPastDateSelected) {
+      return { label: "Backdated day — past times are available for logging", type: "warning" as const };
+    }
     if (formData.examinerId && !isLoadingAvailability) {
       if (availableSlots.length === 0) {
-        return { label: "No open slots (booked, blocked, or past)", type: "warning" as const };
+        return { label: "No open slots (booked or blocked)", type: "warning" as const };
       }
       return {
         label: `${availableSlots.length} open slot${availableSlots.length === 1 ? "" : "s"}`,
@@ -463,7 +478,14 @@ function BookAppointmentPageContent() {
       };
     }
     return { label: "Select examiner to see slots", type: "success" as const };
-  }, [formData.date, formData.examinerId, isDateBlocked, isLoadingAvailability, availableSlots.length]);
+  }, [
+    formData.date,
+    formData.examinerId,
+    isDateBlocked,
+    isLoadingAvailability,
+    availableSlots.length,
+    isPastDateSelected,
+  ]);
 
   const handleComplete = async () => {
     if (!selectedExamType) {
@@ -568,8 +590,10 @@ function BookAppointmentPageContent() {
           notes: `${selectedExamType.name}\n\n${formData.reason}`,
           status: "pending",
         });
-        toast.success("Appointment booked", {
-          description: `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
+        toast.success(isBackdatedBooking ? "Backdated appointment logged" : "Appointment booked", {
+          description: isBackdatedBooking
+            ? `Logged for ${formData.date} @ ${formData.time} (Dubai). Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`
+            : `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
         });
       }
       // Return to the originating page (e.g. pending appointments) when provided, so the
@@ -887,8 +911,8 @@ function BookAppointmentPageContent() {
                         Examiner Availability
                       </CardTitle>
                       <CardDescription>
-                        Pick an examiner, then a date. Slots already booked, blocked on the examiner
-                        calendar, or in the past are hidden.
+                        Pick an examiner, then a date and time. Booked or blocked slots are hidden.
+                        Past times stay available when you need to log an exam that already happened.
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-5 p-4 sm:space-y-8 sm:p-6">
@@ -941,9 +965,9 @@ function BookAppointmentPageContent() {
                               className={cn(
                                 "h-10 rounded-xl border-border/50 bg-muted/20 pl-10 sm:h-12",
                                 isDateBlocked && "border-destructive/50 ring-1 ring-destructive/20",
+                                isPastDateSelected && !isDateBlocked && "border-amber-500/40 ring-1 ring-amber-500/20",
                               )}
                               value={formData.date}
-                              min={clinicTodayDateString()}
                               onChange={(event) => {
                                 handleInputChange("date", event.target.value);
                                 handleInputChange("time", "");
@@ -958,8 +982,8 @@ function BookAppointmentPageContent() {
                                 dayStatus.type === "error"
                                   ? "border border-destructive/20 bg-destructive/10 text-destructive"
                                   : dayStatus.type === "warning"
-                                    ? "border border-amber-500/20 bg-amber-500/10 text-amber-700"
-                                    : "border border-emerald-500/20 bg-emerald-500/10 text-emerald-700",
+                                    ? "border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                    : "border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
                               )}
                             >
                               {dayStatus.type === "error" ? <XCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
@@ -991,29 +1015,49 @@ function BookAppointmentPageContent() {
                           ) : (
                             <div className="grid max-h-48 grid-cols-3 gap-2 overflow-y-auto pr-2 sm:grid-cols-4">
                               {availableSlots.length > 0 ? (
-                                availableSlots.map((slot) => (
-                                  <button
-                                    key={slot}
-                                    onClick={() => handleInputChange("time", slot)}
-                                    className={cn(
-                                      "rounded-lg border py-2 text-xs font-bold transition-all",
-                                      formData.time === slot
-                                        ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                                        : "border-border/50 bg-muted/20 hover:border-primary/30 hover:bg-primary/5",
-                                    )}
-                                  >
-                                    {slot}
-                                  </button>
-                                ))
+                                availableSlots.map((slot) => {
+                                  const slotIsPast = isClinicDateTimePast(formData.date, slot);
+                                  return (
+                                    <button
+                                      key={slot}
+                                      onClick={() => handleInputChange("time", slot)}
+                                      className={cn(
+                                        "rounded-lg border py-2 text-xs font-bold transition-all",
+                                        formData.time === slot
+                                          ? slotIsPast
+                                            ? "border-amber-600 bg-amber-600 text-white shadow-md shadow-amber-600/20"
+                                            : "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                                          : slotIsPast
+                                            ? "border-amber-500/30 bg-amber-500/5 text-amber-800 hover:border-amber-500/50 hover:bg-amber-500/10 dark:text-amber-300"
+                                            : "border-border/50 bg-muted/20 hover:border-primary/30 hover:bg-primary/5",
+                                      )}
+                                    >
+                                      {slot}
+                                    </button>
+                                  );
+                                })
                               ) : (
                                 <div className="col-span-2 rounded-xl border border-dashed border-border/50 bg-muted/5 p-4 text-center text-xs text-muted-foreground">
-                                  No open slots — this examiner is fully booked, blocked, or remaining times are in the past.
+                                  No open slots — this examiner is fully booked or blocked for the day.
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
                       </div>
+
+                      {isBackdatedBooking && (
+                        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+                          <History className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold">Backdated appointment</p>
+                            <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/90">
+                              This time is already in the past. Use this when an exam already took place
+                              but wasn&apos;t logged — for example so you can open the case and generate a report.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -1112,6 +1156,18 @@ function BookAppointmentPageContent() {
                       <CardDescription>Confirm the booking before it is written to the backend.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 px-4 pb-4 sm:space-y-6 sm:px-6 sm:pb-6">
+                      {isBackdatedBooking && (
+                        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+                          <History className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold">You are confirming a backdated booking</p>
+                            <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/90">
+                              The selected slot is in the past. The appointment will still be created so the
+                              exam can appear on the dashboard and reports can be generated.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <ReviewItem label="Client" value={formData.clientName || "Not selected"} />
                         <ReviewItem label="Subject" value={selectedSubjectLabel} />
@@ -1125,7 +1181,14 @@ function BookAppointmentPageContent() {
                           }
                         />
                         <ReviewItem label="Examiner" value={selectedExaminer?.name || "Not assigned"} />
-                        <ReviewItem label="Time Slot" value={formData.date && formData.time ? `${formData.date} @ ${formData.time}` : "Not scheduled"} />
+                        <ReviewItem
+                          label="Time Slot"
+                          value={
+                            formData.date && formData.time
+                              ? `${formData.date} @ ${formData.time}${isBackdatedBooking ? " (backdated)" : ""}`
+                              : "Not scheduled"
+                          }
+                        />
                         <ReviewItem label="Payment Method" value={formData.paymentType || "Not selected"} />
                         <ReviewItem
                           label="Collected Amount"
@@ -1167,7 +1230,22 @@ function BookAppointmentPageContent() {
                 }
               />
               <SummaryRow label="Examiner" value={selectedExaminer?.name || "Not assigned"} />
-              <SummaryRow label="Time Slot" value={formData.date && formData.time ? `${formData.date} @ ${formData.time}` : "Not scheduled"} />
+              <SummaryRow
+                label="Time Slot"
+                value={
+                  formData.date && formData.time
+                    ? `${formData.date} @ ${formData.time}${isBackdatedBooking ? " (backdated)" : ""}`
+                    : "Not scheduled"
+                }
+              />
+              {isBackdatedBooking && (
+                <div className="col-span-full flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-amber-900 dark:text-amber-100">
+                  <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
+                  <p className="text-[11px] leading-relaxed">
+                    Backdated time — this logs an exam that already happened.
+                  </p>
+                </div>
+              )}
               <SummaryRow
                 label="Estimated duration"
                 value={selectedExamType ? `${(selectedExamType.duration / 60).toFixed(1)} hours` : "2.5 hours"}
@@ -1202,6 +1280,8 @@ function BookAppointmentPageContent() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Booking...
                   </>
+                ) : isBackdatedBooking ? (
+                  "Confirm Backdated Booking"
                 ) : (
                   "Confirm Booking"
                 )}

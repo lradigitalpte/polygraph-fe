@@ -8,6 +8,8 @@ export type ReportSessionContext = {
   examType: string;
   referenceNo: string;
   formattedExamDate: string;
+  /** Report issuance date (defaults to today in clinic time). */
+  formattedReportDate: string;
   formattedDateTime: string;
   appointmentNotes: string;
   examinerNotes: string;
@@ -28,6 +30,7 @@ export type ReportContent = {
   post_test_notes: string;
   reference_no: string;
   exam_date: string;
+  report_date: string;
   section_4_follow_up: string;
   limestone_notes: string;
   pre_test_phase_text: string;
@@ -98,6 +101,7 @@ export function buildReportSessionContext(
     examType,
     referenceNo: formatReportReference(exam.id, examDate),
     formattedExamDate: formatReportExamDate(examDate),
+    formattedReportDate: formatReportExamDate(new Date()),
     formattedDateTime: formatReportDateTime(examDate),
     appointmentNotes: (appointment?.notes || "").trim(),
     examinerNotes: (exam.notes || "").trim(),
@@ -114,6 +118,7 @@ export function buildEmptyReportContent(ctx: ReportSessionContext): ReportConten
     post_test_notes: "",
     reference_no: ctx.referenceNo,
     exam_date: ctx.formattedExamDate,
+    report_date: ctx.formattedReportDate,
     section_4_follow_up: "",
     limestone_notes: "",
     pre_test_phase_text: "",
@@ -143,6 +148,11 @@ export function parseReportContent(raw: string, fallback: ReportContent): Report
     post_test_notes: coalesceField(parsed.post_test_notes, fallback.post_test_notes),
     reference_no: coalesceField(parsed.reference_no, fallback.reference_no),
     exam_date: coalesceField(parsed.exam_date, fallback.exam_date),
+    // Older saved reports only have exam_date — fall back to that, then today's default.
+    report_date: coalesceField(
+      parsed.report_date,
+      coalesceField(parsed.exam_date, fallback.report_date),
+    ),
     section_4_follow_up: coalesceField(parsed.section_4_follow_up, fallback.section_4_follow_up),
     limestone_notes: coalesceField(parsed.limestone_notes, fallback.limestone_notes),
     pre_test_phase_text: coalesceField(parsed.pre_test_phase_text, fallback.pre_test_phase_text),

@@ -88,6 +88,7 @@ export default function ReportBuilderPage() {
   const [instrument, setInstrument] = React.useState("");
   const [referenceNo, setReferenceNo] = React.useState("");
   const [examDate, setExamDate] = React.useState("");
+  const [reportDate, setReportDate] = React.useState("");
   const [preTestPhaseText, setPreTestPhaseText] = React.useState("");
   const [preTestNotes, setPreTestNotes] = React.useState("");
   const [questions, setQuestions] = React.useState<{ text: string; answer: string; evaluation: string }[]>([]);
@@ -107,6 +108,7 @@ export default function ReportBuilderPage() {
     setInstrument(content.instrument);
     setReferenceNo(content.reference_no);
     setExamDate(content.exam_date);
+    setReportDate(content.report_date);
     setSection4FollowUp(content.section_4_follow_up);
     setPreTestNotes(content.pre_test_notes);
     setQuestions(content.questions);
@@ -232,6 +234,7 @@ export default function ReportBuilderPage() {
     post_test_notes: postTestNotes,
     reference_no: referenceNo,
     exam_date: examDate,
+    report_date: reportDate,
     section_4_follow_up: section4FollowUp,
     limestone_notes: limestoneNotes,
     pre_test_phase_text: preTestPhaseText,
@@ -467,10 +470,10 @@ export default function ReportBuilderPage() {
             )}
 
 
-            {/* Ref & Date & Verdict */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Ref & Dates & Verdict */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="ref-no" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Our Reference</Label>
+                <Label htmlFor="ref-no" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Ref ID</Label>
                 <Input
                   id="ref-no"
                   value={referenceNo}
@@ -480,11 +483,21 @@ export default function ReportBuilderPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="date" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Exam Date</Label>
+                <Label htmlFor="test-date" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Test Date</Label>
                 <Input
-                  id="date"
+                  id="test-date"
                   value={examDate}
                   onChange={(e) => setExamDate(e.target.value)}
+                  disabled={readOnly}
+                  className="h-10 rounded-xl bg-card border-border/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="report-date" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Report Date</Label>
+                <Input
+                  id="report-date"
+                  value={reportDate}
+                  onChange={(e) => setReportDate(e.target.value)}
                   disabled={readOnly}
                   className="h-10 rounded-xl bg-card border-border/50"
                 />
@@ -735,19 +748,23 @@ export default function ReportBuilderPage() {
 
                 <div className="mt-8 space-y-3">
                   <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
-                    EXAMINEE INFORMATION
+                    POLYGRAPH EXAM DETAILS
                   </h3>
                   <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">OUR REF</div>
+                    <div className="col-span-3 font-bold text-zinc-500 uppercase">REF ID</div>
                     <div className="col-span-9 font-semibold text-zinc-900">: {referenceNo}</div>
                   </div>
                   <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">DATE</div>
+                    <div className="col-span-3 font-bold text-zinc-500 uppercase">TEST DATE</div>
                     <div className="col-span-9 font-semibold text-zinc-900">: {examDate}</div>
                   </div>
                   <div className="grid grid-cols-12 text-[10px]">
+                    <div className="col-span-3 font-bold text-zinc-500 uppercase">REPORT DATE</div>
+                    <div className="col-span-9 font-semibold text-zinc-900">: {reportDate || examDate}</div>
+                  </div>
+                  <div className="grid grid-cols-12 text-[10px]">
                     <div className="col-span-3 font-bold text-zinc-500 uppercase">EXAMINEE</div>
-                    <div className="col-span-9 font-black text-zinc-900">: {subjectName || "—"}</div>
+                    <div className="col-span-9 font-black text-zinc-900 uppercase">: {formatReportPersonName(subjectName) || "—"}</div>
                   </div>
                 </div>
 
@@ -806,7 +823,7 @@ export default function ReportBuilderPage() {
                   <img src="/singaporeassociationofpolygraph.jfif" alt="SAP" className="h-8 w-16 object-contain grayscale opacity-80" />
                 </div>
                 <div className="text-[7.5px] text-zinc-400 text-center space-y-1 font-semibold">
-                  <p>Polygraph International HR Consultancy LLC | Office 401-41, Deyaar building, Al Barsha 1, Dubai, United Arab Emirates</p>
+                  <p>Polygraph UAE | Office 401-41, Deyaar building, Al Barsha 1, Dubai, United Arab Emirates</p>
                   <p>Website: www.polygraph.ae | Email: info@polygraph.ae</p>
                   <p className="text-[8px] font-black tracking-widest text-zinc-500 uppercase mt-2">STAFF IN CONFIDENCE</p>
                 </div>
@@ -871,7 +888,7 @@ export default function ReportBuilderPage() {
                   <img src="/singaporeassociationofpolygraph.jfif" alt="SAP" className="h-8 w-16 object-contain grayscale opacity-80" />
                 </div>
                 <div className="text-[7.5px] text-zinc-400 text-center space-y-1 font-semibold">
-                  <p>Polygraph UAE HR Consultancy LLC | Office 401-41, Deyaar building, Al Barsha 1, Dubai, United Arab Emirates</p>
+                  <p>Polygraph UAE | Office 401-41, Deyaar building, Al Barsha 1, Dubai, United Arab Emirates</p>
                   <p>Website: www.polygraph.ae | Email: info@polygraph.ae</p>
                   <p className="text-[8px] font-black tracking-widest text-zinc-500 uppercase mt-2">STAFF IN CONFIDENCE</p>
                 </div>

@@ -130,6 +130,19 @@ export function clinicDateTimeToISO(date: string, time: string): string {
   return dubaiWallClockToUtcISO(date, time);
 }
 
+/** True when the Dubai wall-clock date+time is at or before now (UTC). */
+export function isClinicDateTimePast(date: string, time: string, now = new Date()): boolean {
+  if (!date || !time) {
+    return false;
+  }
+  const iso = clinicDateTimeToISO(date, time.slice(0, 5));
+  const scheduled = new Date(iso);
+  if (Number.isNaN(scheduled.getTime())) {
+    return false;
+  }
+  return scheduled.getTime() <= now.getTime();
+}
+
 export function formatClinicClock(value: string | Date): string {
   return dubaiClockFromUtc(value);
 }

@@ -46,7 +46,7 @@ import {
   type BulkImportHistoricalRow,
   type ExamTypeRecord,
 } from "@/lib/exam-booking";
-import { clinicDateTimeToISO, clinicTodayDateString } from "@/lib/clinic-time";
+import { clinicDateTimeToISO, isClinicDateTimePast } from "@/lib/clinic-time";
 
 // ─── CSV templates ──────────────────────────────────────────────────────────
 
@@ -1070,8 +1070,12 @@ export default function BatchIntakePage() {
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
-                    min={clinicTodayDateString()}
                   />
+                  {date && time && isClinicDateTimePast(date, time) && (
+                    <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+                      Backdated session — this logs exams that already happened.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="time">Start time (Dubai) *</Label>

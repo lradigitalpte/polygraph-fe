@@ -158,6 +158,7 @@ export type StructuredReportData = {
   post_test_notes: string;
   reference_no?: string;
   exam_date?: string;
+  report_date?: string;
   section_4_follow_up?: string;
   limestone_notes?: string;
   pre_test_phase_text?: string;
