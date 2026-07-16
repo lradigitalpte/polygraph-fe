@@ -10,7 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
-import { deleteMyAccount, deleteMySignature, fetchMe, fetchMySignature, updateMe, uploadMySignature } from "@/lib/account";
+import {
+  deleteMyAccount,
+  deleteMySignature,
+  fetchMe,
+  fetchMySignature,
+  updateMe,
+  updateMySignatureMeta,
+  uploadMySignature,
+} from "@/lib/account";
 
 function initials(name: string, email: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -27,9 +35,10 @@ export default function ProfilePage() {
   const [email, setEmail] = React.useState("");
   const [roleName, setRoleName] = React.useState("");
   const [signatureImage, setSignatureImage] = React.useState("");
-  const [signatureTitle, setSignatureTitle] = React.useState("Private Polygraph Examiner");
-  const [signatureOrganization, setSignatureOrganization] = React.useState("Polygraph International HR Consultancy LLC");
+  const [signatureTitle, setSignatureTitle] = React.useState("");
+  const [signatureOrganization, setSignatureOrganization] = React.useState("");
   const [signatureSaving, setSignatureSaving] = React.useState(false);
+  const [signatureMetaSaving, setSignatureMetaSaving] = React.useState(false);
 
   React.useEffect(() => {
     void (async () => {
@@ -42,8 +51,8 @@ export default function ProfilePage() {
         const signature = await fetchMySignature();
         if (signature) {
           setSignatureImage(signature.image);
-          setSignatureTitle(signature.title);
-          setSignatureOrganization(signature.organization);
+          setSignatureTitle(signature.title || "");
+          setSignatureOrganization(signature.organization || "");
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load profile");
@@ -73,10 +82,36 @@ export default function ProfilePage() {
       await uploadMySignature(file, signatureTitle.trim(), signatureOrganization.trim());
       const signature = await fetchMySignature();
       setSignatureImage(signature?.image ?? "");
+      if (signature?.title) setSignatureTitle(signature.title);
+      if (signature?.organization) setSignatureOrganization(signature.organization);
       toast.success("Examiner signature saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to upload signature");
-    } finally { setSignatureSaving(false); }
+    } finally {
+      setSignatureSaving(false);
+    }
+  };
+
+  const handleSaveSignatureMeta = async () => {
+    if (!signatureImage) {
+      toast.error("Upload a signature image first");
+      return;
+    }
+    if (!signatureTitle.trim() || !signatureOrganization.trim()) {
+      toast.error("Title and organization are required");
+      return;
+    }
+    setSignatureMetaSaving(true);
+    try {
+      const updated = await updateMySignatureMeta(signatureTitle.trim(), signatureOrganization.trim());
+      setSignatureTitle(updated.title);
+      setSignatureOrganization(updated.organization);
+      toast.success("Signature details saved — reports will use these values");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save signature details");
+    } finally {
+      setSignatureMetaSaving(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -118,13 +153,14 @@ export default function ProfilePage() {
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="display-name">Display Name</Label>
-                <Input id="display-name" value={name} onChange={(e) => setName(e.target.value)} />
+                <Label htmlFor="name">Display name</Label>
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
+
               <div className="grid gap-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input id="email" type="email" value={email} disabled />
-                <p className="text-[10px] text-muted-foreground">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" value={email} disabled />
+                <p className="text-xs text-muted-foreground">
                   Email is tied to your sign-in account and cannot be changed here.
                 </p>
               </div>
@@ -141,20 +177,80 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle>Report Signature</CardTitle>
-            <CardDescription>Your signature is applied only when an authorized user finalizes a report under your recorded authorization.</CardDescription>
+            <CardDescription>
+              Title and organization are printed under your signature on finalized reports. Edit them
+              here anytime — no need to re-upload the PNG.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {signatureImage && <div className="w-fit rounded-xl border bg-white p-4"><img src={signatureImage} alt="Saved signature" className="h-20 max-w-72 object-contain" /></div>}
-            <div className="grid gap-2"><Label htmlFor="signature-title">Professional title</Label><Input id="signature-title" value={signatureTitle} onChange={(e) => setSignatureTitle(e.target.value)} /></div>
-            <div className="grid gap-2"><Label htmlFor="signature-org">Organization</Label><Input id="signature-org" value={signatureOrganization} onChange={(e) => setSignatureOrganization(e.target.value)} /></div>
-            <div className="flex flex-wrap gap-3">
-              <label className="inline-flex cursor-pointer items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                {signatureSaving ? "Uploading..." : signatureImage ? "Replace Signature PNG" : "Upload Signature PNG"}
-                <input type="file" accept="image/png,.png" className="hidden" disabled={signatureSaving || !signatureTitle.trim() || !signatureOrganization.trim()} onChange={(e) => void handleSignatureUpload(e.target.files?.[0])} />
-              </label>
-              {signatureImage && <Button type="button" variant="outline" onClick={() => void deleteMySignature().then(() => { setSignatureImage(""); toast.success("Signature removed"); })}>Remove</Button>}
+            {signatureImage && (
+              <div className="w-fit rounded-xl border bg-white p-4">
+                <img src={signatureImage} alt="Saved signature" className="h-20 max-w-72 object-contain" />
+              </div>
+            )}
+            <div className="grid gap-2">
+              <Label htmlFor="signature-title">Professional title</Label>
+              <Input
+                id="signature-title"
+                value={signatureTitle}
+                onChange={(e) => setSignatureTitle(e.target.value)}
+                placeholder="e.g. Private Polygraph Examiner"
+              />
             </div>
-            <p className="text-xs text-muted-foreground">Use a transparent PNG, maximum 1 MB. A snapshot is retained in each finalized report.</p>
+            <div className="grid gap-2">
+              <Label htmlFor="signature-org">Organization</Label>
+              <Input
+                id="signature-org"
+                value={signatureOrganization}
+                onChange={(e) => setSignatureOrganization(e.target.value)}
+                placeholder="e.g. Polygraph UAE"
+              />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {signatureImage && (
+                <Button
+                  type="button"
+                  onClick={() => void handleSaveSignatureMeta()}
+                  disabled={signatureMetaSaving || !signatureTitle.trim() || !signatureOrganization.trim()}
+                >
+                  {signatureMetaSaving ? "Saving…" : "Save Signature Details"}
+                </Button>
+              )}
+              <label className="inline-flex cursor-pointer items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                {signatureSaving
+                  ? "Uploading..."
+                  : signatureImage
+                    ? "Replace Signature PNG"
+                    : "Upload Signature PNG"}
+                <input
+                  type="file"
+                  accept="image/png,.png"
+                  className="hidden"
+                  disabled={signatureSaving || !signatureTitle.trim() || !signatureOrganization.trim()}
+                  onChange={(e) => void handleSignatureUpload(e.target.files?.[0])}
+                />
+              </label>
+              {signatureImage && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void deleteMySignature().then(() => {
+                      setSignatureImage("");
+                      setSignatureTitle("");
+                      setSignatureOrganization("");
+                      toast.success("Signature removed");
+                    })
+                  }
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Use a transparent PNG, maximum 1 MB. A snapshot of the image, title, and organization is
+              retained in each finalized report.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -163,7 +259,8 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle className="text-destructive">Delete Account</CardTitle>
           <CardDescription>
-            Permanently remove your staff account and sign-in. You will not be able to sign in again with this email.
+            Permanently remove your staff account and sign-in. You will not be able to sign in again
+            with this email.
           </CardDescription>
         </CardHeader>
         <CardContent>

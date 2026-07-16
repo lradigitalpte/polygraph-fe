@@ -59,6 +59,20 @@ export async function uploadMySignature(file: File, title: string, organization:
   if (!response.ok) throw new Error(payload?.error || "Failed to upload signature");
 }
 
+export async function updateMySignatureMeta(title: string, organization: string): Promise<ExaminerSignature> {
+  const response = await authenticatedFetch("/api/me/signature", {
+    method: "PATCH",
+    body: JSON.stringify({ title, organization }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "Failed to update signature details");
+  return {
+    image: "",
+    title: payload?.title ?? title,
+    organization: payload?.organization ?? organization,
+  };
+}
+
 export async function deleteMySignature(): Promise<void> {
   const response = await authenticatedFetch("/api/me/signature", { method: "DELETE" });
   if (!response.ok) throw new Error("Failed to delete signature");
