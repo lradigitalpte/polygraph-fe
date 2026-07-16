@@ -50,6 +50,7 @@ import {
   type ReportSessionContext,
 } from "@/lib/report-template";
 import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta } from "@/lib/reports";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
@@ -434,7 +435,7 @@ export default function ReportBuilderPage() {
                   <Lock className="h-4 w-4" /> Final Report Locked
                 </div>
                 <p className="mt-2 text-xs text-emerald-900/80">
-                  This report is immutable{lockedAt ? ` since ${new Date(lockedAt).toLocaleString()}` : ""}. Return to Forensic Reports to email the secure PDF to the client.
+                  This report is immutable{lockedAt ? ` since ${formatClinicDateTime(lockedAt)}` : ""}. Return to Forensic Reports to email the secure PDF to the client.
                   {canOverrideLockedReport ? " An authorized admin can unlock it for revision if needed." : ""}
                 </p>
               </div>

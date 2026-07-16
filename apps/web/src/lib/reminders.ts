@@ -2,6 +2,7 @@ import { fetchBillingLedger, type AccountLedgerEntry } from "@/lib/billing";
 import { fetchPendingFormRequests, type FormRequestRecord } from "@/lib/forms";
 import { sendAppointmentPaymentReminder, formatMoney } from "@/lib/client-account";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 export type ReminderUrgency = "Overdue" | "Pending" | "Upcoming";
 
@@ -97,12 +98,7 @@ export function formatDueWindow(sessionDateISO: string): { label: string; status
   }
 
   return {
-    label: target.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
+    label: formatClinicDateTime(target),
     status: "Pending",
   };
 }
@@ -170,13 +166,7 @@ export function buildSessionReminders(
         ? "TBD"
         : statusLower === "completed"
           ? "Completed"
-          : scheduled.toLocaleString(undefined, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
+          : formatClinicDateTime(scheduled);
 
       let cardStatus: SessionReminderItem["status"] = "Queued";
       if (sentToday.has(code)) {

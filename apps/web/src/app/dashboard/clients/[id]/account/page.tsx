@@ -57,15 +57,10 @@ import {
 import { fetchBillingLedger, ledgerEntryCollectTarget } from "@/lib/billing";
 import { collectQuotationPayment, sendQuotationEmail } from "@/lib/quotations";
 import { fetchOrganizationSettings } from "@/lib/settings";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatClinicDateLabel(iso) || iso;
 }
 
 function statusVariant(status: string) {

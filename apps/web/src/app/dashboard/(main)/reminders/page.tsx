@@ -48,6 +48,7 @@ import {
   type PaymentReminderItem,
   type SessionReminderItem,
 } from "@/lib/reminders";
+import { formatClinicDateLabel, formatClinicDateTime } from "@/lib/clinic-time";
 
 type ComposeTarget =
   | (PaymentReminderItem & { kind: "payment" })
@@ -178,16 +179,7 @@ export default function RemindersPage() {
     if (!type) return;
 
     const formatWhen = (iso: string) => {
-      const d = new Date(iso);
-      return Number.isNaN(d.getTime())
-        ? "your scheduled time"
-        : d.toLocaleString(undefined, {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
+      return formatClinicDateTime(iso) || "your scheduled time";
     };
 
     const sessionItem: SessionReminderItem =
@@ -742,9 +734,7 @@ export default function RemindersPage() {
 }
 
 function formatFormExpires(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return formatClinicDateLabel(iso) || iso;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

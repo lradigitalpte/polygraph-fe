@@ -48,6 +48,7 @@ import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
 import { formatOrganizationAccountLabel, isOrganizationClient } from "@/lib/client-types";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 import {
   ENGLISH_PROFICIENCY_LEVELS,
   createSubject,
@@ -254,9 +255,7 @@ function matchesSessionCount(count: number, op: SessionCountOp, value: number): 
 
 function formatLastSession(iso?: string) {
   if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return formatClinicDateLabel(iso) || "—";
 }
 
 function getInitials(name: string) {

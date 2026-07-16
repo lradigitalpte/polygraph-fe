@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatSubjectName } from "@/lib/subjects";
+import { clinicDateKey, formatClinicDateLabel } from "@/lib/clinic-time";
 import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
 import {
   DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
@@ -195,8 +196,8 @@ export default function ReportsDashboard() {
     }));
   };
 
-  // Sessions table derived data
-  const toInputDate = (value: string) => new Date(value).toLocaleDateString("en-CA");
+  // Sessions table derived data — Dubai clinic calendar day (YYYY-MM-DD)
+  const toInputDate = (value: string) => clinicDateKey(value);
 
   const completedExams = React.useMemo(() => {
     return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
@@ -459,7 +460,7 @@ export default function ReportsDashboard() {
                           <tr key={appt.id} className="hover:bg-primary/[0.02] transition-colors">
                             <td className="px-8 py-4 font-semibold text-foreground">{examineeName}</td>
                             <td className="px-8 py-4 text-xs font-medium text-foreground/80">{appt.client?.name || "Corporate"}</td>
-                            <td className="px-8 py-4 text-xs text-muted-foreground">{new Date(appt.scheduled_at).toLocaleDateString()}</td>
+                            <td className="px-8 py-4 text-xs text-muted-foreground">{formatClinicDateLabel(appt.scheduled_at)}</td>
                             <td className="px-8 py-4 text-xs text-muted-foreground">
                               {legacy.legacyStatus || legacy.legacyResults ? (
                                 <div className="space-y-1">

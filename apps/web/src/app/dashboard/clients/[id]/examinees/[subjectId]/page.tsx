@@ -21,6 +21,7 @@ import {
   Copy,
 } from "lucide-react";
 import { fetchSecureShares, type SecureReportShare } from "@/lib/reports";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -171,7 +172,7 @@ export default function ExamineeOverviewPage() {
                     <div>
                       <p className="text-sm font-bold">{formatAppointmentCode(appt.id)}</p>
                       <p className="text-[10px] text-muted-foreground">
-                        {new Date(appt.scheduled_at).toLocaleDateString()} · {appt.status}
+                        {formatClinicDateLabel(appt.scheduled_at)} · {appt.status}
                       </p>
                     </div>
                   </div>

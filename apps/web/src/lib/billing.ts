@@ -4,6 +4,7 @@ import { catalogPriceInCurrency, CATALOG_PRICE_CURRENCY, ledgerRowMoney } from "
 import { fetchAppointments, fetchExamTypes } from "@/lib/exam-booking";
 import { fetchQuotations } from "@/lib/quotations";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 
 function examTypePriceIndex(types: { name: string; price: number }[]) {
   return new Map(types.map((t) => [t.name.trim().toLowerCase(), Number(t.price || 0)]));
@@ -236,10 +237,7 @@ export type FinancialInvoice = {
 };
 
 export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInvoice {
-  const date = new Date(entry.date);
-  const formattedDate = Number.isNaN(date.getTime())
-    ? entry.date
-    : date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const formattedDate = formatClinicDateLabel(entry.date) || entry.date;
 
   const paid = Number(entry.paid_amount || 0);
   const total = Number(entry.total_amount || 0);

@@ -61,6 +61,7 @@ import {
 } from "@/lib/exam-documentation";
 import { fetchSubject, type SubjectRecord } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 
 const EXAM_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"] as const;
 const DOC_TYPES = [
@@ -102,16 +103,7 @@ const WORKFLOW_STEPS = [
 ] as const;
 
 function formatDateTime(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatClinicDateTime(iso) || iso;
 }
 
 function formatDuration(minutes: number) {

@@ -12,6 +12,7 @@ import { isOrganizationClient } from "@/lib/client-types";
 import { formatAppointmentCode } from "@/lib/exam-documentation";
 import type { AppointmentRecord } from "@/lib/exam-booking";
 import { formatSubjectName } from "@/lib/subjects";
+import { formatClinicDateTime } from "@/lib/clinic-time";
 import {
   Calendar,
   ChevronRight,
@@ -23,16 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 
 function formatDateTime(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatClinicDateTime(iso) || iso;
 }
 
 function formatDuration(minutes: number) {

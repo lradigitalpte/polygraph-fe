@@ -2,7 +2,7 @@ import { CalendarCheck, CalendarX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ExamineeRosterEntry } from "@/lib/clients";
-import { formatClinicDateTime } from "@/lib/clinic-time";
+import { formatClinicDateLabel, formatClinicDateTime } from "@/lib/clinic-time";
 
 function formatSessionDateTime(iso: string): string {
   return formatClinicDateTime(iso);
@@ -79,7 +79,7 @@ export function ExamineeBookingStatus({ entry, compact = false, className }: Exa
       </Badge>
       {!compact && entry.session_count > 0 && entry.last_scheduled_at && (
         <span className="text-[10px] text-muted-foreground">
-          Last session: {new Date(entry.last_scheduled_at).toLocaleDateString()}
+          Last session: {formatClinicDateLabel(entry.last_scheduled_at)}
         </span>
       )}
     </div>

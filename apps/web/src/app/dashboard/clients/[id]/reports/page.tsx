@@ -30,6 +30,7 @@ import {
   type SecureReportShare,
 } from "@/lib/reports";
 import { formatSubjectName } from "@/lib/subjects";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 
 export default function ClientReportsPage() {
   const params = useParams();
@@ -221,7 +222,7 @@ export default function ClientReportsPage() {
                           {examineeName}
                         </td>
                         <td className="px-6 py-4 text-xs text-muted-foreground">
-                          {new Date(appt.scheduled_at).toLocaleDateString()}
+                          {formatClinicDateLabel(appt.scheduled_at)}
                         </td>
                         <td className="px-6 py-4">
                           <Badge variant={appt.status === "completed" ? "default" : "outline"}>

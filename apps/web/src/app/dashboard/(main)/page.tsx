@@ -29,6 +29,13 @@ import { fetchLeads, type LeadRecord } from "@/lib/leads";
 import { fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import {
+  clinicDateFromKey,
+  clinicTodayDateString,
+  formatClinicClock,
+  formatClinicDateLabel,
+  isSameClinicDay,
+} from "@/lib/clinic-time";
 
 type DashboardExam = {
   id: number;
@@ -177,21 +184,16 @@ function formatExamWindow(status: DashboardExam["status"], scheduledAt: Date) {
   }
 
   const now = new Date();
-  if (isSameDay(scheduledAt, now)) {
-    return `Interview at ${scheduledAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  if (isSameClinicDay(scheduledAt, now)) {
+    return `Interview at ${formatClinicClock(scheduledAt)}`;
   }
 
-  const tomorrow = addDays(toStartOfDay(now), 1);
-  if (isSameDay(scheduledAt, tomorrow)) {
-    return `Tomorrow, ${scheduledAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  const tomorrow = new Date(clinicDateFromKey(clinicTodayDateString()).getTime() + 24 * 60 * 60 * 1000);
+  if (isSameClinicDay(scheduledAt, tomorrow)) {
+    return `Tomorrow, ${formatClinicClock(scheduledAt)}`;
   }
 
-  return scheduledAt.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return `${formatClinicDateLabel(scheduledAt)}, ${formatClinicClock(scheduledAt)}`;
 }
 
 function badgeVariantForStatus(status: DashboardExam["status"]): "success" | "warning" | "outline" | "destructive" {
@@ -857,7 +859,7 @@ export default function DashboardPage() {
             ) : analytics.todaysQueue.map((item) => (
               <div key={`${item.code}-${item.scheduledAt.toISOString()}`} className="flex gap-4 border-l border-border pl-4">
                 <div className="w-14 shrink-0 text-sm font-semibold">
-                  {item.scheduledAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                  {formatClinicClock(item.scheduledAt)}
                 </div>
                 <div className="min-w-0 flex-1 border border-border/70 bg-background/60 p-3">
                   <div className="flex items-center justify-between gap-3">

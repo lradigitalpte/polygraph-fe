@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CorporateClientOverview } from "@/components/dashboard/corporate-client-overview";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { isOrganizationClient } from "@/lib/client-types";
+import { formatClinicDateLabel } from "@/lib/clinic-time";
 import { 
   Activity, 
   Clock, 
@@ -141,7 +142,7 @@ export default function ClientOverviewPage() {
                         APT-{String(appointment.id).padStart(4, "0")}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
-                        {new Date(appointment.scheduled_at).toLocaleDateString()}
+                        {formatClinicDateLabel(appointment.scheduled_at)}
                       </div>
                     </div>
                   </div>

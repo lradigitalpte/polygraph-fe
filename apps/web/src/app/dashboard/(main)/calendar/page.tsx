@@ -647,7 +647,7 @@ export default function CalendarPage() {
                             <div>
                               <p className="text-[11px] font-black text-foreground/90">{phase.name}</p>
                               <p className="text-[8px] font-bold text-muted-foreground/60 uppercase">
-                                {new Date(phase.start_time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                                {formatClinicClock(phase.start_time)}
                               </p>
                               {phase.notes && (
                                 <p className="text-[9px] text-muted-foreground mt-0.5">{phase.notes}</p>
