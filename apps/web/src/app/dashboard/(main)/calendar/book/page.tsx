@@ -465,9 +465,6 @@ function BookAppointmentPageContent() {
     if (isDateBlocked) {
       return { label: "Examiner blocked for this date", type: "warning" as const };
     }
-    if (isPastDateSelected) {
-      return { label: "Backdated day — past times are available for logging", type: "warning" as const };
-    }
     if (formData.examinerId && !isLoadingAvailability) {
       if (availableSlots.length === 0) {
         return { label: "No open slots (booked or blocked)", type: "warning" as const };
@@ -484,7 +481,6 @@ function BookAppointmentPageContent() {
     isDateBlocked,
     isLoadingAvailability,
     availableSlots.length,
-    isPastDateSelected,
   ]);
 
   const handleComplete = async () => {
@@ -1045,19 +1041,6 @@ function BookAppointmentPageContent() {
                           )}
                         </div>
                       </div>
-
-                      {isBackdatedBooking && (
-                        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
-                          <History className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold">Backdated appointment</p>
-                            <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/90">
-                              This time is already in the past. Use this when an exam already took place
-                              but wasn&apos;t logged — for example so you can open the case and generate a report.
-                            </p>
-                          </div>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -1156,18 +1139,6 @@ function BookAppointmentPageContent() {
                       <CardDescription>Confirm the booking before it is written to the backend.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 px-4 pb-4 sm:space-y-6 sm:px-6 sm:pb-6">
-                      {isBackdatedBooking && (
-                        <div className="flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
-                          <History className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold">You are confirming a backdated booking</p>
-                            <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/90">
-                              The selected slot is in the past. The appointment will still be created so the
-                              exam can appear on the dashboard and reports can be generated.
-                            </p>
-                          </div>
-                        </div>
-                      )}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <ReviewItem label="Client" value={formData.clientName || "Not selected"} />
                         <ReviewItem label="Subject" value={selectedSubjectLabel} />
