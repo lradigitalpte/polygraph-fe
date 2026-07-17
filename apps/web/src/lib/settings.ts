@@ -9,6 +9,7 @@ export type OrganizationSettings = {
   usd_aed_rate?: number;
   usd_gbp_rate?: number;
   usd_eur_rate?: number;
+  sunday_bookings_enabled?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -30,6 +31,7 @@ export async function updateOrganizationSettings(input: {
   usd_aed_rate?: number;
   usd_gbp_rate?: number;
   usd_eur_rate?: number;
+  sunday_bookings_enabled?: boolean;
 }): Promise<OrganizationSettings> {
   const response = await authenticatedFetch("/api/settings/organization", {
     method: "PATCH",

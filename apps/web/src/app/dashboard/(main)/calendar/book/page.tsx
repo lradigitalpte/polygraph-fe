@@ -321,7 +321,7 @@ function BookAppointmentPageContent() {
         return;
       }
 
-      if (isClinicSunday(formData.date)) {
+      if (isClinicSunday(formData.date) && !orgSettings?.sunday_bookings_enabled) {
         setBusyPeriods([]);
         setIsDateBlocked(true);
         setIsLoadingAvailability(false);
@@ -352,7 +352,7 @@ function BookAppointmentPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [formData.examinerId, formData.date]);
+  }, [formData.examinerId, formData.date, orgSettings?.sunday_bookings_enabled]);
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -459,7 +459,7 @@ function BookAppointmentPageContent() {
     if (!formData.date) {
       return null;
     }
-    if (isClinicSunday(formData.date)) {
+    if (isClinicSunday(formData.date) && !orgSettings?.sunday_bookings_enabled) {
       return { label: "Clinic closed on Sundays", type: "error" as const };
     }
     if (isDateBlocked) {
@@ -481,6 +481,7 @@ function BookAppointmentPageContent() {
     isDateBlocked,
     isLoadingAvailability,
     availableSlots.length,
+    orgSettings?.sunday_bookings_enabled,
   ]);
 
   const handleComplete = async () => {

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [usdAedRate, setUsdAedRate] = React.useState("3.6725");
   const [usdGbpRate, setUsdGbpRate] = React.useState("0.7850");
   const [usdEurRate, setUsdEurRate] = React.useState("0.9250");
+  const [sundayBookingsEnabled, setSundayBookingsEnabled] = React.useState(false);
 
   React.useEffect(() => {
     void (async () => {
@@ -48,6 +50,7 @@ export default function SettingsPage() {
         setUsdAedRate(String(org.usd_aed_rate ?? 3.6725));
         setUsdGbpRate(String(org.usd_gbp_rate ?? 0.7850));
         setUsdEurRate(String(org.usd_eur_rate ?? 0.9250));
+        setSundayBookingsEnabled(org.sunday_bookings_enabled ?? false);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -67,6 +70,7 @@ export default function SettingsPage() {
         usd_aed_rate: parseFloat(usdAedRate) || 3.6725,
         usd_gbp_rate: parseFloat(usdGbpRate) || 0.7850,
         usd_eur_rate: parseFloat(usdEurRate) || 0.9250,
+        sunday_bookings_enabled: sundayBookingsEnabled,
       });
       setName(org.name);
       setCurrency(org.currency ?? "AED");
@@ -180,6 +184,18 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+              <label className="flex items-center gap-3 rounded-lg border p-4">
+                <Checkbox
+                  checked={sundayBookingsEnabled}
+                  onCheckedChange={(checked) => setSundayBookingsEnabled(Boolean(checked))}
+                />
+                <div>
+                  <div className="text-sm font-medium">Allow Sunday bookings</div>
+                  <div className="text-xs text-muted-foreground">
+                    Enable this to make booking availability run Monday through Sunday. When disabled, Sundays remain closed.
+                  </div>
+                </div>
+              </label>
               <Button className="w-fit" onClick={() => void handleSave()} disabled={saving || !name.trim()}>
                 {saving ? "Saving…" : "Save Changes"}
               </Button>
