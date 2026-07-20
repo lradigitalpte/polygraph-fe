@@ -96,8 +96,9 @@ export async function regenerateSecureShare(id: number, expiresInDays = 7): Prom
   return data;
 }
 
-export async function fetchConsolidatedStats(): Promise<ConsolidatedReportStats> {
-  const response = await authenticatedFetch("/api/reports/stats");
+export async function fetchConsolidatedStats(examinerId?: number): Promise<ConsolidatedReportStats> {
+	const query = examinerId ? `?examiner_id=${examinerId}` : "";
+	const response = await authenticatedFetch(`/api/reports/stats${query}`);
   if (!response.ok) {
     throw new Error(`Failed to load report stats (${response.status})`);
   }
