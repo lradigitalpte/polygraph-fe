@@ -25,6 +25,7 @@ export type SecureReportShare = {
   pdf_url: string;
   status: "sent" | "viewed";
   expires_at: string;
+  archived_at?: string | null;
 };
 
 export type ConsolidatedReportStats = {
@@ -50,17 +51,28 @@ export async function fetchSecureShares(filters?: {
   search?: string;
   client_id?: number;
   subject_id?: number;
+  archive?: "active" | "archived" | "all";
 }): Promise<SecureReportShare[]> {
   const params = new URLSearchParams();
   if (filters?.search) params.append("search", filters.search);
   if (filters?.client_id) params.append("client_id", String(filters.client_id));
   if (filters?.subject_id) params.append("subject_id", String(filters.subject_id));
+  if (filters?.archive) params.append("archive", filters.archive);
 
   const response = await authenticatedFetch(`/api/reports/shares?${params.toString()}`);
   if (!response.ok) {
     throw new Error(`Failed to load report shares (${response.status})`);
   }
   return response.json();
+}
+
+export async function setSecureShareArchived(id: number, archived: boolean): Promise<SecureReportShare> {
+  const response = await authenticatedFetch(`/api/reports/shares/${id}/${archived ? "archive" : "restore"}`, {
+    method: "POST",
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Failed to ${archived ? "archive" : "restore"} report (${response.status})`);
+  return data;
 }
 
 export async function createSecureShare(

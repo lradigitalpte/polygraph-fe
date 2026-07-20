@@ -20,6 +20,8 @@ import {
   ClipboardList,
   Lock,
   ShieldCheck,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -38,6 +40,7 @@ import {
   fetchSecureShares,
   createSecureShare,
   regenerateSecureShare,
+  setSecureShareArchived,
   fetchConsolidatedStats,
   fetchReport,
   resolveReportWorkflowStatus,
@@ -83,6 +86,7 @@ export default function ReportsDashboard() {
   const [sharesSearchDateFrom, setSharesSearchDateFrom] = React.useState("");
   const [sharesSearchDateTo, setSharesSearchDateTo] = React.useState("");
   const [sharesPerPage, setSharesPerPage] = React.useState(5);
+  const [sharesArchiveView, setSharesArchiveView] = React.useState<"active" | "archived">("active");
 
   // Share Dialog states
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
@@ -100,7 +104,7 @@ export default function ReportsDashboard() {
     setLoading(true);
     try {
       const [sharesData, statsData, apptsData] = await Promise.all([
-        fetchSecureShares({ search }),
+        fetchSecureShares({ search, archive: "all" }),
         fetchConsolidatedStats(),
         fetchAppointments(),
       ]);
@@ -206,6 +210,17 @@ export default function ReportsDashboard() {
     }));
   };
 
+  const handleArchiveToggle = async (share: SecureReportShare) => {
+    const archived = !share.archived_at;
+    try {
+      const updated = await setSecureShareArchived(share.id, archived);
+      setShares((prev) => prev.map((item) => item.id === share.id ? updated : item));
+      toast.success(archived ? "Report delivery archived." : "Report delivery restored.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unable to update report archive");
+    }
+  };
+
   // Sessions table derived data — Dubai clinic calendar day (YYYY-MM-DD)
   const toInputDate = (value: string) => clinicDateKey(value);
 
@@ -278,6 +293,8 @@ export default function ReportsDashboard() {
   const filteredShares = React.useMemo(() => {
     const now = Date.now();
     return shares.filter((s) => {
+	  if (sharesArchiveView === "active" && s.archived_at) return false;
+	  if (sharesArchiveView === "archived" && !s.archived_at) return false;
       const createdDay = toInputDate(s.created_at);
       const matchesDateFrom = !sharesSearchDateFrom || createdDay >= sharesSearchDateFrom;
       const matchesDateTo = !sharesSearchDateTo || createdDay <= sharesSearchDateTo;
@@ -285,7 +302,7 @@ export default function ReportsDashboard() {
       if (sharesStatusFilter === "expired" && new Date(s.expires_at).getTime() >= now) return false;
       return matchesDateFrom && matchesDateTo;
     });
-  }, [shares, sharesStatusFilter, sharesSearchDateFrom, sharesSearchDateTo]);
+  }, [shares, sharesArchiveView, sharesStatusFilter, sharesSearchDateFrom, sharesSearchDateTo]);
 
   const sharesTotalPages = Math.max(1, Math.ceil(filteredShares.length / sharesPerPage));
   React.useEffect(() => { if (sharesPage > sharesTotalPages) setSharesPage(sharesTotalPages); }, [sharesTotalPages, sharesPage]);
@@ -574,6 +591,24 @@ export default function ReportsDashboard() {
         <TabsContent value="reports" className="space-y-6 mt-0 outline-none">
           <div className="space-y-6">
             <div className="flex flex-col gap-4 px-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={sharesArchiveView === "active" ? "default" : "outline"}
+                  className="rounded-xl"
+                  onClick={() => { setSharesArchiveView("active"); setSharesPage(1); }}
+                >
+                  Sent reports
+                </Button>
+                <Button
+                  size="sm"
+                  variant={sharesArchiveView === "archived" ? "default" : "outline"}
+                  className="rounded-xl"
+                  onClick={() => { setSharesArchiveView("archived"); setSharesPage(1); }}
+                >
+                  <Archive className="mr-2 h-4 w-4" /> Archived
+                </Button>
+              </div>
               <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
                 <div className="relative w-full">
                   <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -745,6 +780,15 @@ export default function ReportsDashboard() {
                                   <ExternalLink className="h-4 w-4" />
                                 </Button>
                               </a>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 rounded-xl hover:bg-muted"
+                                onClick={() => void handleArchiveToggle(share)}
+                                title={share.archived_at ? "Restore report delivery" : "Archive report delivery"}
+                              >
+                                {share.archived_at ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                              </Button>
                             </td>
                           </tr>
                         );
@@ -752,7 +796,7 @@ export default function ReportsDashboard() {
                     ) : (
                       <tr>
                         <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
-                          No report shares found.
+                          {sharesArchiveView === "archived" ? "No archived report deliveries." : "No report shares found."}
                         </td>
                       </tr>
                     )}

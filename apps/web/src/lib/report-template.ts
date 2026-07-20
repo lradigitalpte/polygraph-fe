@@ -64,8 +64,13 @@ export function formatSubjectName(subject?: {
   return formatReportPersonName(`${subject.first_name ?? ""} ${subject.last_name ?? ""}`);
 }
 
-export function formatReportReference(examId: number, date: Date): string {
-  return `PIN/CONF/${date.getFullYear()}/${String(examId).padStart(3, "0")}`;
+export function formatReportReference(date: Date): string {
+  // Omit ambiguous characters (0/O, 1/I) so references are easy to read aloud.
+  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const bytes = new Uint8Array(8);
+  globalThis.crypto.getRandomValues(bytes);
+  const code = Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+  return `PIN/CONF/${date.getFullYear()}/${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
 export function formatReportExamDate(date: Date): string {
@@ -99,7 +104,7 @@ export function buildReportSessionContext(
       "",
     clientName: clientName.trim(),
     examType,
-    referenceNo: formatReportReference(exam.id, examDate),
+    referenceNo: formatReportReference(examDate),
     formattedExamDate: formatReportExamDate(examDate),
     formattedReportDate: formatReportExamDate(new Date()),
     formattedDateTime: formatReportDateTime(examDate),

@@ -504,13 +504,13 @@ export default function ReportBuilderPage() {
             {/* Ref & Dates & Verdict */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="ref-no" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Ref ID</Label>
+                <Label htmlFor="ref-no" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Ref ID · Auto-generated</Label>
                 <Input
                   id="ref-no"
                   value={referenceNo}
-                  onChange={(e) => setReferenceNo(e.target.value)}
-                  disabled={readOnly}
-                  className="h-10 rounded-xl bg-card border-border/50"
+                  readOnly
+                  aria-readonly="true"
+                  className="h-10 rounded-xl bg-muted/40 border-border/50 font-mono"
                 />
               </div>
               <div className="space-y-2">
