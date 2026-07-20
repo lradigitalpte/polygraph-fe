@@ -21,6 +21,7 @@ export type SecureReportShare = {
   recipient_email: string;
   token: string;
   password?: string;
+  protection_mode?: "password" | "secure_link";
   pdf_url: string;
   status: "sent" | "viewed";
   expires_at: string;
@@ -66,7 +67,8 @@ export async function createSecureShare(
   examReportId: number | null,
   recipientEmail: string,
   examId?: number,
-  expiresInDays = 7
+  expiresInDays = 7,
+  protectionMode: "password" | "secure_link" = "password"
 ): Promise<SecureReportShare> {
   const response = await authenticatedFetch("/api/reports/shares", {
     method: "POST",
@@ -75,6 +77,7 @@ export async function createSecureShare(
       exam_id: examId || undefined,
       recipient_email: recipientEmail,
       expires_in_days: expiresInDays,
+      protection_mode: protectionMode,
     }),
   });
   const data = await response.json().catch(() => null);
@@ -84,10 +87,10 @@ export async function createSecureShare(
   return data;
 }
 
-export async function regenerateSecureShare(id: number, expiresInDays = 7): Promise<SecureReportShare> {
+export async function regenerateSecureShare(id: number, expiresInDays = 7, protectionMode?: "password" | "secure_link"): Promise<SecureReportShare> {
   const response = await authenticatedFetch(`/api/reports/shares/${id}/regenerate`, {
     method: "POST",
-    body: JSON.stringify({ expires_in_days: expiresInDays }),
+    body: JSON.stringify({ expires_in_days: expiresInDays, protection_mode: protectionMode }),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {

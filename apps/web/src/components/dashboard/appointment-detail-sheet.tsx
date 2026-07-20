@@ -38,6 +38,7 @@ import type { AppointmentRecord } from "@/lib/exam-booking";
 import { formatClinicDateTime } from "@/lib/clinic-time";
 import {
   fetchExamByAppointment,
+  fetchAppointment,
   formatAppointmentCode,
   updateAppointment,
 } from "@/lib/exam-documentation";
@@ -87,19 +88,23 @@ export function AppointmentDetailSheet({
     if (!appointment) return;
     setLoading(true);
     try {
-      const [examData, examinerList, subjectData] = await Promise.all([
-        fetchExamByAppointment(appointment.id),
+      const examData = await fetchExamByAppointment(appointment.id);
+      const [freshAppointment, examinerList, subjectData] = await Promise.all([
+        fetchAppointment(appointment.id),
         fetchExaminers(),
         appointment.subject_id
           ? fetchSubject(appointment.subject_id).catch(() => null)
           : Promise.resolve(null),
       ]);
-      setDetail(appointment);
+      const effectiveAppointment = examData?.status === "completed"
+        ? { ...freshAppointment, status: "completed" }
+        : freshAppointment;
+      setDetail(effectiveAppointment);
       setHasExamRecord(Boolean(examData));
       setExaminers(examinerList);
       setSubject(subjectData);
-      setSchedulingNotes(appointment.notes ?? "");
-      setAppointmentStatus(appointment.status ?? "pending");
+      setSchedulingNotes(effectiveAppointment.notes ?? "");
+      setAppointmentStatus(effectiveAppointment.status ?? "pending");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load appointment");
     } finally {

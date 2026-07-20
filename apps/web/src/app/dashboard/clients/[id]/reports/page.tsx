@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
+import { RegenerateReportDialog } from "@/components/dashboard/regenerate-report-dialog";
 import {
   DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
   fetchSecureShares,
@@ -46,6 +47,11 @@ export default function ClientReportsPage() {
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
   const [shareExpiryDays, setShareExpiryDays] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
+  const [protectionMode, setProtectionMode] = React.useState<"password" | "secure_link">("password");
+  const [regenerateId, setRegenerateId] = React.useState<number | null>(null);
+  const [regenerateMode, setRegenerateMode] = React.useState<"password" | "secure_link">("password");
+  const [regenerateExpiry, setRegenerateExpiry] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
+  const [regenerating, setRegenerating] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [reportWorkflow, setReportWorkflow] = React.useState<Record<number, ReportWorkflowStatus>>({});
 
@@ -80,6 +86,7 @@ export default function ClientReportsPage() {
     setSelectedExamId(examId);
     setRecipientEmail(initialEmail || client?.email || "");
     setShareExpiryDays(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
+    setProtectionMode("password");
   };
 
   const handleCreateShare = async () => {
@@ -89,7 +96,7 @@ export default function ClientReportsPage() {
     }
     setSharing(true);
     try {
-      await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays);
+      await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays, protectionMode);
       toast.success("Secure PDF encrypted and sent successfully!");
       setSelectedExamId(null);
       void loadShares();
@@ -107,17 +114,18 @@ export default function ClientReportsPage() {
     toast.success("Secure link copied to clipboard");
   };
 
-  const handleRegenerate = async (id: number) => {
-    if (!confirm("Are you sure you want to rotate this link? The previous link and passcode will expire immediately.")) {
-      return;
-    }
+  const handleOpenRegenerate = (share: SecureReportShare) => { setRegenerateId(share.id); setRegenerateMode(share.protection_mode || "password"); setRegenerateExpiry(DEFAULT_REPORT_SHARE_EXPIRY_DAYS); };
+  const handleRegenerate = async () => {
+    if (!regenerateId) return;
+    setRegenerating(true);
     try {
-      const updated = await regenerateSecureShare(id);
-      toast.success("Link rotated! A new passcode email has been sent.");
-      setShares((prev) => prev.map((s) => (s.id === id ? updated : s)));
+      const updated = await regenerateSecureShare(regenerateId, regenerateExpiry, regenerateMode);
+      toast.success("Link rotated and the updated delivery email was sent.");
+      setShares((prev) => prev.map((s) => (s.id === regenerateId ? updated : s)));
+      setRegenerateId(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to rotate link");
-    }
+    } finally { setRegenerating(false); }
   };
 
   const togglePasswordReveal = (id: number) => {
@@ -320,9 +328,9 @@ export default function ClientReportsPage() {
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-sm tracking-wider font-bold">
-                              {revealedPasswords[share.id] ? (share.password || "—") : "••••••"}
+                              {share.protection_mode === "secure_link" ? "No PIN" : revealedPasswords[share.id] ? (share.password || "—") : "••••••"}
                             </span>
-                            <Button
+                            {share.protection_mode !== "secure_link" && <Button
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8 rounded-lg"
@@ -333,7 +341,7 @@ export default function ClientReportsPage() {
                               ) : (
                                 <Eye className="h-4 w-4" />
                               )}
-                            </Button>
+                            </Button>}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-xs">
@@ -364,7 +372,7 @@ export default function ClientReportsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 rounded-lg text-amber-500 hover:text-amber-600"
-                            onClick={() => void handleRegenerate(share.id)}
+                            onClick={() => handleOpenRegenerate(share)}
                             title="Rotate / Regenerate Link"
                           >
                             <RefreshCw className="h-4 w-4" />
@@ -394,8 +402,11 @@ export default function ClientReportsPage() {
         expiryDays={shareExpiryDays}
         onExpiryDaysChange={setShareExpiryDays}
         sharing={sharing}
+        protectionMode={protectionMode}
+        onProtectionModeChange={setProtectionMode}
         onSubmit={handleCreateShare}
       />
+      <RegenerateReportDialog open={regenerateId !== null} onOpenChange={(open) => !open && setRegenerateId(null)} protectionMode={regenerateMode} onProtectionModeChange={setRegenerateMode} expiryDays={regenerateExpiry} onExpiryDaysChange={setRegenerateExpiry} submitting={regenerating} onSubmit={handleRegenerate} />
 
     </div>
   );

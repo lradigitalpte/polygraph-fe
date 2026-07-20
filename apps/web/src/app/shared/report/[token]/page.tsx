@@ -129,7 +129,7 @@ export default function PublicReportUnlockPage() {
               </div>
 
               {/* Passcode disclosure area */}
-              <div className="p-6 rounded-md border border-white/10 bg-white/[0.02] text-center space-y-4 relative">
+              {share.protection_mode !== "secure_link" ? <div className="p-6 rounded-md border border-white/10 bg-white/[0.02] text-center space-y-4 relative">
                 <div className="space-y-1">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white">PDF Decryption PIN</p>
                   <p className="text-[10px] text-white/50 max-w-xs mx-auto leading-relaxed">
@@ -162,14 +162,14 @@ export default function PublicReportUnlockPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </div> : <div className="rounded-md border border-emerald-500/20 bg-emerald-500/10 p-5 text-center"><p className="text-sm font-black text-emerald-300">No PDF password required</p><p className="mt-1 text-xs leading-relaxed text-white/50">This delivery was authorized for password-free download through the expiring secure link.</p></div>}
 
               {/* PDF download direct button */}
               {share.pdf_url && (
                 <div className="pt-2">
                   <a href={share.pdf_url} target="_blank" rel="noopener noreferrer">
                     <Button className="w-full h-13 rounded-md bg-white hover:bg-neutral-200 text-black font-black uppercase tracking-widest text-xs gap-2">
-                      <Download className="h-4 w-4" /> Download Protected PDF
+                      <Download className="h-4 w-4" /> {share.protection_mode === "secure_link" ? "Download PDF" : "Download Protected PDF"}
                     </Button>
                   </a>
                 </div>
@@ -178,9 +178,7 @@ export default function PublicReportUnlockPage() {
               {/* Explanation notes */}
               <div className="flex gap-2.5 items-start text-xs text-white/40 leading-relaxed rounded-md border border-white/10 p-4 bg-white/[0.01]">
                 <AlertCircle className="h-4 w-4 text-white/70 shrink-0 mt-0.5" />
-                <p>
-                  For maximum security, the forensic PDF report is protected by AES-256 standard encryption. Open the PDF in any viewer (e.g. Adobe Acrobat, Chrome, Safari) and input the 6-digit PIN shown above when prompted.
-                </p>
+                <p>{share.protection_mode === "secure_link" ? "This download link is time-limited. After downloading, the PDF can be opened and forwarded without a password. Verify its QR code or verification code to confirm authenticity." : "This forensic PDF is password-protected. Open it in a PDF viewer and enter the six-digit PIN shown above when prompted."}</p>
               </div>
             </CardContent>
           </Card>

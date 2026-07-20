@@ -26,6 +26,12 @@ export type ClientRecord = {
   address?: string;
   tax_id?: string;
   preferred_payment_method?: string;
+  email_delivery_mode?: "immediate" | "daily_summary" | "important_only" | "none";
+  email_booking_notices?: boolean;
+  email_session_reminders?: boolean;
+  email_examinee_fallback?: boolean;
+  email_summary_time?: string;
+  last_email_summary_at?: string;
   notes?: string;
 };
 
@@ -51,6 +57,11 @@ export type CreateClientInput = {
   address?: string;
   tax_id?: string;
   preferred_payment_method?: string;
+  email_delivery_mode?: "immediate" | "daily_summary" | "important_only" | "none";
+  email_booking_notices?: boolean;
+  email_session_reminders?: boolean;
+  email_examinee_fallback?: boolean;
+  email_summary_time?: string;
   notes?: string;
 };
 

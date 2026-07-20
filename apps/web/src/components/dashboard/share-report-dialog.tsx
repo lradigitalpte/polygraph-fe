@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, FileSignature, Loader2 } from "lucide-react";
+import { ArrowRight, FileSignature, Loader2, LockKeyhole, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +30,8 @@ type ShareReportDialogProps = {
   expiryDays: number;
   onExpiryDaysChange: (value: number) => void;
   sharing: boolean;
+  protectionMode: "password" | "secure_link";
+  onProtectionModeChange: (value: "password" | "secure_link") => void;
   onSubmit: () => void | Promise<void>;
 };
 
@@ -41,6 +43,8 @@ export function ShareReportDialog({
   expiryDays,
   onExpiryDaysChange,
   sharing,
+  protectionMode,
+  onProtectionModeChange,
   onSubmit,
 }: ShareReportDialogProps) {
   const expiryLabel =
@@ -56,13 +60,28 @@ export function ShareReportDialog({
             Secure Document Share
           </DialogTitle>
           <DialogDescription>
-            Send a password-encrypted PDF to the recipient. They will also receive a time-limited link to reveal the PDF passcode.
+            Choose how the finalized report should be securely delivered.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="rounded-2xl border border-border/50 bg-muted/20 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
             The report must already be finalized and locked in the Report Builder before it can be emailed.
+          </div>
+
+          <div className="space-y-2">
+            <Label>PDF protection</Label>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => onProtectionModeChange("password")} className={`rounded-xl border p-3 text-left transition-colors ${protectionMode === "password" ? "border-primary bg-primary/5" : "border-border"}`}>
+                <span className="flex items-center gap-2 text-sm font-bold"><LockKeyhole className="h-4 w-4" />Password-protected PDF</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Attached to the email. The PIN is revealed through the expiring secure portal.</span>
+              </button>
+              <button type="button" onClick={() => onProtectionModeChange("secure_link")} className={`rounded-xl border p-3 text-left transition-colors ${protectionMode === "secure_link" ? "border-primary bg-primary/5" : "border-border"}`}>
+                <span className="flex items-center gap-2 text-sm font-bold"><Link2 className="h-4 w-4" />Secure link · No PDF password</span>
+                <span className="mt-1 block text-xs text-muted-foreground">The open PDF is attached to the email. The secure portal remains available for verification and re-download.</span>
+              </button>
+            </div>
+            {protectionMode === "secure_link" && <p className="rounded-xl bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-800">The attachment can be opened and forwarded without a password and cannot be revoked after the email is sent.</p>}
           </div>
 
           <div className="space-y-2">
@@ -94,7 +113,7 @@ export function ShareReportDialog({
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground leading-relaxed">
-              The secure unlock link and passcode page will stop working after {expiryLabel.toLowerCase()}. The attached PDF keeps its own passcode until you rotate the share.
+              The secure link stops working after {expiryLabel.toLowerCase()}.{protectionMode === "password" ? " The attached PDF keeps its PIN until the share is rotated." : " The attached open PDF remains accessible in the recipient’s email."}
             </p>
           </div>
         </div>

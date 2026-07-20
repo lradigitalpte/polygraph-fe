@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { deleteClient, formatClientCode, updateClient, type ClientRecord } from "@/lib/clients";
@@ -44,6 +45,11 @@ type FormState = {
   taxId: string;
   paymentMethod: string;
   notes: string;
+  emailDeliveryMode: "immediate" | "daily_summary" | "important_only" | "none";
+  emailBookingNotices: boolean;
+  emailSessionReminders: boolean;
+  emailExamineeFallback: boolean;
+  emailSummaryTime: string;
 };
 
 const fieldLabelClass =
@@ -61,6 +67,11 @@ function clientToForm(client: ClientRecord): FormState {
     taxId: client.tax_id ?? "",
     paymentMethod: client.preferred_payment_method || "Bank Transfer",
     notes: client.notes ?? "",
+    emailDeliveryMode: client.email_delivery_mode || "immediate",
+    emailBookingNotices: client.email_booking_notices ?? true,
+    emailSessionReminders: client.email_session_reminders ?? true,
+    emailExamineeFallback: client.email_examinee_fallback ?? false,
+    emailSummaryTime: client.email_summary_time || "17:00",
   };
 }
 
@@ -115,7 +126,7 @@ export default function ClientPersonalDetailsPage() {
     }
   }, [client]);
 
-  const handleInput = (field: keyof FormState, value: string) => {
+  const handleInput = (field: keyof FormState, value: string | boolean) => {
     setForm((prev) => (prev ? { ...prev, [field]: value } : prev));
     setDirty(true);
   };
@@ -153,6 +164,11 @@ export default function ClientPersonalDetailsPage() {
         tax_id: form.taxId.trim() || undefined,
         preferred_payment_method: form.paymentMethod,
         notes: form.notes.trim() || undefined,
+        email_delivery_mode: form.emailDeliveryMode,
+        email_booking_notices: form.emailBookingNotices,
+        email_session_reminders: form.emailSessionReminders,
+        email_examinee_fallback: form.emailExamineeFallback,
+        email_summary_time: form.emailSummaryTime,
       });
       setClientRecord(updated);
       setForm(clientToForm(updated));
@@ -284,6 +300,37 @@ export default function ClientPersonalDetailsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {showContactPerson && (
+              <Card className="border-border/50 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
+                <CardHeader className="bg-muted/30 pb-4">
+                  <CardTitle className="text-base flex items-center gap-2"><Mail className="h-4 w-4 text-primary" />Email Preferences</CardTitle>
+                  <CardDescription>Control automatic corporate email. Manually shared invoices, documents, and reports remain available.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-5">
+                  <FormField label="Delivery mode">
+                    <Select value={form.emailDeliveryMode} onValueChange={(value) => handleInput("emailDeliveryMode", String(value))} disabled={saving}>
+                      <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="daily_summary">Daily summary (recommended)</SelectItem>
+                        <SelectItem value="immediate">Immediate individual emails</SelectItem>
+                        <SelectItem value="important_only">Important emails only</SelectItem>
+                        <SelectItem value="none">No automatic emails</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  {form.emailDeliveryMode === "daily_summary" && <FormField label="Summary time (Dubai)"><Input type="time" className={inputClass} value={form.emailSummaryTime} onChange={(event) => handleInput("emailSummaryTime", event.target.value)} /></FormField>}
+                  <div className="space-y-3">
+                    {[
+                      ["emailBookingNotices", "Appointment confirmations", "Send automatic booking notices when permitted by the delivery mode."],
+                      ["emailSessionReminders", "Session reminders", "Send automatic upcoming-session reminders."],
+                      ["emailExamineeFallback", "Use corporate email as fallback", "If an examinee has no email, allow their individual message to go to the corporate contact."],
+                    ].map(([field, label, description]) => <label key={field} className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/50 p-3"><Checkbox checked={Boolean(form[field as keyof FormState])} onCheckedChange={(checked) => handleInput(field as keyof FormState, Boolean(checked))} /><span><span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-xs text-muted-foreground">{description}</span></span></label>)}
+                  </div>
+                  <p className="rounded-xl bg-amber-500/10 p-3 text-xs text-amber-800">Invoices and payment reminders are always manual. Secure reports, forms, and documents are sent only when a staff member chooses a recipient.</p>
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="border-border/50 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
               <CardHeader className="bg-muted/30 pb-4">

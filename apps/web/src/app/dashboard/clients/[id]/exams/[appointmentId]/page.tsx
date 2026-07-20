@@ -12,11 +12,9 @@ import {
   Clock,
   FileSignature,
   FileText,
-  Gavel,
   Languages,
   ListChecks,
   Loader2,
-  Lock,
   Paperclip,
   PlayCircle,
   Save,
@@ -28,14 +26,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -48,16 +38,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import {
   addExamPhase,
-  createExamReport,
   fetchExamByAppointment,
-  fetchExamReport,
   formatAppointmentCode,
   startExamDocumentation,
   updateAppointment,
   updateExam,
   uploadExamDocument,
   type ExamRecord,
-  type ExamReportRecord,
 } from "@/lib/exam-documentation";
 import { fetchSubject, type SubjectRecord } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
@@ -72,12 +59,6 @@ const DOC_TYPES = [
   { value: "other", label: "Other" },
 ] as const;
 const PHASE_PRESETS = ["Pre-Test", "In-Test", "Post-Test"] as const;
-
-const VERDICT_OPTIONS = [
-  { value: "NDI", label: "No Deception Indicated (NDI)" },
-  { value: "DI", label: "Deception Indicated (DI)" },
-  { value: "Inconclusive", label: "Inconclusive" },
-] as const;
 
 const WORKFLOW_STEPS = [
   {
@@ -96,9 +77,9 @@ const WORKFLOW_STEPS = [
     body: "Attach charts, consent forms, and audio exported from your polygraph instrument.",
   },
   {
-    icon: Gavel,
-    title: "Generate the report",
-    body: "Once documentation is complete, issue the final verdict to close out the exam.",
+    icon: CheckCircle2,
+    title: "Complete documentation",
+    body: "Mark the examination complete when its notes, phases, and files are finished. Write the report afterward in Reports.",
   },
 ] as const;
 
@@ -118,17 +99,6 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function verdictMeta(verdict: string) {
-  switch (verdict) {
-    case "NDI":
-      return { label: "No Deception Indicated", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" };
-    case "DI":
-      return { label: "Deception Indicated", className: "bg-red-500/15 text-red-600 border-red-500/30" };
-    default:
-      return { label: "Inconclusive", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" };
-  }
-}
-
 function phaseAccent(name: string) {
   const n = name.toLowerCase();
   if (n.includes("pre")) return "bg-sky-500";
@@ -146,7 +116,6 @@ export default function ExaminationDocumentationPage() {
   const appointment = appointments.find((a) => a.id === appointmentId) ?? null;
 
   const [exam, setExam] = React.useState<ExamRecord | null>(null);
-  const [report, setReport] = React.useState<ExamReportRecord | null>(null);
   const [subject, setSubject] = React.useState<SubjectRecord | null>(null);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -155,13 +124,9 @@ export default function ExaminationDocumentationPage() {
   const [phaseNotes, setPhaseNotes] = React.useState("");
   const [phaseName, setPhaseName] = React.useState<string>(PHASE_PRESETS[0]);
   const [docType, setDocType] = React.useState("chart");
-  const [reportVerdict, setReportVerdict] = React.useState("");
-  const [reportContent, setReportContent] = React.useState("");
   const [starting, setStarting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
-  const [generating, setGenerating] = React.useState(false);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const loadExam = React.useCallback(async () => {
@@ -177,8 +142,6 @@ export default function ExaminationDocumentationPage() {
       if (examData) {
         setExamNotes(examData.notes ?? "");
         setExamStatus(examData.status ?? "in_progress");
-        const existingReport = await fetchExamReport(examData.id).catch(() => null);
-        setReport(existingReport);
         if (examData.subject_id) {
           const subj = await fetchSubject(examData.subject_id).catch(() => null);
           setSubject(subj);
@@ -277,29 +240,6 @@ export default function ExaminationDocumentationPage() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
-  const handleGenerateReport = async () => {
-    if (!exam || !reportVerdict || !reportContent.trim()) return;
-    setGenerating(true);
-    try {
-      await createExamReport({
-        exam_id: exam.id,
-        verdict: reportVerdict,
-        content: reportContent.trim(),
-      });
-      const existingReport = await fetchExamReport(exam.id).catch(() => null);
-      setReport(existingReport);
-      setExamStatus("completed");
-      setExam((prev) => (prev ? { ...prev, status: "completed" } : prev));
-      setConfirmOpen(false);
-      toast.success("Report generated — examination marked complete");
-      void refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate report");
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -702,110 +642,36 @@ export default function ExaminationDocumentationPage() {
             </div>
           </div>
 
-          {/* Final report */}
+          {/* Report handoff */}
           <Card className="border-primary/30 shadow-sm">
             <CardHeader className="bg-primary/5 pb-4">
               <CardTitle className="text-lg flex items-center gap-2">
                 <FileSignature className="h-5 w-5 text-primary" />
-                Final report
+                Report handoff
               </CardTitle>
               <CardDescription className="text-sm">
-                Issue the examiner&apos;s verdict and written conclusion. Generating the report marks
-                the examination complete.
+                Report writing is a separate step after the examination documentation is complete.
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              {report ? (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Badge className={`${verdictMeta(report.verdict).className} text-sm px-3 py-1`}>
-                      <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                      {verdictMeta(report.verdict).label}
-                    </Badge>
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Lock className="h-3.5 w-3.5" />
-                      Issued {formatDateTime(report.created_at)}
-                    </span>
-                  </div>
-                  <div className="rounded-xl border bg-muted/20 px-4 py-4">
-                    <p className="text-base leading-relaxed whitespace-pre-wrap">{report.content}</p>
-                  </div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">{examStatus === "completed" ? "Documentation complete" : "Complete the documentation first"}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Mark the examination status as Completed and save. Then build, finalize, lock, and send the report from Reports.</p>
                 </div>
-              ) : (
-                <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
-                  <div className="grid gap-2">
-                    <Label className={fieldLabel}>Verdict</Label>
-                    <Select value={reportVerdict} onValueChange={(v) => setReportVerdict(String(v))}>
-                      <SelectTrigger className={inputClass}>
-                        <SelectValue placeholder="Select verdict" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VERDICT_OPTIONS.map((v) => (
-                          <SelectItem key={v.value} value={v.value}>
-                            {v.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground leading-snug mt-1">
-                      The verdict is stored with an integrity hash and can be digitally signed and
-                      locked afterward.
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label className={fieldLabel}>Report conclusion</Label>
-                    <Textarea
-                      className="min-h-[180px] rounded-xl resize-y text-base leading-relaxed"
-                      placeholder="Write the formal report conclusion the client will receive..."
-                      value={reportContent}
-                      onChange={(e) => setReportContent(e.target.value)}
-                    />
-                    <div className="flex justify-end pt-1">
-                      <Button
-                        className="h-11 rounded-xl font-bold gap-2 shadow-lg shadow-primary/20"
-                        disabled={!reportVerdict || !reportContent.trim()}
-                        onClick={() => setConfirmOpen(true)}
-                      >
-                        <Gavel className="h-4 w-4" />
-                        Generate report
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
+                {examStatus === "completed" && exam ? (
+                  <Button className="shrink-0 gap-2" render={<Link href={`/dashboard/reports/${exam.id}`} />}>
+                    <FileSignature className="h-4 w-4" />
+                    Open Report Builder
+                  </Button>
+                ) : (
+                  <Button className="shrink-0 gap-2" disabled><FileSignature className="h-4 w-4" />Open Report Builder</Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         </>
       )}
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Generate final report?</DialogTitle>
-            <DialogDescription>
-              This issues the verdict{" "}
-              <span className="font-semibold text-foreground">
-                {reportVerdict ? verdictMeta(reportVerdict).label : ""}
-              </span>{" "}
-              and marks the examination complete. The report is hashed for integrity and can later be
-              signed and locked.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={generating}>
-              Cancel
-            </Button>
-            <Button className="gap-2" onClick={handleGenerateReport} disabled={generating}>
-              {generating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Gavel className="h-4 w-4" />
-              )}
-              Generate report
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
