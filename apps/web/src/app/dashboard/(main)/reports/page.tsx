@@ -32,7 +32,6 @@ import { cn } from "@/lib/utils";
 import { formatSubjectName } from "@/lib/subjects";
 import { clinicDateKey, formatClinicDateLabel } from "@/lib/clinic-time";
 import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
-import { ReportAnalytics } from "@/components/dashboard/report-analytics";
 import {
   DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
   fetchSecureShares,
@@ -362,14 +361,6 @@ export default function ReportsDashboard() {
           </Card>
         ))}
       </div>
-
-      <ReportAnalytics
-        appointments={appointments}
-        shares={shares}
-        stats={stats}
-        loading={loading}
-        canFilterExaminer={can("client:manage")}
-      />
 
       <Tabs defaultValue="sessions" className="space-y-6">
         <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-2xl border border-border/50 bg-muted/40 p-1.5 shadow-sm backdrop-blur">
@@ -801,6 +792,5 @@ export default function ReportsDashboard() {
     </div>
   );
 }
-
 
 

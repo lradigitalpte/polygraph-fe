@@ -104,7 +104,7 @@ export const auth = betterAuth({
     // Absolute lifetime of a session. Combined with a sliding refresh below, this
     // acts as an inactivity timeout: 30 minutes after the last activity the session
     // expires and the backend rejects it.
-    expiresIn: 60 * 30, // 30 minutes
+    expiresIn: 60 * 60 * 8, // 8 hours; the UI still enforces 30 minutes of real inactivity
     // Refresh the expiry when a session is used and is older than this — gives a
     // sliding window during active use without a DB write on every request.
     updateAge: 60 * 5, // 5 minutes

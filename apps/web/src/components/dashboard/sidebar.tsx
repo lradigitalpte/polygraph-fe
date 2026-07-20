@@ -20,6 +20,7 @@ import {
   ClipboardList,
   Package,
   FileSignature,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth-client";
@@ -27,6 +28,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { useUIStore } from "@/lib/store";
 import { useCurrentUser, clearCurrentUserCache } from "@/components/dashboard/use-current-user";
+import { recordLogoutReason } from "@/lib/session-reliability";
 
 type NavItem = {
   name: string;
@@ -49,6 +51,7 @@ const staffNav: NavItem[] = [
   { name: "Payments", href: "/dashboard/payments", icon: CreditCard, requires: "payment:view" },
   { name: "Inventory", href: "/dashboard/inventory", icon: Package, requires: "user:view" },
   { name: "Reports", href: "/dashboard/reports", icon: FileSignature, requires: "exam:view" },
+  { name: "Analytics", href: "/dashboard/analytics", icon: ChartNoAxesCombined, requires: "exam:view" },
   { name: "Settings", href: "/dashboard/settings", icon: Settings, requires: "user:view" },
 ];
 
@@ -58,6 +61,7 @@ const examinerNav: NavItem[] = [
   { name: "My Exams", href: "/dashboard/exams", icon: FileText },
   { name: "Clients", href: "/dashboard/clients", icon: Users },
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
+  { name: "My Analytics", href: "/dashboard/analytics", icon: ChartNoAxesCombined },
   { name: "My Availability", href: "/dashboard/profile/availability", icon: CalendarClock },
   { name: "My Profile", href: "/dashboard/profile", icon: UserCircle },
 ];
@@ -91,6 +95,7 @@ export function Sidebar() {
       })();
 
   const handleSignOut = async () => {
+    recordLogoutReason("manual");
     clearCurrentUserCache();
     await authClient.signOut();
     router.push("/login");

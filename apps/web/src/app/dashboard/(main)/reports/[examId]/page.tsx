@@ -98,6 +98,8 @@ export default function ReportBuilderPage() {
   const [opinionPhaseText, setOpinionPhaseText] = React.useState("");
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("");
+  const draftHydratedRef = React.useRef(false);
+  const draftKey = `polygraph:report-draft:${examId}`;
   const readOnly = isLocked;
 
   React.useEffect(() => {
@@ -194,6 +196,24 @@ export default function ReportBuilderPage() {
             setReferenceNo(legacy.reference);
           }
         }
+        if (!report?.is_locked) {
+          try {
+            const localDraft = window.localStorage.getItem(draftKey);
+            if (localDraft) {
+              const parsed = JSON.parse(localDraft) as { verdict: string; content: ReportContent; savedAt: string };
+              if (parsed.content && parsed.verdict) {
+                setVerdict(parsed.verdict);
+                applyReportContent(parsed.content);
+                toast.info(`Recovered an unsaved local draft from ${new Date(parsed.savedAt).toLocaleString()}.`);
+              }
+            }
+          } catch {
+            window.localStorage.removeItem(draftKey);
+          }
+        } else {
+          window.localStorage.removeItem(draftKey);
+        }
+        draftHydratedRef.current = true;
       } catch (err) {
         if (cancelled) return;
         if (err instanceof Error && err.message.includes("403")) {
@@ -211,7 +231,7 @@ export default function ReportBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [examId, querySubjectName, applyReportDefaults, applySavedReport, router]);
+  }, [examId, querySubjectName, applyReportContent, applyReportDefaults, applySavedReport, draftKey, router]);
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, { text: "", answer: "No", evaluation: "No Reaction" }]);
@@ -243,6 +263,14 @@ export default function ReportBuilderPage() {
     opinion_phase_text: opinionPhaseText,
   });
 
+  React.useEffect(() => {
+    if (!mounted || loading || isLocked || !draftHydratedRef.current || !examId) return;
+    const timer = window.setTimeout(() => {
+      window.localStorage.setItem(draftKey, JSON.stringify({ verdict, content: buildReportPayload(), savedAt: new Date().toISOString() }));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [draftKey, examDate, examId, examPhaseText, instrument, isLocked, limestoneNotes, loading, mounted, opinionPhaseText, postTestNotes, preTestNotes, preTestPhaseText, purpose, questions, referenceNo, reportDate, section4FollowUp, verdict]);
+
   const handleSave = async () => {
     if (isLocked) {
       toast.error("This report is locked and view-only.");
@@ -256,6 +284,7 @@ export default function ReportBuilderPage() {
     setSaving(true);
     try {
       await saveDetailedReport(examId, verdict, buildReportPayload());
+      window.localStorage.removeItem(draftKey);
       toast.success("Report draft saved. Finalize and lock it when ready to send.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to compile report");
@@ -279,6 +308,7 @@ export default function ReportBuilderPage() {
         return;
       }
       const result = await finalizeReport(examId, Number(examinerId), authorizationConfirmed);
+      window.localStorage.removeItem(draftKey);
       setIsLocked(true);
       setLockedAt(result.locked_at ?? new Date().toISOString());
       setFinalizeDialogOpen(false);
@@ -738,12 +768,7 @@ export default function ReportBuilderPage() {
             <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col justify-between text-[11px] leading-relaxed select-none mb-8 border border-zinc-200">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
-                  <div className="flex items-center gap-2">
-                    <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
-                    </div>
-                  </div>
+                  <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
                   <span className="text-[9px] font-black tracking-widest text-zinc-400 uppercase">STAFF IN CONFIDENCE</span>
                 </div>
 
@@ -751,21 +776,25 @@ export default function ReportBuilderPage() {
                   <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
                     POLYGRAPH EXAM DETAILS
                   </h3>
-                  <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">REF ID</div>
-                    <div className="col-span-9 font-semibold text-zinc-900">: {referenceNo}</div>
+                  <div className="grid grid-cols-[92px_10px_1fr] items-baseline text-[10px]">
+                    <div className="font-bold text-zinc-500 uppercase">REF ID</div>
+                    <div className="font-bold text-zinc-500">:</div>
+                    <div className="font-semibold text-zinc-900">{referenceNo}</div>
                   </div>
-                  <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">TEST DATE</div>
-                    <div className="col-span-9 font-semibold text-zinc-900">: {examDate}</div>
+                  <div className="grid grid-cols-[92px_10px_1fr] items-baseline text-[10px]">
+                    <div className="font-bold text-zinc-500 uppercase">TEST DATE</div>
+                    <div className="font-bold text-zinc-500">:</div>
+                    <div className="font-semibold text-zinc-900">{examDate}</div>
                   </div>
-                  <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">REPORT DATE</div>
-                    <div className="col-span-9 font-semibold text-zinc-900">: {reportDate || examDate}</div>
+                  <div className="grid grid-cols-[92px_10px_1fr] items-baseline text-[10px]">
+                    <div className="font-bold text-zinc-500 uppercase">REPORT DATE</div>
+                    <div className="font-bold text-zinc-500">:</div>
+                    <div className="font-semibold text-zinc-900">{reportDate || examDate}</div>
                   </div>
-                  <div className="grid grid-cols-12 text-[10px]">
-                    <div className="col-span-3 font-bold text-zinc-500 uppercase">EXAMINEE</div>
-                    <div className="col-span-9 font-black text-zinc-900 uppercase">: {formatReportPersonName(subjectName) || "—"}</div>
+                  <div className="grid grid-cols-[92px_10px_1fr] items-baseline text-[10px]">
+                    <div className="font-bold text-zinc-500 uppercase">EXAMINEE</div>
+                    <div className="font-bold text-zinc-500">:</div>
+                    <div className="font-black text-zinc-900 uppercase">{formatReportPersonName(subjectName) || "—"}</div>
                   </div>
                 </div>
 
@@ -835,12 +864,7 @@ export default function ReportBuilderPage() {
             <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col justify-between text-[11px] leading-relaxed select-none border border-zinc-200">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
-                  <div className="flex items-center gap-2">
-                    <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 object-contain" />
-                    <div className="flex flex-col">
-                      <span className="text-sm font-black tracking-tight text-red-600">POLYGRAPH UAE</span>
-                    </div>
-                  </div>
+                  <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
                   <span className="text-[9px] font-black tracking-widest text-zinc-400 uppercase">STAFF IN CONFIDENCE</span>
                 </div>
 

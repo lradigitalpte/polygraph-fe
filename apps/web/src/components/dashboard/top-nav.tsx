@@ -28,6 +28,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { MobileNav } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { useCurrentUser, userInitials, clearCurrentUserCache } from "./use-current-user";
+import { recordLogoutReason } from "@/lib/session-reliability";
 
 export function TopNav() {
   const { setTheme, theme } = useTheme();
@@ -39,6 +40,7 @@ export function TopNav() {
   const initials = userInitials(displayName, displayEmail);
 
   const handleSignOut = async () => {
+    recordLogoutReason("manual");
     clearCurrentUserCache();
     await authClient.signOut();
     router.push("/login");

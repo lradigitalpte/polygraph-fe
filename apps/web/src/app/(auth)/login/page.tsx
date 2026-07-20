@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -11,12 +11,20 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { consumeLogoutReason } from "@/lib/session-reliability";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const reason = consumeLogoutReason();
+    if (reason === "idle_timer") toast.info("You were signed out after 30 minutes of inactivity.");
+    else if (reason === "session_expired") toast.info("Your session expired. Please sign in again.");
+    else if (reason === "missing_cookie" || reason === "backend_401") toast.error("Your session could not be verified. Please sign in again.");
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

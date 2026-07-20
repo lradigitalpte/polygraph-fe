@@ -2,6 +2,7 @@
  * API client helper that automatically attaches the JWT token to requests.
  * Queries better-auth's /get-session endpoint for the JWT token.
  */
+import { recordLogoutReason } from "@/lib/session-reliability";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "http://localhost:8080/api/auth";
@@ -73,9 +74,9 @@ async function getTokenFromSession(): Promise<{ token: string | null; email: str
  * 1. Query better-auth's /get-session endpoint
  * 2. Read from localStorage and cookies
  */
-async function getToken(): Promise<{ token: string | null; email: string | null }> {
+async function getToken(forceRefresh = false): Promise<{ token: string | null; email: string | null }> {
   const now = Date.now();
-  if (cachedToken && now - tokenCacheTime < TOKEN_CACHE_TTL) {
+  if (!forceRefresh && cachedToken && now - tokenCacheTime < TOKEN_CACHE_TTL) {
     return { token: cachedToken, email: cachedEmail };
   }
 
@@ -255,7 +256,7 @@ export async function authenticatedFetch(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  let response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     credentials: "include", // include cookies for same-site deployments
     headers,
@@ -266,9 +267,17 @@ export async function authenticatedFetch(
     cachedToken = null;
     cachedEmail = null;
     tokenCacheTime = 0;
+    const refreshed = await getToken(true);
+    if (refreshed.token) {
+      headers.set("Authorization", `Bearer ${refreshed.token}`);
+      response = await fetch(`${API_BASE}${endpoint}`, { ...options, credentials: "include", headers });
+      if (response.status !== 401) return response;
+    }
+    const reason = refreshed.token ? "backend_401" : token ? "session_expired" : "missing_cookie";
+    recordLogoutReason(reason);
     const path = window.location.pathname;
     if (!path.startsWith("/login") && !path.startsWith("/sign-")) {
-      window.location.href = "/login";
+      window.location.href = `/login?reason=${reason}`;
     }
   }
 
