@@ -382,6 +382,8 @@ export default function ExamsPage() {
     }
   };
 
+  const selectedEditExaminer = examiners.find((item) => item.id === Number(editExaminerId));
+
   const handleExportCSV = () => {
     const headers = [
       "Exam ID",
@@ -777,7 +779,9 @@ export default function ExamsPage() {
                       <Label className="text-xs">Assigned examiner</Label>
                       <Select value={editExaminerId} onValueChange={(value) => setEditExaminerId(String(value))}>
                         <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Select examiner" />
+                          <SelectValue placeholder="Select examiner">
+                            {selectedEditExaminer?.name}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {examiners.map((examiner) => (
@@ -796,7 +800,9 @@ export default function ExamsPage() {
                         onValueChange={(value) => handleExamTypeChange(String(value))}
                       >
                         <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Select exam type" />
+                          <SelectValue placeholder="Select exam type">
+                            {editExamType?.name}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {examTypes.map((examType) => (
@@ -834,7 +840,9 @@ export default function ExamsPage() {
                       <Label className="text-xs">Status</Label>
                       <Select value={editStatus} onValueChange={(value) => setEditStatus(String(value))}>
                         <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Status" />
+                          <SelectValue placeholder="Status">
+                            {editStatus ? editStatus.charAt(0).toUpperCase() + editStatus.slice(1) : undefined}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {APPOINTMENT_STATUSES.map((status) => (
