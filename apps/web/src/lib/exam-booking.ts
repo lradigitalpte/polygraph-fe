@@ -330,6 +330,8 @@ export async function updateAppointment(
     duration: number;
     notes: string;
     exam_fee: number;
+    examiner_id: number;
+    status: string;
   }>
 ): Promise<void> {
   const response = await authenticatedFetch(`/api/appointments/${id}`, {

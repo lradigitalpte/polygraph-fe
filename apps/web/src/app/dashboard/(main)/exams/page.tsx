@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,6 @@ import { isOrganizationClient } from "@/lib/client-types";
 import {
   deleteAppointment,
   fetchAppointments,
-  rescheduleAppointment,
   fetchExamTypes,
   updateAppointment,
   type AppointmentRecord,
@@ -58,6 +58,7 @@ type LedgerRow = {
   client: string;
   /** Organization or billing account name, when different from client. */
   accountName?: string;
+  examinerId: number;
   examiner: string;
   examinerInitials: string;
   examinerColor: string;
@@ -74,6 +75,7 @@ type LedgerRow = {
 };
 
 type DatePreset = "all" | "today" | "week" | "month" | "custom";
+type StatusFilter = "all" | "Pending" | "Confirmed" | "Completed" | "Cancelled";
 
 function parseLocalDate(dateStr: string): Date | null {
   if (!dateStr) return null;
@@ -121,11 +123,30 @@ function presetRange(preset: DatePreset): { from?: Date; to?: Date } {
 
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-amber-600", "bg-purple-600", "bg-rose-600", "bg-cyan-600"];
 
+const APPOINTMENT_STATUSES = ["pending", "confirmed", "completed", "cancelled"] as const;
+
+function buildAppointmentNotes(examTypeName: string, reason: string): string {
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) return examTypeName;
+  return `${examTypeName}\n\n${trimmedReason}`;
+}
+
+function examinerDisplay(examiners: UserRecord[], examinerId: number, index?: number) {
+  const examiner = examiners.find((item) => item.id === examinerId);
+  const colorIndex = index ?? examiners.findIndex((item) => item.id === examinerId);
+  return {
+    name: examiner?.name || `Examiner #${examinerId}`,
+    initials: initials(examiner?.name || `E${examinerId}`),
+    color: examinerColors[Math.max(0, colorIndex) % examinerColors.length],
+  };
+}
+
 export default function ExamsPage() {
   const { can } = useCurrentUser();
   const canViewPayments = can("payment:view");
   const canManageAppointments = can("appointment:manage");
   const [searchQuery, setSearchQuery] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
   const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -133,9 +154,12 @@ export default function ExamsPage() {
   const [rows, setRows] = React.useState<LedgerRow[]>([]);
   const [selectedExam, setSelectedExam] = React.useState<LedgerRow | null>(null);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  const [rescheduleDate, setRescheduleDate] = React.useState("");
-  const [rescheduleTime, setRescheduleTime] = React.useState("");
-  const [savingReschedule, setSavingReschedule] = React.useState(false);
+  const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
+  const [editDate, setEditDate] = React.useState("");
+  const [editTime, setEditTime] = React.useState("");
+  const [editExaminerId, setEditExaminerId] = React.useState("");
+  const [editReason, setEditReason] = React.useState("");
+  const [editStatus, setEditStatus] = React.useState("pending");
   const [deleting, setDeleting] = React.useState(false);
 
   // Org settings for currency display
@@ -166,6 +190,7 @@ export default function ExamsPage() {
           return;
         }
         if (org) setOrgSettings(org);
+        setExaminers(examiners);
         const mapped = mapRows(appointments, examiners);
         setRows(mapped);
         setExamTypes(examTypesList);
@@ -209,6 +234,10 @@ export default function ExamsPage() {
       });
     }
 
+    if (statusFilter !== "all") {
+      result = result.filter((row) => row.status === statusFilter);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (!q) return result;
     return result.filter(
@@ -219,7 +248,11 @@ export default function ExamsPage() {
         row.examiner.toLowerCase().includes(q) ||
         row.type.toLowerCase().includes(q),
     );
-  }, [rows, searchQuery, datePreset, dateFrom, dateTo]);
+  }, [rows, searchQuery, statusFilter, datePreset, dateFrom, dateTo]);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, datePreset, dateFrom, dateTo]);
 
   const totalPages = React.useMemo(() => {
     return Math.max(1, Math.ceil(filteredRows.length / itemsPerPage));
@@ -252,49 +285,34 @@ export default function ExamsPage() {
     const matchedType = examTypes.find((et) => et.name === row.type);
     setEditExamType(matchedType || null);
     setEditPrice(String(row.amount));
+    setEditExaminerId(String(row.examinerId));
+    setEditReason(row.reason === "No case background provided." ? "" : row.reason);
+    setEditStatus(row.status.toLowerCase());
     const { date, time } = parseClinicDateTimeFields(row.scheduledAt);
-    setRescheduleDate(date);
-    setRescheduleTime(time);
+    setEditDate(date);
+    setEditTime(time);
     setIsSheetOpen(true);
   };
 
-  const handleReschedule = async () => {
-    if (!selectedExam) return;
-    if (!rescheduleDate || !rescheduleTime) {
-      toast.error("Pick a new date and time");
-      return;
-    }
-    const scheduledAt = clinicDateTimeToISO(rescheduleDate, rescheduleTime);
-    setSavingReschedule(true);
-    try {
-      await rescheduleAppointment(selectedExam.id, { scheduled_at: scheduledAt });
-      const dateLabel = formatClinicDateLabel(scheduledAt);
-      const timeLabel = formatClinicClock(scheduledAt);
-      setRows((current) =>
-        current.map((row) =>
-          row.id === selectedExam.id
-            ? { ...row, scheduledAt, dateLabel, timeLabel }
-            : row,
-        ),
-      );
-      toast.success("Appointment rescheduled");
-      setIsSheetOpen(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to reschedule");
-    } finally {
-      setSavingReschedule(false);
-    }
+  const handleExamTypeChange = (examTypeId: string) => {
+    const examType = examTypes.find((item) => item.id === Number(examTypeId));
+    if (!examType) return;
+    setEditExamType(examType);
+    setEditPrice(String(catalogPriceInCurrency(examType.price, orgCurrency, orgSettings)));
   };
 
-  const handleExamTypeChange = (et: ExamTypeRecord) => {
-    setEditExamType(et);
-    setEditPrice(String(catalogPriceInCurrency(et.price, orgCurrency, orgSettings)));
-  };
-
-  const handleSaveExamTypeAndPrice = async () => {
+  const handleSaveExam = async () => {
     if (!selectedExam) return;
     if (!editExamType) {
       toast.error("Please select an exam type");
+      return;
+    }
+    if (!editExaminerId) {
+      toast.error("Please select an examiner");
+      return;
+    }
+    if (!editDate || !editTime) {
+      toast.error("Pick a date and time");
       return;
     }
     const newPrice = parseFloat(editPrice);
@@ -302,35 +320,48 @@ export default function ExamsPage() {
       toast.error("Please enter a valid price");
       return;
     }
+
+    const scheduledAt = clinicDateTimeToISO(editDate, editTime);
+    const notes = buildAppointmentNotes(editExamType.name, editReason);
     setSavingFields(true);
     try {
-      const newNotes = [editExamType.name, selectedExam.reason].filter(Boolean).join("\n");
       await updateAppointment(selectedExam.id, {
-        notes: newNotes,
+        scheduled_at: scheduledAt,
+        duration: editExamType.duration,
+        examiner_id: Number(editExaminerId),
+        notes,
         exam_fee: newPrice,
+        status: editStatus,
       });
 
+      const examinerInfo = examinerDisplay(examiners, Number(editExaminerId));
+      const dateLabel = formatClinicDateLabel(scheduledAt);
+      const timeLabel = formatClinicClock(scheduledAt);
+      const parsedReason = parseNotes(notes).reason;
+
+      const updatedRow: LedgerRow = {
+        ...selectedExam,
+        examinerId: Number(editExaminerId),
+        examiner: examinerInfo.name,
+        examinerInitials: examinerInfo.initials,
+        examinerColor: examinerInfo.color,
+        type: editExamType.name,
+        amount: newPrice,
+        status: normalizeStatus(editStatus),
+        reason: parsedReason,
+        scheduledAt,
+        dateLabel,
+        timeLabel,
+        duration: editExamType.duration,
+      };
+
       setRows((current) =>
-        current.map((row) =>
-          row.id === selectedExam.id
-            ? { ...row, type: editExamType.name, amount: newPrice }
-            : row
-        )
+        current.map((row) => (row.id === selectedExam.id ? updatedRow : row)),
       );
-
-      setSelectedExam((prev) =>
-        prev
-          ? {
-              ...prev,
-              type: editExamType.name,
-              amount: newPrice,
-            }
-          : null
-      );
-
-      toast.success("Exam type and price updated successfully");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update exam type/price");
+      setSelectedExam(updatedRow);
+      toast.success("Exam updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update exam");
     } finally {
       setSavingFields(false);
     }
@@ -511,6 +542,41 @@ export default function ExamsPage() {
               </div>
             </div>
           )}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-1">Status</span>
+            {(
+              [
+                { value: "all", label: "All" },
+                { value: "Pending", label: "Pending" },
+                { value: "Confirmed", label: "Confirmed" },
+                { value: "Completed", label: "Completed" },
+                { value: "Cancelled", label: "Cancelled" },
+              ] as const
+            ).map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                variant={statusFilter === option.value ? "default" : "outline"}
+                size="sm"
+                className="rounded-xl h-9"
+                onClick={() => setStatusFilter(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+            {statusFilter !== "all" && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-xl h-9 gap-1"
+                onClick={() => setStatusFilter("all")}
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
@@ -665,15 +731,19 @@ export default function ExamsPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</p>
-                  <p className="mt-1 text-sm font-bold">{selectedExam.dateLabel} • {selectedExam.timeLabel}</p>
-                </div>
+                {!canManageAppointments && (
+                  <>
+                    <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</p>
+                      <p className="mt-1 text-sm font-bold">{selectedExam.dateLabel} • {selectedExam.timeLabel}</p>
+                    </div>
 
-                <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Clinical Summary</p>
-                  <p className="mt-1 text-sm italic text-foreground/80">"{selectedExam.reason}"</p>
-                </div>
+                    <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Clinical Summary</p>
+                      <p className="mt-1 text-sm italic text-foreground/80">"{selectedExam.reason}"</p>
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-2 rounded-2xl border border-border/50 bg-card p-4">
                   {selectedExam.subjectId ? (
@@ -700,26 +770,99 @@ export default function ExamsPage() {
                 </div>
 
                 {canManageAppointments && (
-                  <div className="space-y-3 rounded-2xl border border-border/50 bg-card p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reschedule</p>
+                  <div className="space-y-4 rounded-2xl border border-border/50 bg-card p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Edit Exam</p>
+
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Assigned examiner</Label>
+                      <Select value={editExaminerId} onValueChange={(value) => setEditExaminerId(String(value))}>
+                        <SelectTrigger className="h-10 rounded-lg">
+                          <SelectValue placeholder="Select examiner" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {examiners.map((examiner) => (
+                            <SelectItem key={examiner.id} value={String(examiner.id)}>
+                              {examiner.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Exam type</Label>
+                      <Select
+                        value={editExamType ? String(editExamType.id) : ""}
+                        onValueChange={(value) => handleExamTypeChange(String(value))}
+                      >
+                        <SelectTrigger className="h-10 rounded-lg">
+                          <SelectValue placeholder="Select exam type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {examTypes.map((examType) => (
+                            <SelectItem key={examType.id} value={String(examType.id)}>
+                              {examType.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Fee ({orgCurrency})</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                      />
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                       <div className="grid gap-1.5">
                         <Label className="text-xs">Date</Label>
-                        <Input type="date" value={rescheduleDate} onChange={(e) => setRescheduleDate(e.target.value)} />
+                        <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
                       </div>
                       <div className="grid gap-1.5">
                         <Label className="text-xs">Time</Label>
-                        <Input type="time" value={rescheduleTime} onChange={(e) => setRescheduleTime(e.target.value)} />
+                        <Input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)} />
                       </div>
                     </div>
+
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Status</Label>
+                      <Select value={editStatus} onValueChange={(value) => setEditStatus(String(value))}>
+                        <SelectTrigger className="h-10 rounded-lg">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {APPOINTMENT_STATUSES.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {status.charAt(0).toUpperCase() + status.slice(1)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Clinical summary</Label>
+                      <Textarea
+                        className="min-h-[88px] rounded-lg resize-none text-sm"
+                        placeholder="Reason for exam, position, referral context..."
+                        value={editReason}
+                        onChange={(e) => setEditReason(e.target.value)}
+                      />
+                    </div>
+
                     <Button
-                      variant="secondary"
                       className="w-full gap-2"
-                      onClick={() => void handleReschedule()}
-                      disabled={savingReschedule}
+                      onClick={() => void handleSaveExam()}
+                      disabled={savingFields}
                     >
                       <CalendarIcon className="h-4 w-4" />
-                      {savingReschedule ? "Rescheduling..." : "Save New Date"}
+                      {savingFields ? "Saving..." : "Save Changes"}
                     </Button>
                   </div>
                 )}
@@ -791,6 +934,7 @@ function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): Le
       subjectId: appointment.subject?.id ?? appointment.subject_id,
       client: displayName,
       accountName: billingAccount,
+      examinerId: appointment.examiner_id,
       examiner: examiner?.name || `Examiner #${appointment.examiner_id}`,
       examinerInitials: initials(examiner?.name || `E${appointment.examiner_id}`),
       examinerColor: examiner?.color || "bg-slate-600",
