@@ -173,7 +173,7 @@ export function buildEmptyReportContent(ctx: ReportSessionContext): ReportConten
     exam_start_time: "",
     exam_end_time: "",
     cooperation_mode: "cooperated",
-    pre_exam_question_count_text: "4 relevant and 3 comparison questions",
+    pre_exam_question_count_text: "**4 relevant and 3 comparison questions**",
     response_legend_text: "",
   };
 }

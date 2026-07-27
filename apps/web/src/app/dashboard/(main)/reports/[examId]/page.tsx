@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { ReportRichTextContent } from "@/components/dashboard/report-rich-text-content";
+import { ReportRichTextField } from "@/components/dashboard/report-rich-text-field";
 import {
   Dialog,
   DialogContent,
@@ -121,7 +123,7 @@ export default function ReportBuilderPage() {
   const [examStartTime, setExamStartTime] = React.useState("");
   const [examEndTime, setExamEndTime] = React.useState("");
   const [cooperationMode, setCooperationMode] = React.useState<"cooperated" | "counter_measures">("cooperated");
-  const [preExamQuestionCountText, setPreExamQuestionCountText] = React.useState("4 relevant and 3 comparison questions");
+  const [preExamQuestionCountText, setPreExamQuestionCountText] = React.useState("**4 relevant and 3 comparison questions**");
   const [responseLegendText, setResponseLegendText] = React.useState("");
   const [sourceTemplateId, setSourceTemplateId] = React.useState<number | null>(null);
   const [signerDisplayName, setSignerDisplayName] = React.useState("");
@@ -365,9 +367,21 @@ export default function ReportBuilderPage() {
     toast.success(`Loaded template: ${template.name}`);
   };
 
-  React.useEffect(() => {
-    setIdentityVerificationText(identitySentence(identityDocumentType));
-  }, [identityDocumentType]);
+  const handleQuestionCountChange = (value: string) => {
+    const previousBare = preExamQuestionCountText.replace(/\*\*/g, "");
+    const nextBare = value.replace(/\*\*/g, "");
+    const wrapped = value.includes("**") ? value : `**${value}**`;
+    setPreExamQuestionCountText(wrapped);
+    setPreTestNotes((prev) => {
+      if (previousBare && prev.includes(previousBare)) {
+        return prev.replace(previousBare, nextBare);
+      }
+      if (previousBare && prev.includes(`**${previousBare}**`)) {
+        return prev.replace(`**${previousBare}**`, wrapped);
+      }
+      return prev;
+    });
+  };
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, { text: "", answer: "No", evaluation: "No Reaction" }]);
@@ -733,25 +747,26 @@ export default function ReportBuilderPage() {
                     </label>
                   ))}
                 </div>
-                <Textarea
+                <ReportRichTextField
                   rows={2}
                   value={identityVerificationText}
-                  onChange={(e) => setIdentityVerificationText(e.target.value)}
+                  onChange={setIdentityVerificationText}
                   disabled={readOnly}
-                  className="rounded-xl text-xs bg-card"
+                  hint="Shown under examinee details on the report."
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground font-semibold">Pre-exam question count text</Label>
-                <Input
+                <Label className="text-xs text-muted-foreground font-semibold">Pre-exam question count phrase</Label>
+                <ReportRichTextField
+                  rows={2}
                   value={preExamQuestionCountText}
-                  onChange={(e) => setPreExamQuestionCountText(e.target.value)}
+                  onChange={handleQuestionCountChange}
                   disabled={readOnly}
-                  className="h-10 rounded-xl"
+                  hint="Bold phrase inserted into Section 1 pre-test notes (e.g. **4 relevant and 3 comparison questions**)."
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground font-semibold">Cooperation line</Label>
+                <Label className="text-xs text-muted-foreground font-semibold">Cooperation line (Section 3)</Label>
                 <Select
                   value={cooperationMode}
                   onValueChange={(value) => {
@@ -769,6 +784,13 @@ export default function ReportBuilderPage() {
                     <SelectItem value="counter_measures">Counter-measures employed</SelectItem>
                   </SelectContent>
                 </Select>
+                <ReportRichTextField
+                  rows={2}
+                  value={postTestNotes}
+                  onChange={setPostTestNotes}
+                  disabled={readOnly}
+                  hint="Preset fills this text for Section 3. You can edit it freely — use Bold for emphasis."
+                />
               </div>
               <p className="text-[11px] text-muted-foreground">
                 Pronouns: {pronounsForGender(subjectGender).possessive} / {pronounsForGender(subjectGender).subject}
@@ -805,26 +827,24 @@ export default function ReportBuilderPage() {
               <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Section 1: Pre-Test Details</h4>
               <div className="space-y-2">
                 <Label htmlFor="pretest-intro" className="text-xs text-muted-foreground font-semibold">Introductory Paragraph</Label>
-                <Textarea
+                <ReportRichTextField
                   id="pretest-intro"
                   rows={3}
                   value={preTestPhaseText}
-                  onChange={(e) => setPreTestPhaseText(e.target.value)}
+                  onChange={setPreTestPhaseText}
                   disabled={readOnly}
                   placeholder="On 04th May 2026 at about 14:00 hrs..."
-                  className="rounded-xl text-xs bg-card"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="pretest-notes" className="text-xs text-muted-foreground font-semibold">Consent & Health Statements</Label>
-                <Textarea
+                <ReportRichTextField
                   id="pretest-notes"
                   rows={2}
                   value={preTestNotes}
-                  onChange={(e) => setPreTestNotes(e.target.value)}
+                  onChange={setPreTestNotes}
                   disabled={readOnly}
                   placeholder="Consent and fitness notes..."
-                  className="rounded-xl text-xs bg-card"
                 />
               </div>
             </div>
@@ -849,13 +869,12 @@ export default function ReportBuilderPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="exam-intro" className="text-xs text-muted-foreground font-semibold font-bold">Introductory statement</Label>
-                <Textarea
+                <ReportRichTextField
                   id="exam-intro"
                   rows={2}
                   value={examPhaseText}
-                  onChange={(e) => setExamPhaseText(e.target.value)}
+                  onChange={setExamPhaseText}
                   disabled={readOnly}
-                  className="rounded-xl text-xs bg-card"
                 />
               </div>
 
@@ -927,13 +946,13 @@ export default function ReportBuilderPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="limestone" className="text-xs text-muted-foreground font-semibold">Instrument & Recording statement</Label>
-                <Textarea
+                <ReportRichTextField
                   id="limestone"
                   rows={3}
                   value={limestoneNotes}
-                  onChange={(e) => setLimestoneNotes(e.target.value)}
+                  onChange={setLimestoneNotes}
                   disabled={readOnly}
-                  className="rounded-xl text-xs bg-card"
+                  hint="Bold the polygram sentence with **Four polygrams, including 1 acquaintance and 3 official tests**"
                 />
               </div>
             </div>
@@ -943,26 +962,25 @@ export default function ReportBuilderPage() {
               <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Section 3: Opinion & Verdict details</h4>
               <div className="space-y-2">
                 <Label htmlFor="opinion-statement" className="text-xs text-muted-foreground font-semibold">Opinion notes</Label>
-                <Textarea
+                <ReportRichTextField
                   id="opinion-statement"
                   rows={3}
                   value={opinionPhaseText}
-                  onChange={(e) => setOpinionPhaseText(e.target.value)}
+                  onChange={setOpinionPhaseText}
                   disabled={readOnly}
                   placeholder="Based on diagnostic evaluations..."
-                  className="rounded-xl text-xs bg-card"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="post-notes" className="text-xs text-muted-foreground font-semibold">Post-Test Statement</Label>
-                <Textarea
+                <p className="text-[10px] text-muted-foreground">Same text as the cooperation line in Session details.</p>
+                <ReportRichTextField
                   id="post-notes"
                   rows={2}
                   value={postTestNotes}
-                  onChange={(e) => setPostTestNotes(e.target.value)}
+                  onChange={setPostTestNotes}
                   disabled={readOnly}
                   placeholder="Post-test notes..."
-                  className="rounded-xl text-xs bg-card"
                 />
               </div>
             </div>
@@ -1090,7 +1108,9 @@ export default function ReportBuilderPage() {
                     <div className="font-black text-zinc-900 uppercase">{formatReportPersonName(subjectName) || "—"}</div>
                   </div>
                   {identityVerificationText ? (
-                    <p className="text-[10px] text-zinc-700 whitespace-pre-line pt-2">{identityVerificationText}</p>
+                    <p className="text-[10px] text-zinc-700 whitespace-pre-line pt-2">
+                      <ReportRichTextContent text={identityVerificationText} />
+                    </p>
                   ) : null}
                 </div>
 
@@ -1099,10 +1119,10 @@ export default function ReportBuilderPage() {
                     SECTION 1: PRE-EXAMINATION PHASE
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
-                    {preTestPhaseText}
+                    <ReportRichTextContent text={preTestPhaseText} />
                   </p>
                   <p className="whitespace-pre-line text-zinc-700 italic">
-                    {preTestNotes}
+                    <ReportRichTextContent text={preTestNotes} />
                   </p>
                 </div>
 
@@ -1111,7 +1131,7 @@ export default function ReportBuilderPage() {
                     SECTION 2: EXAMINATION PHASE
                   </h3>
                   <p className="text-zinc-700 whitespace-pre-line">
-                    {examPhaseText}
+                    <ReportRichTextContent text={examPhaseText} />
                   </p>
 
                   {questions.length > 0 && (
@@ -1137,7 +1157,7 @@ export default function ReportBuilderPage() {
 
                   {limestoneNotes.trim() ? (
                     <p className="text-zinc-700 whitespace-pre-line mt-4">
-                      {limestoneNotes}
+                      <ReportRichTextContent text={limestoneNotes} />
                     </p>
                   ) : null}
                 </div>
@@ -1169,10 +1189,10 @@ export default function ReportBuilderPage() {
                     SECTION 3: OPINION OF EXAMINER
                   </h3>
                   <p className="whitespace-pre-line text-zinc-700">
-                    {opinionPhaseText}
+                    <ReportRichTextContent text={opinionPhaseText} />
                   </p>
                   <p className="text-zinc-700">
-                    {postTestNotes}
+                    <ReportRichTextContent text={postTestNotes} />
                   </p>
                   <div className="flex items-center gap-2 mt-4 pt-2">
                     <span className="font-black text-xs uppercase text-zinc-800">Result:</span>
