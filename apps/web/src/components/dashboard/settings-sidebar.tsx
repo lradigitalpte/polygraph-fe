@@ -10,13 +10,15 @@ import {
   ArrowLeft,
   UserPlus,
   ClipboardList,
-  CalendarClock
+  CalendarClock,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const settingsNavigation = [
   { name: "General", href: "/dashboard/settings", icon: SettingsIcon, exact: true },
   { name: "Exam Types", href: "/dashboard/settings/exam-types", icon: ClipboardList },
+  { name: "Report Templates", href: "/dashboard/settings/report-templates", icon: FileText },
   { name: "Examiner Availability", href: "/dashboard/settings/availability", icon: CalendarClock },
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },

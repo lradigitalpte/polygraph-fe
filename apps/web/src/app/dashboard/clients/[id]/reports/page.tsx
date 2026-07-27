@@ -25,8 +25,8 @@ import {
   fetchSecureShares,
   createSecureShare,
   regenerateSecureShare,
-  fetchReport,
-  resolveReportWorkflowStatus,
+  fetchReportWorkflowStatuses,
+  buildReportWorkflowMap,
   type ReportWorkflowStatus,
   type SecureReportShare,
 } from "@/lib/reports";
@@ -154,30 +154,20 @@ export default function ClientReportsPage() {
       setReportWorkflow({});
       return;
     }
-    void Promise.all(
-      examIds.map(async (examId) => {
-        const report = await fetchReport(examId).catch(() => null);
-        const hasShare = report ? shares.some((share) => share.exam_report_id === report.id) : false;
-        return [
-          examId,
-          resolveReportWorkflowStatus({
-            reportExists: Boolean(report),
-            isLocked: Boolean(report?.is_locked),
-            hasShare,
-          }),
-        ] as const;
+    void fetchReportWorkflowStatuses()
+      .then((rows) => {
+        if (!cancelled) setReportWorkflow(buildReportWorkflowMap(rows, examIds));
       })
-    )
-      .then((entries) => {
-        if (!cancelled) setReportWorkflow(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (!cancelled) setReportWorkflow({});
+      .catch((err) => {
+        if (!cancelled) {
+          setReportWorkflow({});
+          toast.error(err instanceof Error ? err.message : "Failed to load report statuses");
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [completedExamIdsKey, shares]);
+  }, [completedExamIdsKey]);
 
   if (clientLoading) {
     return (

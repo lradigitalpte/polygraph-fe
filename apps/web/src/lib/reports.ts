@@ -45,6 +45,17 @@ export type ExamReportRecord = {
   locked_at?: string | null;
   signature_examiner?: string;
   signature_client?: string;
+  signer_name?: string;
+  signer_caption?: string;
+  signer_title?: string;
+  signer_organization?: string;
+};
+
+export type FinalizeReportInput = {
+  examinerId: number;
+  authorizationConfirmed: boolean;
+  signerDisplayName?: string;
+  signerCaptionLines?: string;
 };
 
 export async function fetchSecureShares(filters?: {
@@ -180,6 +191,14 @@ export type StructuredReportData = {
   pre_test_phase_text?: string;
   exam_phase_text?: string;
   opinion_phase_text?: string;
+  identity_document_type?: "passport" | "emirates_id" | "";
+  identity_verification_text?: string;
+  exam_start_time?: string;
+  exam_end_time?: string;
+  cooperation_mode?: "cooperated" | "counter_measures";
+  pre_exam_question_count_text?: string;
+  response_legend_text?: string;
+  source_template_id?: number;
   /** @deprecated Removed from builder UI; kept optional for older saved reports. */
   conclusion?: string;
 };
@@ -213,7 +232,10 @@ export async function saveDetailedReport(
   return payload;
 }
 
-export async function finalizeReport(examId: number, examinerId: number, authorizationConfirmed: boolean): Promise<{
+export async function finalizeReport(
+  examId: number,
+  input: FinalizeReportInput,
+): Promise<{
   id: number;
   exam_id: number;
   is_locked: boolean;
@@ -221,7 +243,12 @@ export async function finalizeReport(examId: number, examinerId: number, authori
 }> {
   const response = await authenticatedFetch(`/api/reports/${examId}/finalize`, {
     method: "POST",
-    body: JSON.stringify({ examiner_id: examinerId, authorization_confirmed: authorizationConfirmed }),
+    body: JSON.stringify({
+      examiner_id: input.examinerId,
+      authorization_confirmed: input.authorizationConfirmed,
+      signer_display_name: input.signerDisplayName?.trim() || undefined,
+      signer_caption_lines: input.signerCaptionLines?.trim() || undefined,
+    }),
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -240,6 +267,13 @@ export const REPORT_SHARE_EXPIRY_OPTIONS = [
 export const DEFAULT_REPORT_SHARE_EXPIRY_DAYS = 7;
 
 export type ReportWorkflowStatus = "none" | "draft" | "locked" | "sent";
+
+export type ReportWorkflowStatusRow = {
+  exam_id: number;
+  report_exists: boolean;
+  is_locked: boolean;
+  has_share: boolean;
+};
 
 export type LegacyImportMeta = {
   reference?: string;
@@ -274,6 +308,68 @@ export function resolveReportWorkflowStatus(input: {
   if (input.isLocked) return "locked";
   if (input.reportExists) return "draft";
   return "none";
+}
+
+export function reportWorkflowStatusLabel(status: ReportWorkflowStatus): string {
+  switch (status) {
+    case "sent":
+      return "Sent";
+    case "locked":
+      return "Locked — pending send";
+    case "draft":
+      return "Draft";
+    default:
+      return "Needs report";
+  }
+}
+
+/** Build exam_id → workflow status map from a single bulk API response. */
+export function buildReportWorkflowMap(
+  rows: ReportWorkflowStatusRow[],
+  examIds?: Iterable<number>,
+): Record<number, ReportWorkflowStatus> {
+  const allowed =
+    examIds === undefined ? null : new Set(Array.from(examIds).filter((id) => id > 0));
+
+  const map: Record<number, ReportWorkflowStatus> = {};
+  for (const row of rows) {
+    if (allowed && !allowed.has(row.exam_id)) continue;
+    map[row.exam_id] = resolveReportWorkflowStatus({
+      reportExists: row.report_exists,
+      isLocked: row.is_locked,
+      hasShare: row.has_share,
+    });
+  }
+  return map;
+}
+
+export async function fetchReportWorkflowStatuses(): Promise<ReportWorkflowStatusRow[]> {
+  const response = await authenticatedFetch("/api/reports/workflow-status");
+  if (!response.ok) {
+    throw new Error(`Failed to load report workflow statuses (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function downloadLockedReportPreview(examId: number): Promise<void> {
+  const response = await authenticatedFetch(`/api/reports/${examId}/pdf-preview`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `Failed to download report preview (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/i);
+  const fileName = match?.[1] || `Forensic_Report_Exam_${examId}_PREVIEW.pdf`;
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function requestReportOverrideUnlock(examId: number, reason: string): Promise<void> {

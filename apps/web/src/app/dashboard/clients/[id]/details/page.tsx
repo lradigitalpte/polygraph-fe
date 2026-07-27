@@ -31,7 +31,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
-import { deleteClient, formatClientCode, updateClient, type ClientRecord } from "@/lib/clients";
+import { deleteClient, formatClientCode, updateClient, type ClientRecord, type ReportVerdictWording } from "@/lib/clients";
+import { fetchReportTemplates } from "@/lib/report-templates";
+import { reportVerdictWordingDescription } from "@/lib/report-template";
+import type { ReportTemplateRecord } from "@/lib/report-template";
 import { cn } from "@/lib/utils";
 
 type FormState = {
@@ -50,6 +53,8 @@ type FormState = {
   emailSessionReminders: boolean;
   emailExamineeFallback: boolean;
   emailSummaryTime: string;
+  reportVerdictWording: ReportVerdictWording;
+  defaultReportTemplateId: string;
 };
 
 const fieldLabelClass =
@@ -72,6 +77,8 @@ function clientToForm(client: ClientRecord): FormState {
     emailSessionReminders: client.email_session_reminders ?? true,
     emailExamineeFallback: client.email_examinee_fallback ?? false,
     emailSummaryTime: client.email_summary_time || "17:00",
+    reportVerdictWording: client.report_verdict_wording === "forensic" ? "forensic" : "plain",
+    defaultReportTemplateId: client.default_report_template_id ? String(client.default_report_template_id) : "",
   };
 }
 
@@ -118,6 +125,11 @@ export default function ClientPersonalDetailsPage() {
   const [form, setForm] = React.useState<FormState | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
+  const [reportTemplates, setReportTemplates] = React.useState<ReportTemplateRecord[]>([]);
+
+  React.useEffect(() => {
+    void fetchReportTemplates().then(setReportTemplates).catch(() => setReportTemplates([]));
+  }, []);
 
   React.useEffect(() => {
     if (client) {
@@ -169,6 +181,10 @@ export default function ClientPersonalDetailsPage() {
         email_session_reminders: form.emailSessionReminders,
         email_examinee_fallback: form.emailExamineeFallback,
         email_summary_time: form.emailSummaryTime,
+        report_verdict_wording: form.reportVerdictWording,
+        default_report_template_id: form.defaultReportTemplateId
+          ? Number(form.defaultReportTemplateId)
+          : null,
       });
       setClientRecord(updated);
       setForm(clientToForm(updated));
@@ -433,6 +449,59 @@ export default function ClientPersonalDetailsPage() {
                     <SelectContent>
                       <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
                       <SelectItem value="Credit Card">Credit Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/50 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">
+              <CardHeader className="bg-muted/30 pb-4">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  Report Preferences
+                </CardTitle>
+                <CardDescription>
+                  Controls how verdicts are worded on forensic reports for this client.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 space-y-3">
+                <FormField label="Verdict wording on reports">
+                  <Select
+                    value={form.reportVerdictWording}
+                    onValueChange={(value) => handleInput("reportVerdictWording", String(value))}
+                    disabled={saving}
+                  >
+                    <SelectTrigger className={inputClass}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="plain">Plain language (Truthful / Not Truthful)</SelectItem>
+                      <SelectItem value="forensic">Forensic terms (NDI / DI)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <p className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
+                  {reportVerdictWordingDescription(form.reportVerdictWording)}
+                </p>
+                <FormField label="Preferred report template">
+                  <Select
+                    value={form.defaultReportTemplateId || "org-default"}
+                    onValueChange={(value) =>
+                      handleInput("defaultReportTemplateId", value === "org-default" ? "" : String(value))
+                    }
+                    disabled={saving}
+                  >
+                    <SelectTrigger className={inputClass}>
+                      <SelectValue placeholder="Use organization default" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="org-default">Use organization default</SelectItem>
+                      {reportTemplates.map((template) => (
+                        <SelectItem key={template.id} value={String(template.id)}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </FormField>

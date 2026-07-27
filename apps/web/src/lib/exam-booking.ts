@@ -82,6 +82,7 @@ export type AppointmentRecord = {
     last_name: string;
     email?: string;
     employee_ref?: string;
+    gender?: string;
   };
 };
 

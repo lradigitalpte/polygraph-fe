@@ -14,8 +14,10 @@ import {
   Printer,
   Lock,
   ArrowLeft,
+  LayoutTemplate,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,16 +43,30 @@ import { fetchClient } from "@/lib/clients";
 import { fetchExaminerSignature, fetchExaminers, type UserRecord } from "@/lib/users";
 import {
   buildEmptyReportContent,
+  buildReportFromTemplate,
   buildReportSessionContext,
+  applyReportFieldDefaults,
+  cooperationSentence,
+  defaultSignerCaptionFromProfile,
   formatReportPersonName,
   formatVerdictLabel,
+  formatVerdictOptionLabel,
+  identitySentence,
+  normalizeReportVerdictWording,
   parseReportContent,
+  pronounsForGender,
+  reportVerdictWordingDescription,
+  splitSignerCaptionLines,
+  resolveExamDate,
   verdictColorClass,
   type ReportContent,
   type ReportSessionContext,
+  type ReportTemplateRecord,
+  type ReportVerdictWording,
 } from "@/lib/report-template";
+import { fetchReportTemplates, resolveReportTemplate } from "@/lib/report-templates";
 import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta } from "@/lib/reports";
-import { formatClinicDateTime } from "@/lib/clinic-time";
+import { formatClinicClock, formatClinicDateTime } from "@/lib/clinic-time";
 
 export default function ReportBuilderPage() {
   const router = useRouter();
@@ -65,6 +81,7 @@ export default function ReportBuilderPage() {
   const [loading, setLoading] = React.useState(false);
   const [subjectName, setSubjectName] = React.useState(() => formatReportPersonName(querySubjectName));
   const [clientName, setClientName] = React.useState("");
+  const [verdictWording, setVerdictWording] = React.useState<ReportVerdictWording>("plain");
   const [saving, setSaving] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(true);
@@ -73,6 +90,7 @@ export default function ReportBuilderPage() {
   const [overrideDialogOpen, setOverrideDialogOpen] = React.useState(false);
   const [overrideSubmitting, setOverrideSubmitting] = React.useState(false);
   const [finalizeDialogOpen, setFinalizeDialogOpen] = React.useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const [finalizing, setFinalizing] = React.useState(false);
   const [lockedAt, setLockedAt] = React.useState<string | null>(null);
   const [legacyMeta, setLegacyMeta] = React.useState<LegacyImportMeta | null>(null);
@@ -98,9 +116,28 @@ export default function ReportBuilderPage() {
   const [opinionPhaseText, setOpinionPhaseText] = React.useState("");
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("");
+  const [identityDocumentType, setIdentityDocumentType] = React.useState<"passport" | "emirates_id">("passport");
+  const [identityVerificationText, setIdentityVerificationText] = React.useState("");
+  const [examStartTime, setExamStartTime] = React.useState("");
+  const [examEndTime, setExamEndTime] = React.useState("");
+  const [cooperationMode, setCooperationMode] = React.useState<"cooperated" | "counter_measures">("cooperated");
+  const [preExamQuestionCountText, setPreExamQuestionCountText] = React.useState("4 relevant and 3 comparison questions");
+  const [responseLegendText, setResponseLegendText] = React.useState("");
+  const [sourceTemplateId, setSourceTemplateId] = React.useState<number | null>(null);
+  const [signerDisplayName, setSignerDisplayName] = React.useState("");
+  const [signerCaptionLines, setSignerCaptionLines] = React.useState("");
+  const [subjectGender, setSubjectGender] = React.useState("");
+  const [reportTemplates, setReportTemplates] = React.useState<ReportTemplateRecord[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = React.useState<string>("");
+  const sessionContextRef = React.useRef<ReportSessionContext | null>(null);
   const draftHydratedRef = React.useRef(false);
   const draftKey = `polygraph:report-draft:${examId}`;
   const readOnly = isLocked;
+
+  const activeTemplate = React.useMemo(
+    () => reportTemplates.find((item) => String(item.id) === selectedTemplateId),
+    [reportTemplates, selectedTemplateId],
+  );
 
   React.useEffect(() => {
     setMounted(true);
@@ -120,7 +157,53 @@ export default function ReportBuilderPage() {
     setExamPhaseText(content.exam_phase_text);
     setOpinionPhaseText(content.opinion_phase_text);
     setPostTestNotes(content.post_test_notes);
+    setIdentityDocumentType((content.identity_document_type as "passport" | "emirates_id") || "passport");
+    setIdentityVerificationText(content.identity_verification_text || "");
+    setExamStartTime(content.exam_start_time || "");
+    setExamEndTime(content.exam_end_time || "");
+    setCooperationMode(content.cooperation_mode || "cooperated");
+    setPreExamQuestionCountText(content.pre_exam_question_count_text || "4 relevant and 3 comparison questions");
+    setResponseLegendText(content.response_legend_text || "");
+    setSourceTemplateId(content.source_template_id ?? null);
+    setSignerDisplayName(content.signer_display_name || "");
+    setSignerCaptionLines(content.signer_caption_lines || "");
   }, []);
+
+  const applySignatureFromProfile = React.useCallback(
+    (examinerName: string, signature: { title: string; organization: string }, replace = false) => {
+      setSignerDisplayName((current) => (replace || !current.trim() ? examinerName : current));
+      setSignerCaptionLines((current) =>
+        replace || !current.trim()
+          ? defaultSignerCaptionFromProfile(signature.title, signature.organization)
+          : current,
+      );
+    },
+    [],
+  );
+
+  const loadTemplateIntoForm = React.useCallback(
+    async (
+      template: ReportTemplateRecord,
+      ctx: ReportSessionContext,
+      gender: string,
+      wording: ReportVerdictWording,
+      startTime: string,
+    ) => {
+      const content = applyReportFieldDefaults(
+        buildReportFromTemplate(ctx, template, {
+          subjectGender: gender,
+          identityDocType: "passport",
+          cooperationMode: "cooperated",
+          verdictLabel: formatVerdictOptionLabel("NDI", wording),
+          examStartTime: startTime,
+        }),
+      );
+      applyReportContent(content);
+      setSelectedTemplateId(String(template.id));
+      setSourceTemplateId(template.id);
+    },
+    [applyReportContent],
+  );
 
   const applyReportDefaults = React.useCallback(
     (ctx: ReportSessionContext, verdictValue = "NDI") => {
@@ -144,6 +227,14 @@ export default function ReportBuilderPage() {
         applyReportContent(parseReportContent(report.content, fallback));
       } catch {
         applyReportDefaults(ctx, report.verdict || "NDI");
+      }
+      if (report.signer_name) {
+        setSignerDisplayName(report.signer_name);
+      }
+      if (report.signer_caption) {
+        setSignerCaptionLines(report.signer_caption);
+      } else if (report.signer_title || report.signer_organization) {
+        setSignerCaptionLines(defaultSignerCaptionFromProfile(report.signer_title, report.signer_organization));
       }
     },
     [applyReportContent, applyReportDefaults]
@@ -174,6 +265,14 @@ export default function ReportBuilderPage() {
 
         setSubjectName(formatReportPersonName(ctx.subjectName || querySubjectName));
         setClientName(ctx.clientName);
+        sessionContextRef.current = ctx;
+        const gender = exam.subject?.gender || appointment?.subject?.gender || "";
+        setSubjectGender(gender);
+        const wording = normalizeReportVerdictWording(client?.report_verdict_wording);
+        setVerdictWording(wording);
+        const templates = await fetchReportTemplates().catch(() => []);
+        if (!cancelled) setReportTemplates(templates);
+        const scheduledStart = formatClinicClock(resolveExamDate(exam, appointment));
         setExaminers(examinerRoster);
         const assignedExaminerId = exam.examiner_id ? String(exam.examiner_id) : "";
         setExaminerId(assignedExaminerId);
@@ -181,6 +280,10 @@ export default function ReportBuilderPage() {
           const signature = await fetchExaminerSignature(Number(assignedExaminerId)).catch(() => null);
           setExaminerSignature(signature);
           setSignatureError(signature ? "" : "This examiner has not uploaded a report signature in My Profile.");
+          if (signature) {
+            const examinerName = examinerRoster.find((item) => String(item.id) === assignedExaminerId)?.name || "";
+            applySignatureFromProfile(examinerName, signature);
+          }
         }
 
         const legacy = parseLegacyImportNotes(appointment?.notes);
@@ -191,7 +294,16 @@ export default function ReportBuilderPage() {
           applySavedReport(report, ctx);
         } else {
           setHasSavedReport(false);
-          applyReportDefaults(ctx);
+          const template = client?.default_report_template_id
+            ? templates.find((item) => item.id === client.default_report_template_id) ||
+              (await resolveReportTemplate(exam.client_id).catch(() => null))
+            : await resolveReportTemplate(exam.client_id).catch(() => null);
+          if (template) {
+            setVerdict("NDI");
+            await loadTemplateIntoForm(template, ctx, gender, wording, scheduledStart);
+          } else {
+            applyReportDefaults(ctx);
+          }
           if (legacy.reference) {
             setReferenceNo(legacy.reference);
           }
@@ -231,7 +343,31 @@ export default function ReportBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [examId, querySubjectName, applyReportContent, applyReportDefaults, applySavedReport, draftKey, router]);
+  }, [examId, querySubjectName, applyReportContent, applyReportDefaults, applySavedReport, draftKey, loadTemplateIntoForm, router]);
+
+  const handleLoadTemplate = async (templateId: string) => {
+    if (isLocked || !templateId || !sessionContextRef.current) return;
+    const template = reportTemplates.find((item) => String(item.id) === templateId);
+    if (!template) return;
+    if (String(template.id) === selectedTemplateId) return;
+    const confirmed = window.confirm(
+      "Loading this template will replace the current report body text. Session details such as examinee and client will stay the same. Continue?",
+    );
+    if (!confirmed) return;
+    await loadTemplateIntoForm(
+      template,
+      sessionContextRef.current,
+      subjectGender,
+      verdictWording,
+      examStartTime || formatClinicClock(new Date()),
+    );
+    setTemplatePickerOpen(false);
+    toast.success(`Loaded template: ${template.name}`);
+  };
+
+  React.useEffect(() => {
+    setIdentityVerificationText(identitySentence(identityDocumentType));
+  }, [identityDocumentType]);
 
   const handleAddQuestion = () => {
     setQuestions((prev) => [...prev, { text: "", answer: "No", evaluation: "No Reaction" }]);
@@ -261,6 +397,16 @@ export default function ReportBuilderPage() {
     pre_test_phase_text: preTestPhaseText,
     exam_phase_text: examPhaseText,
     opinion_phase_text: opinionPhaseText,
+    identity_document_type: identityDocumentType,
+    identity_verification_text: identityVerificationText,
+    exam_start_time: examStartTime,
+    exam_end_time: examEndTime,
+    cooperation_mode: cooperationMode,
+    pre_exam_question_count_text: preExamQuestionCountText,
+    response_legend_text: responseLegendText,
+    source_template_id: sourceTemplateId ?? undefined,
+    signer_display_name: signerDisplayName,
+    signer_caption_lines: signerCaptionLines,
   });
 
   React.useEffect(() => {
@@ -307,7 +453,12 @@ export default function ReportBuilderPage() {
         toast.error("Select the examiner and confirm their authorization");
         return;
       }
-      const result = await finalizeReport(examId, Number(examinerId), authorizationConfirmed);
+      const result = await finalizeReport(examId, {
+        examinerId: Number(examinerId),
+        authorizationConfirmed,
+        signerDisplayName,
+        signerCaptionLines,
+      });
       window.localStorage.removeItem(draftKey);
       setIsLocked(true);
       setLockedAt(result.locked_at ?? new Date().toISOString());
@@ -384,7 +535,20 @@ export default function ReportBuilderPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {!readOnly && reportTemplates.length > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl h-11 px-5 font-semibold gap-2 max-w-[280px]"
+              onClick={() => setTemplatePickerOpen(true)}
+            >
+              <LayoutTemplate className="h-4 w-4 shrink-0" />
+              <span className="truncate">
+                {activeTemplate ? activeTemplate.name : "Choose template"}
+              </span>
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -535,11 +699,91 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
+            <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Session details</h4>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground font-semibold">Exam start time</Label>
+                  <Input value={examStartTime} onChange={(e) => setExamStartTime(e.target.value)} disabled={readOnly} className="h-10 rounded-xl" placeholder="14:00" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground font-semibold">Exam end time</Label>
+                  <Input value={examEndTime} onChange={(e) => setExamEndTime(e.target.value)} disabled={readOnly} className="h-10 rounded-xl" placeholder="15:45" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground font-semibold">Identity verification</Label>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    ["passport", "Passport"],
+                    ["emirates_id", "Emirates ID"],
+                  ] as const).map(([value, label]) => (
+                    <label key={value} className="flex items-center gap-2 text-xs font-semibold">
+                      <input
+                        type="radio"
+                        name="identity-document-type"
+                        checked={identityDocumentType === value}
+                        onChange={() => {
+                          setIdentityDocumentType(value);
+                          setIdentityVerificationText(identitySentence(value));
+                        }}
+                        disabled={readOnly}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                <Textarea
+                  rows={2}
+                  value={identityVerificationText}
+                  onChange={(e) => setIdentityVerificationText(e.target.value)}
+                  disabled={readOnly}
+                  className="rounded-xl text-xs bg-card"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground font-semibold">Pre-exam question count text</Label>
+                <Input
+                  value={preExamQuestionCountText}
+                  onChange={(e) => setPreExamQuestionCountText(e.target.value)}
+                  disabled={readOnly}
+                  className="h-10 rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground font-semibold">Cooperation line</Label>
+                <Select
+                  value={cooperationMode}
+                  onValueChange={(value) => {
+                    const mode = value as "cooperated" | "counter_measures";
+                    setCooperationMode(mode);
+                    setPostTestNotes(cooperationSentence(mode));
+                  }}
+                  disabled={readOnly}
+                >
+                  <SelectTrigger className="rounded-xl h-10 bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cooperated">Examinee cooperated</SelectItem>
+                    <SelectItem value="counter_measures">Counter-measures employed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Pronouns: {pronounsForGender(subjectGender).possessive} / {pronounsForGender(subjectGender).subject}
+                {subjectGender ? ` (from examinee gender: ${subjectGender})` : " (gender not set on examinee profile)"}
+              </p>
+            </div>
+
             {/* Verdict Selector */}
             <div className="space-y-2 rounded-2xl border border-primary/20 bg-primary/[0.02] p-4">
               <Label className="font-bold flex items-center gap-1.5 text-primary text-xs uppercase tracking-wider mb-2">
                 <BrainCircuit className="h-4 w-4" /> Final Evaluation Verdict
               </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Client wording: {reportVerdictWordingDescription(verdictWording)}
+              </p>
               <Select
                 value={verdict}
                 onValueChange={(val) => setVerdict(String(val))}
@@ -549,9 +793,9 @@ export default function ReportBuilderPage() {
                   <SelectValue placeholder="Select verdict..." />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
-                  <SelectItem value="NDI">No Deception Indicated (NDI) / Truthful</SelectItem>
-                  <SelectItem value="DI">Deception Indicated (DI) / Not Truthful</SelectItem>
-                  <SelectItem value="Inconclusive">Inconclusive</SelectItem>
+                  <SelectItem value="NDI">{formatVerdictOptionLabel("NDI", verdictWording)}</SelectItem>
+                  <SelectItem value="DI">{formatVerdictOptionLabel("DI", verdictWording)}</SelectItem>
+                  <SelectItem value="Inconclusive">{formatVerdictOptionLabel("Inconclusive", verdictWording)}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -737,6 +981,55 @@ export default function ReportBuilderPage() {
                 />
               </div>
             </div>
+
+            {/* Signature block */}
+            <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Signature block</h4>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    The signature image comes from the examiner profile. Edit the name and lines below for this report — initials, title, credentials, or anything else.
+                  </p>
+                </div>
+                {!readOnly && examinerSignature && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 rounded-xl text-[10px] font-bold uppercase tracking-wider"
+                    onClick={() => {
+                      const name = examiners.find((item) => String(item.id) === examinerId)?.name || "";
+                      applySignatureFromProfile(name, examinerSignature, true);
+                    }}
+                  >
+                    Reset to profile
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signer-name" className="text-xs text-muted-foreground font-semibold">Name below signature</Label>
+                <Input
+                  id="signer-name"
+                  value={signerDisplayName}
+                  onChange={(e) => setSignerDisplayName(e.target.value)}
+                  disabled={readOnly}
+                  placeholder="Full name or initials"
+                  className="h-10 rounded-xl bg-card border-border/50 text-xs"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signer-caption" className="text-xs text-muted-foreground font-semibold">Lines below name</Label>
+                <Textarea
+                  id="signer-caption"
+                  rows={4}
+                  value={signerCaptionLines}
+                  onChange={(e) => setSignerCaptionLines(e.target.value)}
+                  disabled={readOnly}
+                  placeholder={"Polygraph Examiner (APA)\nPolygraph International LLC"}
+                  className="rounded-xl text-xs bg-card"
+                />
+              </div>
+            </div>
           </div>
 
 
@@ -796,6 +1089,9 @@ export default function ReportBuilderPage() {
                     <div className="font-bold text-zinc-500">:</div>
                     <div className="font-black text-zinc-900 uppercase">{formatReportPersonName(subjectName) || "—"}</div>
                   </div>
+                  {identityVerificationText ? (
+                    <p className="text-[10px] text-zinc-700 whitespace-pre-line pt-2">{identityVerificationText}</p>
+                  ) : null}
                 </div>
 
                 <div className="mt-8 space-y-3">
@@ -881,7 +1177,7 @@ export default function ReportBuilderPage() {
                   <div className="flex items-center gap-2 mt-4 pt-2">
                     <span className="font-black text-xs uppercase text-zinc-800">Result:</span>
                     <span className={`font-black text-xs uppercase ${verdictColorClass(verdict)}`}>
-                      {formatVerdictLabel(verdict)}
+                      {formatVerdictLabel(verdict, verdictWording)}
                     </span>
                   </div>
                 </div>
@@ -899,9 +1195,10 @@ export default function ReportBuilderPage() {
                   <div className="mt-8 text-zinc-800">
                     <p className="text-[8px] font-bold">Electronically signed by:</p>
                     <img src={examinerSignature.image} alt="Examiner signature" className="mt-1 h-14 max-w-48 object-contain" />
-                    <p className="text-[9px] font-black">{examiners.find((item) => String(item.id) === examinerId)?.name}</p>
-                    <p className="text-[8px]">{examinerSignature.title}</p>
-                    <p className="text-[8px]">{examinerSignature.organization}</p>
+                    <p className="text-[9px] font-black">{signerDisplayName || examiners.find((item) => String(item.id) === examinerId)?.name}</p>
+                    {splitSignerCaptionLines(signerCaptionLines).map((line) => (
+                      <p key={line} className="text-[8px]">{line}</p>
+                    ))}
                     <p className="mt-1 text-[7px] text-zinc-500">Signing date and verification code are added when the final PDF is issued.</p>
                   </div>
                 )}
@@ -923,6 +1220,69 @@ export default function ReportBuilderPage() {
           ) : null}
         </div>
       )}
+      <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+        <DialogContent className="rounded-3xl max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Choose report template</DialogTitle>
+            <DialogDescription>
+              Loading a template replaces the report body text. Examinee, client, and reference details stay the same.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 max-h-[min(60vh,420px)] overflow-y-auto pr-1">
+            {(["generic", "eva"] as const).map((category) => {
+              const items = reportTemplates.filter((item) => item.category === category);
+              if (items.length === 0) return null;
+              return (
+                <div key={category} className="space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    {category === "eva" ? "Eva templates" : "Generic templates"}
+                  </p>
+                  <div className="space-y-2">
+                    {items.map((template) => {
+                      const isActive = String(template.id) === selectedTemplateId;
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          disabled={isActive}
+                          onClick={() => void handleLoadTemplate(String(template.id))}
+                          className="w-full rounded-2xl border border-border/60 bg-card/50 p-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.03] disabled:cursor-default disabled:opacity-70 disabled:hover:border-border/60 disabled:hover:bg-card/50"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <p className="font-bold text-sm leading-tight">{template.name}</p>
+                              {template.description ? (
+                                <p className="text-xs text-muted-foreground line-clamp-2">{template.description}</p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              {isActive ? (
+                                <Badge variant="secondary" className="text-[9px] uppercase tracking-wider">
+                                  Current
+                                </Badge>
+                              ) : null}
+                              {template.is_default ? (
+                                <Badge variant="outline" className="text-[9px] uppercase tracking-wider">
+                                  Org default
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setTemplatePickerOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={finalizeDialogOpen} onOpenChange={setFinalizeDialogOpen}>
         <DialogContent className="rounded-3xl">
           <DialogHeader>
@@ -943,6 +1303,8 @@ export default function ReportBuilderPage() {
                   .then((signature) => {
                     setExaminerSignature(signature);
                     setSignatureError("");
+                    const name = examiners.find((item) => String(item.id) === id)?.name || "";
+                    applySignatureFromProfile(name, signature, true);
                   })
                   .catch(() => {
                     setExaminerSignature(null);
@@ -960,10 +1322,21 @@ export default function ReportBuilderPage() {
               </Select>
             </div>
             {examinerSignature && (
-              <div className="rounded-xl border bg-white p-3 text-zinc-900">
+              <div className="rounded-xl border bg-white p-3 text-zinc-900 space-y-3">
                 <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
-                <p className="font-bold">{examiners.find((item) => String(item.id) === examinerId)?.name}</p>
-                <p className="text-xs">{examinerSignature.title}</p><p className="text-xs">{examinerSignature.organization}</p>
+                <div className="space-y-2">
+                  <Label className="text-xs">Name on report</Label>
+                  <Input value={signerDisplayName} onChange={(e) => setSignerDisplayName(e.target.value)} className="h-9" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">Lines below name</Label>
+                  <Textarea
+                    rows={3}
+                    value={signerCaptionLines}
+                    onChange={(e) => setSignerCaptionLines(e.target.value)}
+                    className="text-xs"
+                  />
+                </div>
               </div>
             )}
             {signatureError && (
@@ -980,7 +1353,7 @@ export default function ReportBuilderPage() {
             <Button type="button" variant="outline" onClick={() => setFinalizeDialogOpen(false)} disabled={finalizing}>
               Cancel
             </Button>
-            <Button type="button" onClick={() => void handleFinalize()} disabled={finalizing || !examinerSignature || !authorizationConfirmed} className="gap-2">
+            <Button type="button" onClick={() => void handleFinalize()} disabled={finalizing || !examinerSignature || !authorizationConfirmed || !signerDisplayName.trim() || !signerCaptionLines.trim()} className="gap-2">
               {finalizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
               Finalize & Sign
             </Button>

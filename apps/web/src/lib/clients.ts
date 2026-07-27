@@ -13,6 +13,8 @@ export type ExamineeRosterEntry = {
   next_examiner_name?: string;
 };
 
+export type ReportVerdictWording = "plain" | "forensic";
+
 export type ClientRecord = {
   id: number;
   created_at: string;
@@ -32,6 +34,8 @@ export type ClientRecord = {
   email_examinee_fallback?: boolean;
   email_summary_time?: string;
   last_email_summary_at?: string;
+  report_verdict_wording?: ReportVerdictWording;
+  default_report_template_id?: number | null;
   notes?: string;
 };
 
@@ -63,6 +67,8 @@ export type CreateClientInput = {
   email_examinee_fallback?: boolean;
   email_summary_time?: string;
   notes?: string;
+  report_verdict_wording?: ReportVerdictWording;
+  default_report_template_id?: number | null;
 };
 
 export type UpdateClientInput = CreateClientInput;

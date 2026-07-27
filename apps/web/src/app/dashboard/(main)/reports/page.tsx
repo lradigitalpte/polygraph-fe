@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Archive,
   ArchiveRestore,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -42,8 +43,9 @@ import {
   regenerateSecureShare,
   setSecureShareArchived,
   fetchConsolidatedStats,
-  fetchReport,
-  resolveReportWorkflowStatus,
+  fetchReportWorkflowStatuses,
+  downloadLockedReportPreview,
+  buildReportWorkflowMap,
   parseLegacyImportNotes,
   type ReportWorkflowStatus,
   type SecureReportShare,
@@ -77,6 +79,7 @@ export default function ReportsDashboard() {
   const [examsSearch, setExamsSearch] = React.useState("");
   const [examsDateFrom, setExamsDateFrom] = React.useState("");
   const [examsDateTo, setExamsDateTo] = React.useState("");
+  const [examsWorkflowFilter, setExamsWorkflowFilter] = React.useState<"all" | ReportWorkflowStatus>("all");
   const [examsPage, setExamsPage] = React.useState(1);
   const [examsPerPage, setExamsPerPage] = React.useState(5);
 
@@ -98,19 +101,22 @@ export default function ReportsDashboard() {
   const [regenerateExpiry, setRegenerateExpiry] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   const [regenerating, setRegenerating] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
+  const [downloadingExamId, setDownloadingExamId] = React.useState<number | null>(null);
 
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sharesData, statsData, apptsData] = await Promise.all([
+      const [sharesData, statsData, apptsData, workflowRows] = await Promise.all([
         fetchSecureShares({ search, archive: "all" }),
         fetchConsolidatedStats(),
         fetchAppointments(),
+        fetchReportWorkflowStatuses(),
       ]);
       setShares(sharesData);
       setStats(statsData);
       setAppointments(apptsData);
+      setReportWorkflow(buildReportWorkflowMap(workflowRows));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load report data");
     } finally {
@@ -161,20 +167,42 @@ export default function ReportsDashboard() {
     router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
   };
 
-  const workflowBadge = (status: ReportWorkflowStatus | undefined, apptStatus?: string) => {
+  const handleDownloadPreview = async (examId: number) => {
+    const status = reportWorkflow[examId];
+    if (status !== "locked") {
+      toast.error("Only locked reports awaiting send can be downloaded for local review.");
+      return;
+    }
+    if (!canViewLockedReport) {
+      toast.error("You don't have permission to download locked final reports.");
+      return;
+    }
+    setDownloadingExamId(examId);
+    try {
+      await downloadLockedReportPreview(examId);
+      toast.success("Report preview downloaded.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to download report preview");
+    } finally {
+      setDownloadingExamId(null);
+    }
+  };
+
+  const workflowBadge = (status: ReportWorkflowStatus | undefined) => {
     switch (status) {
       case "sent":
-        return <Badge className="ml-2 bg-emerald-500/10 text-emerald-700 border-none">Sent</Badge>;
+        return <Badge className="bg-emerald-500/10 text-emerald-700 border-none">Sent</Badge>;
       case "locked":
-        return <Badge className="ml-2 bg-amber-500/10 text-amber-700 border-none">Locked</Badge>;
-      case "draft":
-        return <Badge variant="outline" className="ml-2">Draft</Badge>;
-      default:
         return (
-          <Badge variant="secondary" className="ml-2">
-            {apptStatus?.toLowerCase() === "completed" ? "Write report" : "No report"}
+          <Badge className="bg-amber-500/10 text-amber-700 border-none gap-1">
+            <Lock className="h-3 w-3" />
+            Locked — pending send
           </Badge>
         );
+      case "draft":
+        return <Badge variant="outline">Draft</Badge>;
+      default:
+        return <Badge variant="secondary">Needs report</Badge>;
     }
   };
 
@@ -236,12 +264,28 @@ export default function ReportsDashboard() {
         : "";
       const client = (appt.client?.name || "").toLowerCase();
       const day = toInputDate(appt.scheduled_at);
+      const workflowStatus = reportWorkflow[appt.exam_id!] ?? "none";
       const matchesText = !q || name.includes(q) || client.includes(q);
       const matchesDateFrom = !examsDateFrom || day >= examsDateFrom;
       const matchesDateTo = !examsDateTo || day <= examsDateTo;
-      return matchesText && matchesDateFrom && matchesDateTo;
+      const matchesWorkflow = examsWorkflowFilter === "all" || workflowStatus === examsWorkflowFilter;
+      return matchesText && matchesDateFrom && matchesDateTo && matchesWorkflow;
     });
-  }, [completedExams, examsSearch, examsDateFrom, examsDateTo]);
+  }, [completedExams, examsSearch, examsDateFrom, examsDateTo, examsWorkflowFilter, reportWorkflow]);
+
+  const workflowCounts = React.useMemo(() => {
+    const counts: Record<ReportWorkflowStatus, number> = {
+      none: 0,
+      draft: 0,
+      locked: 0,
+      sent: 0,
+    };
+    for (const appt of completedExams) {
+      const status = reportWorkflow[appt.exam_id!] ?? "none";
+      counts[status] += 1;
+    }
+    return counts;
+  }, [completedExams, reportWorkflow]);
 
   const examsTotalPages = Math.max(1, Math.ceil(filteredExams.length / examsPerPage));
   React.useEffect(() => { if (examsPage > examsTotalPages) setExamsPage(examsTotalPages); }, [examsTotalPages, examsPage]);
@@ -249,45 +293,6 @@ export default function ReportsDashboard() {
     () => filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage),
     [filteredExams, examsPage, examsPerPage],
   );
-  const paginatedExamIds = React.useMemo(
-    () => paginatedExams.map((appt) => appt.exam_id).filter((id): id is number => Boolean(id)),
-    [paginatedExams],
-  );
-  const paginatedExamIdsKey = React.useMemo(() => paginatedExamIds.join(","), [paginatedExamIds]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    if (paginatedExamIds.length === 0) {
-      setReportWorkflow({});
-      return;
-    }
-    void Promise.all(
-      paginatedExamIds.map(async (examId) => {
-        const report = await fetchReport(examId).catch(() => null);
-        const hasShare = report
-          ? shares.some((share) => share.exam_report_id === report.id)
-          : false;
-        return [
-          examId,
-          resolveReportWorkflowStatus({
-            reportExists: Boolean(report),
-            isLocked: Boolean(report?.is_locked),
-            hasShare,
-          }),
-        ] as const;
-      })
-    )
-      .then((entries) => {
-        if (cancelled) return;
-        setReportWorkflow(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (!cancelled) setReportWorkflow({});
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [paginatedExamIdsKey, shares]);
 
   // Shares table derived data
   const filteredShares = React.useMemo(() => {
@@ -455,6 +460,27 @@ export default function ReportsDashboard() {
                     ))}
                   </div>
                 </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {([
+                    { value: "all" as const, label: "All", count: completedExams.length },
+                    { value: "none" as const, label: "Needs report", count: workflowCounts.none },
+                    { value: "draft" as const, label: "Draft", count: workflowCounts.draft },
+                    { value: "locked" as const, label: "Locked — pending send", count: workflowCounts.locked },
+                    { value: "sent" as const, label: "Sent", count: workflowCounts.sent },
+                  ]).map((filter) => (
+                    <Button
+                      key={filter.value}
+                      type="button"
+                      size="sm"
+                      variant={examsWorkflowFilter === filter.value ? "default" : "outline"}
+                      className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest"
+                      onClick={() => { setExamsWorkflowFilter(filter.value); setExamsPage(1); }}
+                    >
+                      {filter.label}
+                      <span className="ml-2 opacity-70">({filter.count})</span>
+                    </Button>
+                  ))}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
@@ -466,7 +492,7 @@ export default function ReportsDashboard() {
                       <th className="px-8 py-4">Requesting Client</th>
                       <th className="px-8 py-4">Date</th>
                       <th className="px-8 py-4">Legacy reference</th>
-                      <th className="px-8 py-4">Status</th>
+                      <th className="px-8 py-4">Report status</th>
                       <th className="px-8 py-4 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -512,10 +538,7 @@ export default function ReportsDashboard() {
                               )}
                             </td>
                             <td className="px-8 py-4">
-                              <Badge variant={appt.status === "completed" ? "default" : "outline"}>
-                                {appt.status.replace(/_/g, " ")}
-                              </Badge>
-                              {workflowBadge(reportWorkflow[appt.exam_id!], appt.status)}
+                              {workflowBadge(reportWorkflow[appt.exam_id!])}
                             </td>
                             <td className="px-8 py-4 text-right space-x-2">
                               <Button
@@ -529,6 +552,23 @@ export default function ReportsDashboard() {
                                   ? "View Locked Report"
                                   : "Write / Edit Report"}
                               </Button>
+                              {reportWorkflow[appt.exam_id!] === "locked" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-xl text-xs gap-1.5 font-semibold"
+                                  onClick={() => void handleDownloadPreview(appt.exam_id!)}
+                                  disabled={!canViewLockedReport || downloadingExamId === appt.exam_id}
+                                  title="Download a local preview PDF before sending"
+                                >
+                                  {downloadingExamId === appt.exam_id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Download className="h-3.5 w-3.5" />
+                                  )}
+                                  Download Preview
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 className="rounded-xl text-xs gap-1.5 font-bold"
@@ -549,8 +589,8 @@ export default function ReportsDashboard() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-8 py-12 text-center text-muted-foreground italic">
-                          {examsSearch || examsDateFrom || examsDateTo
+                        <td colSpan={6} className="px-8 py-12 text-center text-muted-foreground italic">
+                          {examsSearch || examsDateFrom || examsDateTo || examsWorkflowFilter !== "all"
                             ? "No sessions match your filters."
                             : "No active sessions found. Ensure session documentation is started or completed."}
                         </td>
