@@ -308,18 +308,30 @@ export function buildReportFromTemplate(
   return merged;
 }
 
+/** True when a field was never set or is still an unresolved template placeholder — not when staff cleared it. */
+function isUnsetReportField(value?: string | null): boolean {
+  if (value === undefined || value === null) return true;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return trimmed.startsWith("{{") && trimmed.endsWith("}}");
+}
+
 export function applyReportFieldDefaults(content: ReportContent): ReportContent {
   const identityType = content.identity_document_type || "passport";
+  const cooperationMode = content.cooperation_mode || "cooperated";
   return {
     ...content,
     identity_document_type: identityType,
-    identity_verification_text:
-      content.identity_verification_text?.trim() || identitySentence(identityType),
-    cooperation_mode: content.cooperation_mode || "cooperated",
-    post_test_notes:
-      content.post_test_notes?.trim() || cooperationSentence(content.cooperation_mode),
-    pre_exam_question_count_text:
-      content.pre_exam_question_count_text || "4 relevant and 3 comparison questions",
+    identity_verification_text: isUnsetReportField(content.identity_verification_text)
+      ? identitySentence(identityType)
+      : content.identity_verification_text,
+    cooperation_mode: cooperationMode,
+    post_test_notes: isUnsetReportField(content.post_test_notes)
+      ? cooperationSentence(cooperationMode)
+      : content.post_test_notes,
+    pre_exam_question_count_text: isUnsetReportField(content.pre_exam_question_count_text)
+      ? "**4 relevant and 3 comparison questions**"
+      : content.pre_exam_question_count_text,
   };
 }
 
@@ -340,7 +352,7 @@ export function parseReportContent(raw: string, fallback: ReportContent): Report
     purpose: coalesceField(parsed.purpose, fallback.purpose),
     instrument: coalesceField(parsed.instrument, fallback.instrument),
     pre_test_notes: coalesceField(parsed.pre_test_notes, fallback.pre_test_notes),
-    questions: parsed.questions?.length ? parsed.questions : fallback.questions,
+    questions: parsed.questions !== undefined && parsed.questions !== null ? parsed.questions : fallback.questions,
     post_test_notes: coalesceField(parsed.post_test_notes, fallback.post_test_notes),
     reference_no: coalesceField(parsed.reference_no, fallback.reference_no),
     exam_date: coalesceField(parsed.exam_date, fallback.exam_date),

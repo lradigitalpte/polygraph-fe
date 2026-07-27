@@ -56,9 +56,6 @@ import {
   identitySentence,
   normalizeReportVerdictWording,
   parseReportContent,
-  pronounsForGender,
-  reportVerdictWordingDescription,
-  splitSignerCaptionLines,
   resolveExamDate,
   verdictColorClass,
   type ReportContent,
@@ -792,10 +789,6 @@ export default function ReportBuilderPage() {
                   hint="Preset fills this text for Section 3. You can edit it freely — use Bold for emphasis."
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Pronouns: {pronounsForGender(subjectGender).possessive} / {pronounsForGender(subjectGender).subject}
-                {subjectGender ? ` (from examinee gender: ${subjectGender})` : " (gender not set on examinee profile)"}
-              </p>
             </div>
 
             {/* Verdict Selector */}
