@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
+import { Textarea } from "@/components/ui/textarea";
 import {
   deleteMyAccount,
   deleteMySignature,
   fetchMe,
   fetchMySignature,
   updateMe,
+  updateMyCredentials,
   updateMySignatureMeta,
   uploadMySignature,
 } from "@/lib/account";
@@ -37,8 +39,10 @@ export default function ProfilePage() {
   const [signatureImage, setSignatureImage] = React.useState("");
   const [signatureTitle, setSignatureTitle] = React.useState("");
   const [signatureOrganization, setSignatureOrganization] = React.useState("");
+  const [credentialsText, setCredentialsText] = React.useState("");
   const [signatureSaving, setSignatureSaving] = React.useState(false);
   const [signatureMetaSaving, setSignatureMetaSaving] = React.useState(false);
+  const [credentialsSaving, setCredentialsSaving] = React.useState(false);
 
   React.useEffect(() => {
     void (async () => {
@@ -48,11 +52,13 @@ export default function ProfilePage() {
         setName(me.name);
         setEmail(me.email);
         setRoleName(me.role?.name ?? "");
+        setCredentialsText(me.credentials_text || "");
         const signature = await fetchMySignature();
         if (signature) {
           setSignatureImage(signature.image);
           setSignatureTitle(signature.title || "");
           setSignatureOrganization(signature.organization || "");
+          if (signature.credentials_text) setCredentialsText(signature.credentials_text);
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load profile");
@@ -111,6 +117,23 @@ export default function ProfilePage() {
       toast.error(err instanceof Error ? err.message : "Failed to save signature details");
     } finally {
       setSignatureMetaSaving(false);
+    }
+  };
+
+  const handleSaveCredentials = async () => {
+    setCredentialsSaving(true);
+    try {
+      const updated = await updateMyCredentials(credentialsText);
+      setCredentialsText(updated.credentials_text);
+      toast.success(
+        updated.has_credentials
+          ? "Credentials saved — you can attach them when finalizing a report"
+          : "Credentials cleared",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save credentials");
+    } finally {
+      setCredentialsSaving(false);
     }
   };
 
@@ -251,6 +274,34 @@ export default function ProfilePage() {
               Use a transparent PNG, maximum 1 MB. A snapshot of the image, title, and organization is
               retained in each finalized report.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {roleName.toLowerCase() === "examiner" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Examiner Credentials</CardTitle>
+            <CardDescription>
+              Optional. When attached during report finalization, this prints on a new page after the
+              signature. Leave blank if you do not use a credentials page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="credentials-text">Credentials page content</Label>
+              <Textarea
+                id="credentials-text"
+                rows={14}
+                value={credentialsText}
+                onChange={(e) => setCredentialsText(e.target.value)}
+                placeholder={`QUALIFICATIONS\n• Graduated as a Basic Polygraph Examiner from …\n\nPROFESSIONAL CREDENTIALS\n…\n\nPROFESSIONAL ASSOCIATIONS\n• Member of …`}
+                className="font-mono text-xs leading-relaxed"
+              />
+            </div>
+            <Button type="button" onClick={() => void handleSaveCredentials()} disabled={credentialsSaving}>
+              {credentialsSaving ? "Saving…" : "Save Credentials"}
+            </Button>
           </CardContent>
         </Card>
       )}

@@ -49,13 +49,14 @@ export type ExamReportRecord = {
   signer_caption?: string;
   signer_title?: string;
   signer_organization?: string;
+  credentials_text?: string;
+  include_credentials?: boolean;
 };
 
 export type FinalizeReportInput = {
   examinerId: number;
   authorizationConfirmed: boolean;
-  signerDisplayName?: string;
-  signerCaptionLines?: string;
+  includeCredentials?: boolean;
 };
 
 export async function fetchSecureShares(filters?: {
@@ -246,8 +247,7 @@ export async function finalizeReport(
     body: JSON.stringify({
       examiner_id: input.examinerId,
       authorization_confirmed: input.authorizationConfirmed,
-      signer_display_name: input.signerDisplayName?.trim() || undefined,
-      signer_caption_lines: input.signerCaptionLines?.trim() || undefined,
+      include_credentials: Boolean(input.includeCredentials),
     }),
   });
   const payload = await response.json().catch(() => null);

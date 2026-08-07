@@ -27,8 +27,10 @@ export type UserRecord = {
   created_at: string;
   updated_at: string;
   has_signature?: boolean;
+  has_credentials?: boolean;
   signature_title?: string;
   signature_organization?: string;
+  credentials_text?: string;
 };
 
 export type UserActivityRecord = {
@@ -62,7 +64,12 @@ export async function fetchExaminers(search?: string): Promise<UserRecord[]> {
   return response.json();
 }
 
-export async function fetchExaminerSignature(id: number): Promise<{ image: string; title: string; organization: string }> {
+export async function fetchExaminerSignature(id: number): Promise<{
+  image: string;
+  title: string;
+  organization: string;
+  credentials_text?: string;
+}> {
   const response = await authenticatedFetch(`/api/users/${id}/signature`);
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(payload?.error || "Examiner signature is not configured");

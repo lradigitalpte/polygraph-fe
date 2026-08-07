@@ -40,13 +40,31 @@ export async function deleteMyAccount(): Promise<void> {
   }
 }
 
-export type ExaminerSignature = { image: string; title: string; organization: string };
+export type ExaminerSignature = {
+  image: string;
+  title: string;
+  organization: string;
+  credentials_text?: string;
+};
 
 export async function fetchMySignature(): Promise<ExaminerSignature | null> {
   const response = await authenticatedFetch("/api/me/signature");
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("Failed to load signature");
   return response.json();
+}
+
+export async function updateMyCredentials(credentialsText: string): Promise<{ credentials_text: string; has_credentials: boolean }> {
+  const response = await authenticatedFetch("/api/me/credentials", {
+    method: "PATCH",
+    body: JSON.stringify({ credentials_text: credentialsText }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "Failed to save credentials");
+  return {
+    credentials_text: payload?.credentials_text ?? credentialsText,
+    has_credentials: Boolean(payload?.has_credentials),
+  };
 }
 
 export async function uploadMySignature(file: File, title: string, organization: string): Promise<void> {

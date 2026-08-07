@@ -44,8 +44,9 @@ export type ReportContent = {
   pre_exam_question_count_text?: string;
   response_legend_text?: string;
   source_template_id?: number;
-  /** Editable signature block text — saved in draft, applied on finalize. */
+  /** @deprecated Signature text now always comes from the examiner profile at finalize. */
   signer_display_name?: string;
+  /** @deprecated Signature text now always comes from the examiner profile at finalize. */
   signer_caption_lines?: string;
 };
 

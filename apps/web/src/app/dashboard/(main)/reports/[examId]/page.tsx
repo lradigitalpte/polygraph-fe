@@ -99,8 +99,17 @@ export default function ReportBuilderPage() {
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [examinerId, setExaminerId] = React.useState("");
   const [authorizationConfirmed, setAuthorizationConfirmed] = React.useState(false);
-  const [examinerSignature, setExaminerSignature] = React.useState<{ image: string; title: string; organization: string } | null>(null);
+  const [examinerSignature, setExaminerSignature] = React.useState<{
+    image: string;
+    title: string;
+    organization: string;
+    credentials_text?: string;
+  } | null>(null);
   const [signatureError, setSignatureError] = React.useState("");
+  const [includeCredentials, setIncludeCredentials] = React.useState(false);
+  const [lockedCredentialsText, setLockedCredentialsText] = React.useState("");
+  const [lockedSignerName, setLockedSignerName] = React.useState("");
+  const [lockedSignerCaption, setLockedSignerCaption] = React.useState("");
 
   // Form states
   const [verdict, setVerdict] = React.useState<string>("NDI");
@@ -125,8 +134,6 @@ export default function ReportBuilderPage() {
   const [preExamQuestionCountText, setPreExamQuestionCountText] = React.useState("**4 relevant and 3 comparison questions**");
   const [responseLegendText, setResponseLegendText] = React.useState("");
   const [sourceTemplateId, setSourceTemplateId] = React.useState<number | null>(null);
-  const [signerDisplayName, setSignerDisplayName] = React.useState("");
-  const [signerCaptionLines, setSignerCaptionLines] = React.useState("");
   const [subjectGender, setSubjectGender] = React.useState("");
   const [reportTemplates, setReportTemplates] = React.useState<ReportTemplateRecord[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string>("");
@@ -139,6 +146,20 @@ export default function ReportBuilderPage() {
     () => reportTemplates.find((item) => String(item.id) === selectedTemplateId),
     [reportTemplates, selectedTemplateId],
   );
+
+  const signerDisplayName = React.useMemo(() => {
+    if (isLocked && lockedSignerName) return lockedSignerName;
+    return examiners.find((item) => String(item.id) === examinerId)?.name || "";
+  }, [examinerId, examiners, isLocked, lockedSignerName]);
+  const signerCaptionLines = React.useMemo(() => {
+    if (isLocked && lockedSignerCaption) return lockedSignerCaption;
+    return defaultSignerCaptionFromProfile(examinerSignature?.title, examinerSignature?.organization);
+  }, [examinerSignature, isLocked, lockedSignerCaption]);
+  const examinerCredentialsText = React.useMemo(() => {
+    if (isLocked) return lockedCredentialsText;
+    return (examinerSignature?.credentials_text || "").trim();
+  }, [examinerSignature?.credentials_text, isLocked, lockedCredentialsText]);
+  const canIncludeCredentials = examinerCredentialsText.length > 0;
 
   React.useEffect(() => {
     setMounted(true);
@@ -166,21 +187,7 @@ export default function ReportBuilderPage() {
     setPreExamQuestionCountText(content.pre_exam_question_count_text || "4 relevant and 3 comparison questions");
     setResponseLegendText(content.response_legend_text || "");
     setSourceTemplateId(content.source_template_id ?? null);
-    setSignerDisplayName(content.signer_display_name || "");
-    setSignerCaptionLines(content.signer_caption_lines || "");
   }, []);
-
-  const applySignatureFromProfile = React.useCallback(
-    (examinerName: string, signature: { title: string; organization: string }, replace = false) => {
-      setSignerDisplayName((current) => (replace || !current.trim() ? examinerName : current));
-      setSignerCaptionLines((current) =>
-        replace || !current.trim()
-          ? defaultSignerCaptionFromProfile(signature.title, signature.organization)
-          : current,
-      );
-    },
-    [],
-  );
 
   const loadTemplateIntoForm = React.useCallback(
     async (
@@ -229,14 +236,13 @@ export default function ReportBuilderPage() {
       } catch {
         applyReportDefaults(ctx, report.verdict || "NDI");
       }
-      if (report.signer_name) {
-        setSignerDisplayName(report.signer_name);
-      }
-      if (report.signer_caption) {
-        setSignerCaptionLines(report.signer_caption);
-      } else if (report.signer_title || report.signer_organization) {
-        setSignerCaptionLines(defaultSignerCaptionFromProfile(report.signer_title, report.signer_organization));
-      }
+      setIncludeCredentials(Boolean(report.include_credentials));
+      setLockedCredentialsText(report.credentials_text || "");
+      setLockedSignerName(report.signer_name || "");
+      setLockedSignerCaption(
+        report.signer_caption ||
+          defaultSignerCaptionFromProfile(report.signer_title, report.signer_organization),
+      );
     },
     [applyReportContent, applyReportDefaults]
   );
@@ -281,10 +287,6 @@ export default function ReportBuilderPage() {
           const signature = await fetchExaminerSignature(Number(assignedExaminerId)).catch(() => null);
           setExaminerSignature(signature);
           setSignatureError(signature ? "" : "This examiner has not uploaded a report signature in My Profile.");
-          if (signature) {
-            const examinerName = examinerRoster.find((item) => String(item.id) === assignedExaminerId)?.name || "";
-            applySignatureFromProfile(examinerName, signature);
-          }
         }
 
         const legacy = parseLegacyImportNotes(appointment?.notes);
@@ -418,8 +420,6 @@ export default function ReportBuilderPage() {
     pre_exam_question_count_text: preExamQuestionCountText,
     response_legend_text: responseLegendText,
     source_template_id: sourceTemplateId ?? undefined,
-    signer_display_name: signerDisplayName,
-    signer_caption_lines: signerCaptionLines,
   });
 
   React.useEffect(() => {
@@ -469,8 +469,7 @@ export default function ReportBuilderPage() {
       const result = await finalizeReport(examId, {
         examinerId: Number(examinerId),
         authorizationConfirmed,
-        signerDisplayName,
-        signerCaptionLines,
+        includeCredentials,
       });
       window.localStorage.removeItem(draftKey);
       setIsLocked(true);
@@ -494,6 +493,10 @@ export default function ReportBuilderPage() {
       await requestReportOverrideUnlock(examId, overrideReason.trim());
       setIsLocked(false);
       setLockedAt(null);
+      setIncludeCredentials(false);
+      setLockedCredentialsText("");
+      setLockedSignerName("");
+      setLockedSignerCaption("");
       setOverrideDialogOpen(false);
       setOverrideReason("");
       toast.success("Report unlocked for controlled revision. Existing secure shares were expired.");
@@ -995,53 +998,45 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
-            {/* Signature block */}
+            {/* Signature + credentials options */}
             <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Signature block</h4>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    The signature image comes from the examiner profile. Edit the name and lines below for this report — initials, title, credentials, or anything else.
-                  </p>
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Signature block</h4>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Name, title, and organization come from the signing examiner&apos;s My Profile. They cannot be edited per report.
+                </p>
+              </div>
+              {examinerSignature ? (
+                <div className="rounded-xl border bg-white p-3 text-zinc-900 space-y-1">
+                  <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
+                  <p className="text-xs font-bold">{signerDisplayName || "Examiner name missing"}</p>
+                  {splitSignerCaptionLines(signerCaptionLines).map((line) => (
+                    <p key={line} className="text-[11px]">{line}</p>
+                  ))}
                 </div>
-                {!readOnly && examinerSignature && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 rounded-xl text-[10px] font-bold uppercase tracking-wider"
-                    onClick={() => {
-                      const name = examiners.find((item) => String(item.id) === examinerId)?.name || "";
-                      applySignatureFromProfile(name, examinerSignature, true);
-                    }}
-                  >
-                    Reset to profile
-                  </Button>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signer-name" className="text-xs text-muted-foreground font-semibold">Name below signature</Label>
-                <Input
-                  id="signer-name"
-                  value={signerDisplayName}
-                  onChange={(e) => setSignerDisplayName(e.target.value)}
-                  disabled={readOnly}
-                  placeholder="Full name or initials"
-                  className="h-10 rounded-xl bg-card border-border/50 text-xs"
+              ) : (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  {signatureError || "Select an examiner with a saved signature to preview the signature block."}
+                </p>
+              )}
+              <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={includeCredentials}
+                  disabled={readOnly || !canIncludeCredentials}
+                  onChange={(e) => setIncludeCredentials(e.target.checked)}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signer-caption" className="text-xs text-muted-foreground font-semibold">Lines below name</Label>
-                <Textarea
-                  id="signer-caption"
-                  rows={4}
-                  value={signerCaptionLines}
-                  onChange={(e) => setSignerCaptionLines(e.target.value)}
-                  disabled={readOnly}
-                  placeholder={"Polygraph Examiner (APA)\nPolygraph International LLC"}
-                  className="rounded-xl text-xs bg-card"
-                />
-              </div>
+                <span className="space-y-1">
+                  <span className="block font-medium">Include examiner credentials page</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    Off by default. When on, a new page with the examiner&apos;s saved credentials is added after the signature.
+                    {!canIncludeCredentials
+                      ? " This examiner has not added credentials in My Profile yet."
+                      : ""}
+                  </span>
+                </span>
+              </label>
             </div>
           </div>
 
@@ -1210,7 +1205,7 @@ export default function ReportBuilderPage() {
                   <div className="mt-8 text-zinc-800">
                     <p className="text-[8px] font-bold">Electronically signed by:</p>
                     <img src={examinerSignature.image} alt="Examiner signature" className="mt-1 h-14 max-w-48 object-contain" />
-                    <p className="text-[9px] font-black">{signerDisplayName || examiners.find((item) => String(item.id) === examinerId)?.name}</p>
+                    <p className="text-[9px] font-black">{signerDisplayName}</p>
                     {splitSignerCaptionLines(signerCaptionLines).map((line) => (
                       <p key={line} className="text-[8px]">{line}</p>
                     ))}
@@ -1231,6 +1226,15 @@ export default function ReportBuilderPage() {
                 </div>
               </div>
             </div>
+
+            {includeCredentials && examinerCredentialsText ? (
+              <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col text-[11px] leading-relaxed select-none mb-8 border border-zinc-200">
+                <h2 className="text-base font-black tracking-wide text-[#b46428]">POLYGRAPH EXAMINER CREDENTIALS</h2>
+                <div className="mt-6 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-800">
+                  {examinerCredentialsText}
+                </div>
+              </div>
+            ) : null}
           </div>
           ) : null}
         </div>
@@ -1313,13 +1317,12 @@ export default function ReportBuilderPage() {
                 const id = String(value ?? "");
                 setExaminerId(id);
                 setAuthorizationConfirmed(false);
+                setIncludeCredentials(false);
                 setSignatureError("");
                 void fetchExaminerSignature(Number(id))
                   .then((signature) => {
                     setExaminerSignature(signature);
                     setSignatureError("");
-                    const name = examiners.find((item) => String(item.id) === id)?.name || "";
-                    applySignatureFromProfile(name, signature, true);
                   })
                   .catch(() => {
                     setExaminerSignature(null);
@@ -1337,21 +1340,12 @@ export default function ReportBuilderPage() {
               </Select>
             </div>
             {examinerSignature && (
-              <div className="rounded-xl border bg-white p-3 text-zinc-900 space-y-3">
+              <div className="rounded-xl border bg-white p-3 text-zinc-900 space-y-1">
                 <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
-                <div className="space-y-2">
-                  <Label className="text-xs">Name on report</Label>
-                  <Input value={signerDisplayName} onChange={(e) => setSignerDisplayName(e.target.value)} className="h-9" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs">Lines below name</Label>
-                  <Textarea
-                    rows={3}
-                    value={signerCaptionLines}
-                    onChange={(e) => setSignerCaptionLines(e.target.value)}
-                    className="text-xs"
-                  />
-                </div>
+                <p className="text-xs font-bold">{signerDisplayName}</p>
+                {splitSignerCaptionLines(signerCaptionLines).map((line) => (
+                  <p key={line} className="text-[11px]">{line}</p>
+                ))}
               </div>
             )}
             {signatureError && (
@@ -1359,6 +1353,21 @@ export default function ReportBuilderPage() {
                 {signatureError} Ask the examiner to open My Profile → Report Signature and upload a PNG signature before finalizing.
               </div>
             )}
+            <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={includeCredentials}
+                disabled={!canIncludeCredentials}
+                onChange={(e) => setIncludeCredentials(e.target.checked)}
+              />
+              <span className="space-y-1">
+                <span className="block">Include examiner credentials page after the signature</span>
+                <span className="block text-xs text-muted-foreground">
+                  Default is off. {!canIncludeCredentials ? "This examiner has no credentials saved yet." : "Uses the text from the examiner profile."}
+                </span>
+              </span>
+            </label>
             <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
               <input type="checkbox" className="mt-1" checked={authorizationConfirmed} onChange={(e) => setAuthorizationConfirmed(e.target.checked)} />
               <span>I confirm that I have received this examiner&apos;s authorization to apply their signature to this final report.</span>
