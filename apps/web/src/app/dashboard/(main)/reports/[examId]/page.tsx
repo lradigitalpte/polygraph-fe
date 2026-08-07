@@ -30,8 +30,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { CredentialsRichTextContent } from "@/components/dashboard/credentials-rich-text-editor";
 import { ReportRichTextContent } from "@/components/dashboard/report-rich-text-content";
 import { ReportRichTextField } from "@/components/dashboard/report-rich-text-field";
+import { isCredentialsEmpty } from "@/lib/credentials-rich-text";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +67,7 @@ import {
   type ReportTemplateRecord,
   type ReportVerdictWording,
 } from "@/lib/report-template";
+import { richTextToPlain } from "@/lib/report-rich-text";
 import { fetchReportTemplates, resolveReportTemplate } from "@/lib/report-templates";
 import { fetchReport, finalizeReport, parseLegacyImportNotes, requestReportOverrideUnlock, saveDetailedReport, type LegacyImportMeta } from "@/lib/reports";
 import { formatClinicClock, formatClinicDateTime } from "@/lib/clinic-time";
@@ -157,9 +160,9 @@ export default function ReportBuilderPage() {
   }, [examinerSignature, isLocked, lockedSignerCaption]);
   const examinerCredentialsText = React.useMemo(() => {
     if (isLocked) return lockedCredentialsText;
-    return (examinerSignature?.credentials_text || "").trim();
+    return examinerSignature?.credentials_text || "";
   }, [examinerSignature?.credentials_text, isLocked, lockedCredentialsText]);
-  const canIncludeCredentials = examinerCredentialsText.length > 0;
+  const canIncludeCredentials = !isCredentialsEmpty(examinerCredentialsText);
 
   React.useEffect(() => {
     setMounted(true);
@@ -369,16 +372,19 @@ export default function ReportBuilderPage() {
   };
 
   const handleQuestionCountChange = (value: string) => {
-    const previousBare = preExamQuestionCountText.replace(/\*\*/g, "");
-    const nextBare = value.replace(/\*\*/g, "");
-    const wrapped = value.includes("**") ? value : `**${value}**`;
-    setPreExamQuestionCountText(wrapped);
+    const previousBare = richTextToPlain(preExamQuestionCountText);
+    const nextBare = richTextToPlain(value);
+    setPreExamQuestionCountText(value);
+    if (!previousBare || !nextBare || previousBare === nextBare) return;
     setPreTestNotes((prev) => {
-      if (previousBare && prev.includes(previousBare)) {
-        return prev.replace(previousBare, nextBare);
+      if (prev.includes(preExamQuestionCountText)) {
+        return prev.replace(preExamQuestionCountText, value);
       }
-      if (previousBare && prev.includes(`**${previousBare}**`)) {
-        return prev.replace(`**${previousBare}**`, wrapped);
+      if (prev.includes(`**${previousBare}**`)) {
+        return prev.replace(`**${previousBare}**`, value);
+      }
+      if (prev.includes(previousBare)) {
+        return prev.replace(previousBare, nextBare);
       }
       return prev;
     });
@@ -516,9 +522,10 @@ export default function ReportBuilderPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-2rem)] rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl overflow-hidden shadow-2xl">
+    <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden -m-4 sm:-m-6 lg:-m-8 p-3 sm:p-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl">
       {/* Header */}
-      <div className="p-6 border-b border-border/40 flex items-center justify-between shrink-0">
+      <div className="p-4 sm:p-5 border-b border-border/40 flex items-center justify-between shrink-0 gap-3">
         <div className="flex items-center gap-4">
           <Button
             type="button"
@@ -634,9 +641,9 @@ export default function ReportBuilderPage() {
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-12">
           {/* Left Column: Form Editor (Scrollable) */}
-          <div className={`${showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12"} border-border/40 overflow-y-auto p-6 space-y-6 max-h-[calc(100vh-140px)]`}>
+          <div className={`${showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12"} min-h-0 overflow-y-auto overflow-x-hidden border-border/40 p-6 space-y-6`}>
             <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
               Report Parameters
             </h3>            {isLocked ? (
@@ -764,7 +771,7 @@ export default function ReportBuilderPage() {
                   value={preExamQuestionCountText}
                   onChange={handleQuestionCountChange}
                   disabled={readOnly}
-                  hint="Bold phrase inserted into Section 1 pre-test notes (e.g. **4 relevant and 3 comparison questions**)."
+                  hint="Bold this phrase in the toolbar — it is also synced into Section 1 pre-test notes."
                 />
               </div>
               <div className="space-y-2">
@@ -791,7 +798,7 @@ export default function ReportBuilderPage() {
                   value={postTestNotes}
                   onChange={setPostTestNotes}
                   disabled={readOnly}
-                  hint="Preset fills this text for Section 3. You can edit it freely — use Bold for emphasis."
+                  hint="Printed once in Section 3 after the opinion notes. Choosing a preset above replaces this text."
                 />
               </div>
             </div>
@@ -950,7 +957,7 @@ export default function ReportBuilderPage() {
                   value={limestoneNotes}
                   onChange={setLimestoneNotes}
                   disabled={readOnly}
-                  hint="Bold the polygram sentence with **Four polygrams, including 1 acquaintance and 3 official tests**"
+                  hint="Use Bold in the toolbar for the polygram sentence (e.g. Four polygrams, including 1 acquaintance and 3 official tests)."
                 />
               </div>
             </div>
@@ -968,18 +975,9 @@ export default function ReportBuilderPage() {
                   disabled={readOnly}
                   placeholder="Based on diagnostic evaluations..."
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="post-notes" className="text-xs text-muted-foreground font-semibold">Post-Test Statement</Label>
-                <p className="text-[10px] text-muted-foreground">Same text as the cooperation line in Session details.</p>
-                <ReportRichTextField
-                  id="post-notes"
-                  rows={2}
-                  value={postTestNotes}
-                  onChange={setPostTestNotes}
-                  disabled={readOnly}
-                  placeholder="Post-test notes..."
-                />
+                <p className="text-[10px] text-muted-foreground">
+                  The cooperation line from Session details is added automatically after this on the report.
+                </p>
               </div>
             </div>
 
@@ -1043,8 +1041,8 @@ export default function ReportBuilderPage() {
 
           {/* Right Column: Live A4 Document Preview */}
           {showPreview ? (
-          <div className="lg:col-span-7 bg-zinc-950/40 p-8 overflow-y-auto max-h-[calc(100vh-140px)] flex flex-col items-center">
-            <div className="sticky top-0 w-full flex justify-between items-center mb-4 z-10 bg-zinc-900/60 backdrop-blur px-4 py-2.5 rounded-2xl border border-border/40">
+          <div className="lg:col-span-7 flex min-h-0 flex-col overflow-hidden bg-zinc-950/40">
+            <div className="z-10 flex w-full shrink-0 items-center justify-between border-b border-border/40 bg-zinc-900/60 px-4 py-2.5 backdrop-blur">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Eye className="h-4 w-4 text-primary" /> Live Document Preview
               </span>
@@ -1065,8 +1063,10 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden px-4 py-6">
+
             {/* Visual Preview Template Page 1 */}
-            <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col justify-between text-[11px] leading-relaxed select-none mb-8 border border-zinc-200">
+            <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
@@ -1098,9 +1098,9 @@ export default function ReportBuilderPage() {
                     <div className="font-black text-zinc-900 uppercase">{formatReportPersonName(subjectName) || "—"}</div>
                   </div>
                   {identityVerificationText ? (
-                    <p className="text-[10px] text-zinc-700 whitespace-pre-line pt-2">
+                    <div className="pt-2 text-[10px] text-zinc-700">
                       <ReportRichTextContent text={identityVerificationText} />
-                    </p>
+                    </div>
                   ) : null}
                 </div>
 
@@ -1108,21 +1108,21 @@ export default function ReportBuilderPage() {
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 1: PRE-EXAMINATION PHASE
                   </h3>
-                  <p className="whitespace-pre-line text-zinc-700">
+                  <div className="text-zinc-700">
                     <ReportRichTextContent text={preTestPhaseText} />
-                  </p>
-                  <p className="whitespace-pre-line text-zinc-700 italic">
+                  </div>
+                  <div className="text-zinc-700 italic">
                     <ReportRichTextContent text={preTestNotes} />
-                  </p>
+                  </div>
                 </div>
 
                 <div className="mt-8 space-y-3">
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 2: EXAMINATION PHASE
                   </h3>
-                  <p className="text-zinc-700 whitespace-pre-line">
+                  <div className="text-zinc-700">
                     <ReportRichTextContent text={examPhaseText} />
-                  </p>
+                  </div>
 
                   {questions.length > 0 && (
                     <table className="mt-2 w-full table-fixed border-collapse border border-zinc-300 text-left">
@@ -1146,9 +1146,9 @@ export default function ReportBuilderPage() {
                   )}
 
                   {limestoneNotes.trim() ? (
-                    <p className="text-zinc-700 whitespace-pre-line mt-4">
+                    <div className="mt-4 text-zinc-700">
                       <ReportRichTextContent text={limestoneNotes} />
-                    </p>
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -1167,7 +1167,7 @@ export default function ReportBuilderPage() {
             </div>
 
             {/* Visual Preview Template Page 2 — Section 3 always starts here */}
-            <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col justify-between text-[11px] leading-relaxed select-none border border-zinc-200">
+            <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
@@ -1178,12 +1178,12 @@ export default function ReportBuilderPage() {
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 3: OPINION OF EXAMINER
                   </h3>
-                  <p className="whitespace-pre-line text-zinc-700">
+                  <div className="text-zinc-700">
                     <ReportRichTextContent text={opinionPhaseText} />
-                  </p>
-                  <p className="text-zinc-700">
+                  </div>
+                  <div className="text-zinc-700">
                     <ReportRichTextContent text={postTestNotes} />
-                  </p>
+                  </div>
                   <div className="flex items-center gap-2 mt-4 pt-2">
                     <span className="font-black text-xs uppercase text-zinc-800">Result:</span>
                     <span className={`font-black text-xs uppercase ${verdictColorClass(verdict)}`}>
@@ -1227,14 +1227,15 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
-            {includeCredentials && examinerCredentialsText ? (
-              <div className="w-[210mm] min-h-[297mm] bg-white text-zinc-900 p-[20mm] shadow-2xl relative flex flex-col text-[11px] leading-relaxed select-none mb-8 border border-zinc-200">
-                <h2 className="text-base font-black tracking-wide text-[#b46428]">POLYGRAPH EXAMINER CREDENTIALS</h2>
-                <div className="mt-6 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-800">
-                  {examinerCredentialsText}
-                </div>
+            {includeCredentials && canIncludeCredentials ? (
+              <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
+                <h2 className="text-center text-base font-black tracking-wide text-[#b46428]">
+                  POLYGRAPH EXAMINER CREDENTIALS
+                </h2>
+                <CredentialsRichTextContent html={examinerCredentialsText} className="mt-8" />
               </div>
             ) : null}
+            </div>
           </div>
           ) : null}
         </div>
@@ -1413,6 +1414,7 @@ export default function ReportBuilderPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }

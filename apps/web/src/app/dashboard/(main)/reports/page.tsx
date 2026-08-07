@@ -46,12 +46,12 @@ import {
   fetchReportWorkflowStatuses,
   downloadLockedReportPreview,
   buildReportWorkflowMap,
-  parseLegacyImportNotes,
   type ReportWorkflowStatus,
   type SecureReportShare,
   type ConsolidatedReportStats,
 } from "@/lib/reports";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
+import { fetchExaminers, type UserRecord } from "@/lib/users";
 
 export default function ReportsDashboard() {
   const router = useRouter();
@@ -67,6 +67,7 @@ export default function ReportsDashboard() {
 
   const [shares, setShares] = React.useState<SecureReportShare[]>([]);
   const [appointments, setAppointments] = React.useState<AppointmentRecord[]>([]);
+  const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [stats, setStats] = React.useState<ConsolidatedReportStats | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
@@ -107,15 +108,17 @@ export default function ReportsDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sharesData, statsData, apptsData, workflowRows] = await Promise.all([
+      const [sharesData, statsData, apptsData, workflowRows, examinersData] = await Promise.all([
         fetchSecureShares({ search, archive: "all" }),
         fetchConsolidatedStats(),
         fetchAppointments(),
         fetchReportWorkflowStatuses(),
+        fetchExaminers().catch(() => [] as UserRecord[]),
       ]);
       setShares(sharesData);
       setStats(statsData);
       setAppointments(apptsData);
+      setExaminers(examinersData);
       setReportWorkflow(buildReportWorkflowMap(workflowRows));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load report data");
@@ -256,6 +259,22 @@ export default function ReportsDashboard() {
     return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
   }, [appointments]);
 
+  const examinerNameById = React.useMemo(() => {
+    const map = new Map<number, string>();
+    for (const examiner of examiners) {
+      map.set(examiner.id, examiner.name);
+    }
+    return map;
+  }, [examiners]);
+
+  const examinerLabel = React.useCallback(
+    (examinerId?: number) => {
+      if (!examinerId) return "—";
+      return examinerNameById.get(examinerId) || `Examiner #${examinerId}`;
+    },
+    [examinerNameById],
+  );
+
   const filteredExams = React.useMemo(() => {
     const q = examsSearch.trim().toLowerCase();
     return completedExams.filter((appt) => {
@@ -263,15 +282,16 @@ export default function ReportsDashboard() {
         ? `${appt.subject.first_name} ${appt.subject.last_name}`.toLowerCase()
         : "";
       const client = (appt.client?.name || "").toLowerCase();
+      const examiner = examinerLabel(appt.examiner_id).toLowerCase();
       const day = toInputDate(appt.scheduled_at);
       const workflowStatus = reportWorkflow[appt.exam_id!] ?? "none";
-      const matchesText = !q || name.includes(q) || client.includes(q);
+      const matchesText = !q || name.includes(q) || client.includes(q) || examiner.includes(q);
       const matchesDateFrom = !examsDateFrom || day >= examsDateFrom;
       const matchesDateTo = !examsDateTo || day <= examsDateTo;
       const matchesWorkflow = examsWorkflowFilter === "all" || workflowStatus === examsWorkflowFilter;
       return matchesText && matchesDateFrom && matchesDateTo && matchesWorkflow;
     });
-  }, [completedExams, examsSearch, examsDateFrom, examsDateTo, examsWorkflowFilter, reportWorkflow]);
+  }, [completedExams, examsSearch, examsDateFrom, examsDateTo, examsWorkflowFilter, reportWorkflow, examinerLabel]);
 
   const workflowCounts = React.useMemo(() => {
     const counts: Record<ReportWorkflowStatus, number> = {
@@ -420,14 +440,14 @@ export default function ReportsDashboard() {
                     Sessions Ready for Report Customization
                   </CardTitle>
                   <CardDescription className="mt-1">
-                    Completed assessments ready for your formal Polygraph report. Legacy spreadsheet status is shown for reference — write, finalize, and send from here.
+                    Completed assessments ready for your formal Polygraph report — write, finalize, and send from here.
                   </CardDescription>
                 </div>
                 <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Search examinee or client..."
+                      placeholder="Search examinee, client, or examiner..."
                       className="h-10 pl-10 rounded-xl bg-card border-border/50 text-sm"
                       value={examsSearch}
                       onChange={(e) => { setExamsSearch(e.target.value); setExamsPage(1); }}
@@ -490,8 +510,8 @@ export default function ReportsDashboard() {
                     <tr className="bg-muted/30 border-b border-border/50 text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       <th className="px-8 py-4">Examinee</th>
                       <th className="px-8 py-4">Requesting Client</th>
+                      <th className="px-8 py-4">Examiner</th>
                       <th className="px-8 py-4">Date</th>
-                      <th className="px-8 py-4">Legacy reference</th>
                       <th className="px-8 py-4">Report status</th>
                       <th className="px-8 py-4 text-right">Actions</th>
                     </tr>
@@ -508,35 +528,12 @@ export default function ReportsDashboard() {
                         const examineeName = appt.subject
                           ? formatSubjectName(appt.subject)
                           : `Examinee #${appt.subject_id}`;
-                        const legacy = parseLegacyImportNotes(appt.notes);
                         return (
                           <tr key={appt.id} className="hover:bg-primary/[0.02] transition-colors">
                             <td className="px-8 py-4 font-semibold text-foreground">{examineeName}</td>
                             <td className="px-8 py-4 text-xs font-medium text-foreground/80">{appt.client?.name || "Corporate"}</td>
+                            <td className="px-8 py-4 text-xs font-medium text-foreground/80">{examinerLabel(appt.examiner_id)}</td>
                             <td className="px-8 py-4 text-xs text-muted-foreground">{formatClinicDateLabel(appt.scheduled_at)}</td>
-                            <td className="px-8 py-4 text-xs text-muted-foreground">
-                              {legacy.legacyStatus || legacy.legacyResults ? (
-                                <div className="space-y-1">
-                                  {legacy.legacyStatus && (
-                                    <div>
-                                      <span className="font-semibold text-foreground/80">Session: </span>
-                                      {legacy.legacyStatus}
-                                    </div>
-                                  )}
-                                  {legacy.legacyResults && (
-                                    <div>
-                                      <span className="font-semibold text-foreground/80">Legacy result: </span>
-                                      {legacy.legacyResults}
-                                    </div>
-                                  )}
-                                  {legacy.reference && (
-                                    <div className="font-mono text-[10px]">{legacy.reference}</div>
-                                  )}
-                                </div>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
                             <td className="px-8 py-4">
                               {workflowBadge(reportWorkflow[appt.exam_id!])}
                             </td>

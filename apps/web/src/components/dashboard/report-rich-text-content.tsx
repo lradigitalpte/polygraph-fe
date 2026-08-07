@@ -1,7 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { parseReportRichText } from "@/lib/report-rich-text";
+import {
+  isReportRichTextEmpty,
+  parseReportRichText,
+  reportToEditorHTML,
+} from "@/lib/report-rich-text";
 import { cn } from "@/lib/utils";
 
 export function ReportRichTextContent({
@@ -11,10 +15,21 @@ export function ReportRichTextContent({
   text: string;
   className?: string;
 }) {
-  if (!text.trim()) return null;
+  if (isReportRichTextEmpty(text)) return null;
+
+  const trimmed = text.trim();
+  if (/^<[a-z][\s\S]*>/i.test(trimmed)) {
+    return (
+      <div
+        className={cn("report-rich-content", className)}
+        dangerouslySetInnerHTML={{ __html: reportToEditorHTML(text) }}
+      />
+    );
+  }
+
   const segments = parseReportRichText(text);
   return (
-    <span className={cn("whitespace-pre-line", className)}>
+    <div className={cn("whitespace-pre-line", className)}>
       {segments.map((segment, index) => (
         <span
           key={`${index}-${segment.text.slice(0, 12)}`}
@@ -23,6 +38,6 @@ export function ReportRichTextContent({
           {segment.text}
         </span>
       ))}
-    </span>
+    </div>
   );
 }

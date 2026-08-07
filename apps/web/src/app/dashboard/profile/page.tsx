@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
-import { Textarea } from "@/components/ui/textarea";
+import { CredentialsRichTextEditor } from "@/components/dashboard/credentials-rich-text-editor";
 import {
   deleteMyAccount,
   deleteMySignature,
@@ -289,15 +289,12 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="credentials-text">Credentials page content</Label>
-              <Textarea
-                id="credentials-text"
-                rows={14}
-                value={credentialsText}
-                onChange={(e) => setCredentialsText(e.target.value)}
-                placeholder={`QUALIFICATIONS\n• Graduated as a Basic Polygraph Examiner from …\n\nPROFESSIONAL CREDENTIALS\n…\n\nPROFESSIONAL ASSOCIATIONS\n• Member of …`}
-                className="font-mono text-xs leading-relaxed"
-              />
+              <Label>Credentials page content</Label>
+              <CredentialsRichTextEditor value={credentialsText} onChange={setCredentialsText} />
+              <p className="text-xs text-muted-foreground">
+                Use the toolbar for bold, headings, lists, and alignment. The page title
+                “POLYGRAPH EXAMINER CREDENTIALS” is added automatically and centered on the report.
+              </p>
             </div>
             <Button type="button" onClick={() => void handleSaveCredentials()} disabled={credentialsSaving}>
               {credentialsSaving ? "Saving…" : "Save Credentials"}
