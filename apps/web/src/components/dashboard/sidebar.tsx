@@ -60,6 +60,7 @@ const examinerNav: NavItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "My Exams", href: "/dashboard/exams", icon: FileText },
   { name: "Clients", href: "/dashboard/clients", icon: Users },
+  { name: "Reports", href: "/dashboard/reports", icon: FileSignature },
   { name: "Calendar", href: "/dashboard/calendar", icon: Calendar },
   { name: "My Analytics", href: "/dashboard/analytics", icon: ChartNoAxesCombined },
   { name: "My Availability", href: "/dashboard/profile/availability", icon: CalendarClock },
