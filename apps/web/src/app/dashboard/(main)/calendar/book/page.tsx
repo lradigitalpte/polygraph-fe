@@ -13,6 +13,7 @@ import {
   Info,
   Languages,
   Loader2,
+  Plus,
   Search,
   Shield,
   User,
@@ -444,7 +445,9 @@ function BookAppointmentPageContent() {
 
   const isStepValid = () => {
     if (step === 1) {
-      return Boolean(formData.clientId && formData.examTypeId && (useClientAsSubject || formData.subjectId));
+      const hasSubject =
+        useClientAsSubject || Boolean(formData.subjectId) || Boolean(formData.subjectName.trim());
+      return Boolean(formData.clientId && formData.examTypeId && hasSubject);
     }
     if (step === 2) {
       return Boolean(formData.examinerId && formData.date && formData.time && !isDateBlocked);
@@ -507,7 +510,30 @@ function BookAppointmentPageContent() {
           const firstName = nameParts[0] || "Client";
           const lastName = nameParts.slice(1).join(" ") || "Record";
           const createdSubject = await createSubject({
-            client_id: selectedClientRecord?.id,
+            client_id: selectedClientRecord?.id || (formData.clientId ? Number(formData.clientId) : undefined),
+            first_name: firstName,
+            last_name: lastName,
+            english_proficiency: englishProficiency || undefined,
+            interpreter_required: interpreterRequired,
+          });
+          subjectID = createdSubject.id;
+          createdNewSubject = true;
+        }
+      } else if (!subjectID && formData.subjectName.trim()) {
+        const trimmedName = formData.subjectName.trim().toLowerCase();
+        const existingMatch = subjects.find((subject) => {
+          const fullName = `${subject.first_name} ${subject.last_name}`.trim().toLowerCase();
+          return fullName === trimmedName;
+        });
+
+        if (existingMatch) {
+          subjectID = existingMatch.id;
+        } else {
+          const nameParts = formData.subjectName.trim().split(/\s+/).filter(Boolean);
+          const firstName = nameParts[0] || "Examinee";
+          const lastName = nameParts.slice(1).join(" ") || "(Subject)";
+          const createdSubject = await createSubject({
+            client_id: selectedClientRecord?.id || (formData.clientId ? Number(formData.clientId) : undefined),
             first_name: firstName,
             last_name: lastName,
             english_proficiency: englishProficiency || undefined,
@@ -519,7 +545,7 @@ function BookAppointmentPageContent() {
       }
 
       if (!subjectID) {
-        toast.error("Please select a subject");
+        toast.error("Please enter or select an examinee");
         return;
       }
 
@@ -782,25 +808,36 @@ function BookAppointmentPageContent() {
                           </p>
                         ) : !useClientAsSubject || isOrgBooking ? (
                           <div className="space-y-2">
-                            <Label htmlFor="subject-search">Search examinee</Label>
+                            <Label htmlFor="subject-search">Search or type examinee name</Label>
                             <div className="relative" ref={subjectSearchRef}>
                               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                               <Input
                                 id="subject-search"
-                                placeholder="Search an existing subject..."
+                                placeholder="Type examinee name (e.g. spouse, relative) or search existing..."
                                 className="h-10 rounded-xl border-border/50 bg-muted/20 pl-10 sm:h-12"
                                 value={subjectSearch}
                                 onFocus={() => setShowSubjectResults(true)}
-                                onChange={(event) => setSubjectSearch(event.target.value)}
+                                onChange={(event) => {
+                                  const val = event.target.value;
+                                  setSubjectSearch(val);
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    subjectName: val,
+                                    subjectId: "",
+                                  }));
+                                  setSelectedSubjectRecord(null);
+                                  setShowSubjectResults(true);
+                                }}
                               />
                               {showSubjectResults && (
                                 <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-border/50 bg-card shadow-2xl backdrop-blur-xl">
-                                  {subjects.length > 0 ? (
+                                  {subjects.length > 0 && (
                                     subjects.map((subject) => {
                                       const label = `${subject.first_name} ${subject.last_name}`.trim();
                                       return (
                                         <button
                                           key={subject.id}
+                                          type="button"
                                           className="flex w-full flex-col gap-0.5 border-b border-border/30 px-4 py-3 text-left transition-colors last:border-0 hover:bg-primary/5"
                                           onClick={() => handleSelectSubject(subject)}
                                         >
@@ -808,22 +845,79 @@ function BookAppointmentPageContent() {
                                           <span className="text-[10px] text-muted-foreground">
                                             {[subject.email, subject.phone].filter(Boolean).join(" · ") ||
                                               subject.employee_ref ||
-                                              "Examinee"}
+                                              "Existing Examinee"}
                                           </span>
                                         </button>
                                       );
                                     })
-                                  ) : (
-                                    <div className="p-4 text-center text-sm italic text-muted-foreground">No subjects found.</div>
+                                  )}
+                                  {subjectSearch.trim().length > 0 && (
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2 border-t border-border/30 px-4 py-3 text-left transition-colors hover:bg-primary/10 text-primary font-semibold text-sm"
+                                      onClick={() => {
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          subjectName: subjectSearch.trim(),
+                                          subjectId: "",
+                                        }));
+                                        setShowSubjectResults(false);
+                                      }}
+                                    >
+                                      <Plus className="h-4 w-4 shrink-0" />
+                                      <span>Use &quot;{subjectSearch.trim()}&quot; as new examinee linked to this client</span>
+                                    </button>
+                                  )}
+                                  {subjects.length === 0 && !subjectSearch.trim() && (
+                                    <div className="p-4 text-center text-sm italic text-muted-foreground">
+                                      Type examinee name (e.g. spouse&apos;s name)...
+                                    </div>
                                   )}
                                 </div>
                               )}
                             </div>
+
+                            {!useClientAsSubject && formData.subjectName.trim() && !formData.subjectId && (
+                              <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-xs">
+                                <div>
+                                  <span className="font-bold text-primary uppercase tracking-wider text-[10px] block">New Examinee</span>
+                                  <span className="font-semibold text-foreground text-sm">{formData.subjectName}</span>
+                                  <p className="text-muted-foreground mt-0.5">
+                                    Will be registered as a new examinee linked to client <strong className="text-foreground">{formData.clientName || "selected client"}</strong> upon booking.
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="border-primary/40 text-primary shrink-0">
+                                  New Record
+                                </Badge>
+                              </div>
+                            )}
+
+                            {!useClientAsSubject && formData.subjectId && (
+                              <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
+                                <div>
+                                  <span className="font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider text-[10px] block">Selected Existing Examinee</span>
+                                  <span className="font-semibold text-foreground text-sm">{formData.subjectName}</span>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-[11px] text-muted-foreground hover:text-foreground"
+                                  onClick={() => {
+                                    setFormData((prev) => ({ ...prev, subjectId: "", subjectName: "" }));
+                                    setSubjectSearch("");
+                                    setSelectedSubjectRecord(null);
+                                  }}
+                                >
+                                  Change
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         ) : null}
                       </div>
 
-                      {formData.clientId && (useClientAsSubject || formData.subjectId) && (
+                      {formData.clientId && (useClientAsSubject || formData.subjectId || formData.subjectName.trim()) && (
                         <div className="space-y-3 rounded-xl border border-border/50 bg-muted/10 p-3 sm:p-4">
                           <div className="flex items-center gap-2">
                             <Languages className="h-4 w-4 text-primary" />
