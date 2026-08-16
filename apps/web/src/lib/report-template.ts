@@ -43,6 +43,7 @@ export type ReportContent = {
   cooperation_mode?: "cooperated" | "counter_measures";
   pre_exam_question_count_text?: string;
   response_legend_text?: string;
+  enable_color_coding?: boolean;
   source_template_id?: number;
   /** @deprecated Signature text now always comes from the examiner profile at finalize. */
   signer_display_name?: string;

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -136,6 +136,7 @@ export default function ReportBuilderPage() {
   const [cooperationMode, setCooperationMode] = React.useState<"cooperated" | "counter_measures">("cooperated");
   const [preExamQuestionCountText, setPreExamQuestionCountText] = React.useState("**4 relevant and 3 comparison questions**");
   const [responseLegendText, setResponseLegendText] = React.useState("");
+  const [enableColorCoding, setEnableColorCoding] = React.useState(false);
   const [sourceTemplateId, setSourceTemplateId] = React.useState<number | null>(null);
   const [subjectGender, setSubjectGender] = React.useState("");
   const [reportTemplates, setReportTemplates] = React.useState<ReportTemplateRecord[]>([]);
@@ -189,6 +190,7 @@ export default function ReportBuilderPage() {
     setCooperationMode(content.cooperation_mode || "cooperated");
     setPreExamQuestionCountText(content.pre_exam_question_count_text || "4 relevant and 3 comparison questions");
     setResponseLegendText(content.response_legend_text || "");
+    setEnableColorCoding(!!content.enable_color_coding);
     setSourceTemplateId(content.source_template_id ?? null);
   }, []);
 
@@ -425,6 +427,7 @@ export default function ReportBuilderPage() {
     cooperation_mode: cooperationMode,
     pre_exam_question_count_text: preExamQuestionCountText,
     response_legend_text: responseLegendText,
+    enable_color_coding: enableColorCoding,
     source_template_id: sourceTemplateId ?? undefined,
   });
 
@@ -434,7 +437,7 @@ export default function ReportBuilderPage() {
       window.localStorage.setItem(draftKey, JSON.stringify({ verdict, content: buildReportPayload(), savedAt: new Date().toISOString() }));
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [draftKey, examDate, examId, examPhaseText, instrument, isLocked, limestoneNotes, loading, mounted, opinionPhaseText, postTestNotes, preTestNotes, preTestPhaseText, purpose, questions, referenceNo, reportDate, section4FollowUp, verdict]);
+  }, [draftKey, enableColorCoding, examDate, examId, examPhaseText, instrument, isLocked, limestoneNotes, loading, mounted, opinionPhaseText, postTestNotes, preTestNotes, preTestPhaseText, purpose, questions, referenceNo, reportDate, section4FollowUp, verdict]);
 
   const handleSave = async () => {
     if (isLocked) {
@@ -872,6 +875,25 @@ export default function ReportBuilderPage() {
                 </Button>
               </div>
 
+              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 p-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold text-foreground">Color-Coded Evaluations</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Highlight responses in Red (Deceptive) & Green (No Reaction) in PDF and live preview
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={enableColorCoding}
+                    disabled={readOnly}
+                    onChange={(e) => setEnableColorCoding(e.target.checked)}
+                  />
+                  <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="exam-intro" className="text-xs text-muted-foreground font-semibold font-bold">Introductory statement</Label>
                 <ReportRichTextField
@@ -1134,13 +1156,25 @@ export default function ReportBuilderPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {questions.map((q, idx) => (
-                          <tr key={idx} className="border-b border-zinc-200">
-                            <td className="align-top border border-zinc-300 px-2 py-2 text-center font-semibold text-zinc-500">{idx + 1}</td>
-                            <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium whitespace-normal break-words leading-6">{q.text || "-"}</td>
-                            <td className="border border-zinc-300 px-3 py-2 text-center font-black text-zinc-900 align-middle">{q.answer}</td>
-                          </tr>
-                        ))}
+                        {questions.map((q, idx) => {
+                          const evalLower = (q.evaluation || "").toLowerCase();
+                          const isDeceptive = evalLower.includes("deceptive") || (evalLower.includes("reaction") && !evalLower.includes("no reaction"));
+                          const isNoReaction = evalLower === "no reaction";
+                          const responseColorClass = enableColorCoding
+                            ? isDeceptive
+                              ? "text-red-600 font-black"
+                              : isNoReaction
+                                ? "text-emerald-600 font-black"
+                                : "text-zinc-900 font-black"
+                            : "text-zinc-900 font-black";
+                          return (
+                            <tr key={idx} className="border-b border-zinc-200">
+                              <td className="align-top border border-zinc-300 px-2 py-2 text-center font-semibold text-zinc-500">{idx + 1}</td>
+                              <td className="border border-zinc-300 px-3 py-2 text-zinc-700 italic font-medium whitespace-normal break-words leading-6">{q.text || "-"}</td>
+                              <td className={`border border-zinc-300 px-3 py-2 text-center align-middle ${responseColorClass}`}>{q.answer}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
