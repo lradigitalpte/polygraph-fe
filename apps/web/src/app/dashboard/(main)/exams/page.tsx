@@ -425,30 +425,30 @@ export default function ExamsPage() {
   };
 
   return (
-    <div className="space-y-8 max-w-[1600px] mx-auto pb-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 max-w-[1600px] mx-auto pb-10">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6">
         <div className="space-y-1">
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-3">
-            <FileText className="h-8 w-8 text-primary" />
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-3">
+            <FileText className="h-7 w-7 sm:h-8 sm:w-8 text-primary" />
             Polygraph Ledger
           </h1>
-          <p className="text-muted-foreground text-sm font-medium">
+          <p className="text-muted-foreground text-xs sm:text-sm font-medium">
             Master record of all scheduled and historical polygraph examinations.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={handleExportCSV} variant="outline" className="h-10 px-4 rounded-xl border-border/50 hover:bg-muted/50 transition-all font-semibold">
+        <div className="flex items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
+          <Button onClick={handleExportCSV} variant="outline" className="h-10 px-4 rounded-xl border-border/50 hover:bg-muted/50 transition-all font-semibold flex-1 sm:flex-initial text-xs">
             <Download className="mr-2 h-4 w-4 text-muted-foreground" />
             Export Data
           </Button>
-          <Button className="h-10 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all" render={<Link href="/dashboard/calendar/book" />}>
+          <Button className="h-10 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all flex-1 sm:flex-initial text-xs" render={<Link href="/dashboard/calendar/book" />}>
             <Plus className="mr-2 h-4 w-4" />
             New Record
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {[
           { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
           { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
@@ -458,13 +458,13 @@ export default function ExamsPage() {
           { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
         ].map((stat) => (
           <Card key={stat.label} className="border-border/40 shadow-sm bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-primary/30 transition-all">
-            <CardContent className="p-5 flex items-center gap-4">
-              <div className={cn("p-2.5 rounded-xl bg-background border border-border shadow-inner group-hover:scale-110 transition-transform", stat.color)}>
-                <stat.icon className="h-5 w-5" />
+            <CardContent className="p-4 sm:p-5 flex items-center gap-4">
+              <div className={cn("p-2 sm:p-2.5 rounded-xl bg-background border border-border shadow-inner group-hover:scale-110 transition-transform", stat.color)}>
+                <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
               <div>
                 <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">{stat.label}</p>
-                <p className="text-xl font-extrabold">{stat.value}</p>
+                <p className="text-lg sm:text-xl font-extrabold">{stat.value}</p>
               </div>
             </CardContent>
           </Card>
@@ -473,17 +473,17 @@ export default function ExamsPage() {
 
       <div className="space-y-4">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
             <div className="relative w-full lg:max-w-md group">
               <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <Input
                 placeholder="Search by ID, examinee, organization, or expert..."
-                className="h-11 pl-10 pr-4 rounded-xl bg-card border-border/50 focus:border-primary/50 focus:ring-primary/10 transition-all shadow-sm"
+                className="h-11 pl-10 pr-4 rounded-xl bg-card border-border/50 focus:border-primary/50 focus:ring-primary/10 transition-all shadow-sm text-sm"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
               {(
                 [
                   { value: "all", label: "All dates" },
@@ -498,7 +498,7 @@ export default function ExamsPage() {
                   type="button"
                   variant={datePreset === preset.value ? "default" : "outline"}
                   size="sm"
-                  className="rounded-xl h-9"
+                  className="rounded-xl h-9 text-xs shrink-0"
                   onClick={() => setDatePreset(preset.value)}
                 >
                   {preset.label}
@@ -509,7 +509,7 @@ export default function ExamsPage() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="rounded-xl h-9 gap-1"
+                  className="rounded-xl h-9 gap-1 text-xs shrink-0"
                   onClick={() => {
                     setDatePreset("all");
                     setDateFrom("");
@@ -524,28 +524,28 @@ export default function ExamsPage() {
           </div>
           {datePreset === "custom" && (
             <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/50 bg-card/50 p-3">
-              <div className="grid gap-1.5">
+              <div className="grid gap-1.5 flex-1 sm:flex-initial">
                 <Label className="text-xs text-muted-foreground">From</Label>
                 <Input
                   type="date"
-                  className="h-10 w-40 rounded-lg"
+                  className="h-10 w-full sm:w-40 rounded-lg text-xs"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
-              <div className="grid gap-1.5">
+              <div className="grid gap-1.5 flex-1 sm:flex-initial">
                 <Label className="text-xs text-muted-foreground">To</Label>
                 <Input
                   type="date"
-                  className="h-10 w-40 rounded-lg"
+                  className="h-10 w-full sm:w-40 rounded-lg text-xs"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-1">Status</span>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-1 shrink-0">Status</span>
             {(
               [
                 { value: "all", label: "All" },
@@ -560,7 +560,7 @@ export default function ExamsPage() {
                 type="button"
                 variant={statusFilter === option.value ? "default" : "outline"}
                 size="sm"
-                className="rounded-xl h-9"
+                className="rounded-xl h-9 text-xs shrink-0"
                 onClick={() => setStatusFilter(option.value)}
               >
                 {option.label}
@@ -571,7 +571,7 @@ export default function ExamsPage() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="rounded-xl h-9 gap-1"
+                className="rounded-xl h-9 gap-1 text-xs shrink-0"
                 onClick={() => setStatusFilter("all")}
               >
                 <X className="h-3.5 w-3.5" />
@@ -582,7 +582,8 @@ export default function ExamsPage() {
         </div>
 
         <div className="rounded-2xl border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left border-collapse">
               <thead>
                 <tr className="bg-muted/30 border-b border-border/50">
@@ -686,7 +687,85 @@ export default function ExamsPage() {
             </table>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-5 bg-muted/10 border-t border-border/50 gap-4">
+          {/* Mobile Card List View */}
+          <div className="block md:hidden divide-y divide-border/20">
+            {loading ? (
+              <div className="p-8 text-center text-muted-foreground text-sm italic">
+                Loading appointments...
+              </div>
+            ) : filteredRows.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-xs italic">
+                No appointments found.
+              </div>
+            ) : (
+              paginatedRows.map((row) => (
+                <div key={row.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] font-black text-primary uppercase tracking-wider block">{row.code}</span>
+                      <h4 className="font-extrabold text-base text-foreground leading-tight">{row.client}</h4>
+                      {row.accountName && (
+                        <p className="text-xs text-muted-foreground mt-0.5 font-medium">{row.accountName}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Badge
+                        className={cn(
+                          "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] shadow-sm",
+                          row.status === "Confirmed" ? "bg-blue-500 text-white" :
+                          row.status === "Completed" ? "bg-emerald-500 text-white" :
+                          row.status === "Cancelled" ? "bg-rose-500 text-white" :
+                          "bg-amber-500 text-white",
+                        )}
+                      >
+                        {row.status}
+                      </Badge>
+                      {canViewPayments && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
+                            row.payment === "Paid" ? "bg-emerald-500/10 text-emerald-600" :
+                            row.payment === "Partial" ? "bg-amber-500/10 text-amber-600" :
+                            "bg-rose-500/10 text-rose-600",
+                          )}
+                        >
+                          {row.payment} • {formatMoney(row.amount, orgCurrency)}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground bg-muted/20 p-2.5 rounded-xl border border-border/30">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Assigned Expert</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className={cn("w-5 h-5 rounded-md flex items-center justify-center text-[8px] text-white font-black shrink-0", row.examinerColor)}>
+                          {row.examinerInitials}
+                        </div>
+                        <span className="font-bold text-foreground text-xs truncate">{row.examiner}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Schedule</span>
+                      <span className="font-bold text-foreground text-xs block truncate mt-0.5">{row.dateLabel} • {row.timeLabel}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    className="w-full h-10 rounded-xl text-xs font-bold gap-2 justify-between px-4 border-border/60 hover:bg-primary/5 hover:text-primary transition-all"
+                    onClick={() => openDetails(row)}
+                  >
+                    <span>View & Manage Details</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-6 py-4 sm:py-5 bg-muted/10 border-t border-border/50 gap-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
               Showing <span className="text-foreground">{filteredRows.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredRows.length)}</span> of {filteredRows.length} Exams
             </p>

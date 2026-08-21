@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
@@ -342,7 +342,7 @@ export default function ReportsDashboard() {
   }
 
   return (
-    <div className="space-y-8 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Gradients */}
       <div className="fixed inset-0 pointer-events-none z-[-1]">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -translate-y-1/2 translate-x-1/4" />
@@ -350,16 +350,16 @@ export default function ReportsDashboard() {
       </div>
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 rounded-[2.5rem] bg-card/40 border border-border/50 backdrop-blur-xl shadow-sm relative overflow-hidden">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-5 sm:p-8 rounded-2xl sm:rounded-[2.5rem] bg-card/40 border border-border/50 backdrop-blur-xl shadow-sm relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.03] to-transparent pointer-events-none" />
         <div className="space-y-1 relative z-10">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-              <FileSignature className="h-6 w-6" />
+            <div className="p-2.5 sm:p-3 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+              <FileSignature className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <h1 className="text-3xl font-black tracking-tight">Forensic Reports</h1>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Forensic Reports</h1>
           </div>
-          <p className="text-muted-foreground text-sm font-bold opacity-70 uppercase tracking-widest text-[10px] pl-1 pt-1">
+          <p className="text-muted-foreground text-xs sm:text-sm font-bold opacity-70 uppercase tracking-widest text-[10px] pl-1 pt-1">
             Consolidated Corporate Secure Document shares
           </p>
           <p className="text-xs text-muted-foreground pl-1 pt-2 max-w-2xl">
@@ -369,7 +369,7 @@ export default function ReportsDashboard() {
         <Button
           type="button"
           variant="outline"
-          className="relative z-10 h-11 rounded-xl px-5 font-bold"
+          className="relative z-10 h-11 rounded-xl px-5 font-bold w-full md:w-auto justify-center"
           onClick={() => router.push("/verify")}
         >
           <ShieldCheck className="mr-2 h-4 w-4" />
@@ -378,7 +378,7 @@ export default function ReportsDashboard() {
       </div>
 
       {/* Statistics widgets */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         {[
           { label: "Total Reports Issued", value: stats?.total_reports ?? 0, icon: FileSignature, color: "bg-primary/10 text-primary" },
           {
@@ -401,38 +401,38 @@ export default function ReportsDashboard() {
           },
         ].map((stat, i) => (
           <Card key={i} className="border-border/40 bg-card/30 backdrop-blur-md shadow-xl overflow-hidden group hover:border-primary/30 transition-all hover:scale-[1.02]">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <div className={cn("p-2.5 rounded-xl shadow-inner", stat.color)}>
-                  <stat.icon className="h-5 w-5" />
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex justify-between items-center mb-3 sm:mb-4">
+                <div className={cn("p-2 sm:p-2.5 rounded-xl shadow-inner", stat.color)}>
+                  <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
                 <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground/60">{stat.label}</p>
               </div>
-              <p className="text-3xl font-black tracking-tighter">{stat.value}</p>
+              <p className="text-2xl sm:text-3xl font-black tracking-tighter">{stat.value}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
       <Tabs defaultValue="sessions" className="space-y-6">
-        <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-2xl border border-border/50 bg-muted/40 p-1.5 shadow-sm backdrop-blur">
+        <TabsList className="w-full grid grid-cols-2 sm:flex sm:w-auto h-auto justify-start gap-2 rounded-2xl border border-border/50 bg-muted/40 p-1.5 shadow-sm backdrop-blur">
           <TabsTrigger
             value="sessions"
-            className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
+            className="w-full sm:w-auto rounded-xl px-4 sm:px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
           >
             Sessions to Build
           </TabsTrigger>
           <TabsTrigger
             value="reports"
-            className="rounded-xl px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
+            className="w-full sm:w-auto rounded-xl px-4 sm:px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
           >
             Sent Reports
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="sessions" className="space-y-6 mt-0 outline-none">
-          <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-[2.5rem] overflow-hidden shadow-xl">
-            <CardHeader className="px-8 pt-8 pb-4">
+          <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-2xl sm:rounded-[2.5rem] overflow-hidden shadow-xl">
+            <CardHeader className="px-4 sm:px-8 pt-5 sm:pt-8 pb-4">
               <div className="flex flex-col gap-4">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2 font-bold">
@@ -443,7 +443,7 @@ export default function ReportsDashboard() {
                     Completed assessments ready for your formal Polygraph report — write, finalize, and send from here.
                   </CardDescription>
                 </div>
-                <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -465,14 +465,14 @@ export default function ReportsDashboard() {
                     value={examsDateTo}
                     onChange={(e) => { setExamsDateTo(e.target.value); setExamsPage(1); }}
                   />
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {[5, 10, 20, 50].map((size) => (
                       <Button
                         key={size}
                         type="button"
                         size="sm"
                         variant={examsPerPage === size ? "default" : "outline"}
-                        className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest"
+                        className="h-10 px-3.5 rounded-xl text-xs font-black uppercase tracking-widest flex-1 sm:flex-initial"
                         onClick={() => { setExamsPerPage(size); setExamsPage(1); }}
                       >
                         {size}
@@ -480,7 +480,7 @@ export default function ReportsDashboard() {
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
                   {([
                     { value: "all" as const, label: "All", count: completedExams.length },
                     { value: "none" as const, label: "Needs report", count: workflowCounts.none },
@@ -493,7 +493,7 @@ export default function ReportsDashboard() {
                       type="button"
                       size="sm"
                       variant={examsWorkflowFilter === filter.value ? "default" : "outline"}
-                      className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest"
+                      className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest shrink-0"
                       onClick={() => { setExamsWorkflowFilter(filter.value); setExamsPage(1); }}
                     >
                       {filter.label}
@@ -504,7 +504,8 @@ export default function ReportsDashboard() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/30 border-b border-border/50 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -596,7 +597,99 @@ export default function ReportsDashboard() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex flex-col sm:flex-row items-center justify-between px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
+
+              {/* Mobile Card List View */}
+              <div className="block md:hidden divide-y divide-border/20">
+                {loading ? (
+                  <div className="p-8 text-center text-muted-foreground italic">
+                    Loading sessions...
+                  </div>
+                ) : paginatedExams.length > 0 ? (
+                  paginatedExams.map((appt) => {
+                    const examineeName = appt.subject
+                      ? formatSubjectName(appt.subject)
+                      : `Examinee #${appt.subject_id}`;
+                    const status = reportWorkflow[appt.exam_id!];
+                    return (
+                      <div key={appt.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h4 className="font-bold text-base text-foreground leading-tight">{examineeName}</h4>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Client: <span className="text-foreground/80 font-medium">{appt.client?.name || "Corporate"}</span>
+                            </p>
+                          </div>
+                          <div className="shrink-0">
+                            {workflowBadge(status)}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground bg-muted/20 p-2.5 rounded-xl border border-border/30">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Examiner</span>
+                            <span className="font-medium text-foreground">{examinerLabel(appt.examiner_id)}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Scheduled</span>
+                            <span className="font-medium text-foreground">{formatClinicDateLabel(appt.scheduled_at)}</span>
+                          </div>
+                        </div>
+
+                        {/* Dedicated Mobile Action Buttons */}
+                        <div className="flex flex-col gap-2 pt-1">
+                          {status === "locked" && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="w-full rounded-xl text-xs gap-2 font-bold h-10 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                              onClick={() => void handleDownloadPreview(appt.exam_id!)}
+                              disabled={!canViewLockedReport || downloadingExamId === appt.exam_id}
+                            >
+                              {downloadingExamId === appt.exam_id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                              Download Report Preview
+                            </Button>
+                          )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full rounded-xl text-xs gap-1.5 font-semibold h-10"
+                              onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
+                            >
+                              <FileSignature className="h-3.5 w-3.5" />
+                              {status === "locked" || status === "sent"
+                                ? "View Report"
+                                : "Write / Edit Report"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={status === "locked" ? "outline" : "secondary"}
+                              className="w-full rounded-xl text-xs gap-1.5 font-bold h-10"
+                              onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
+                              disabled={status !== "locked" && status !== "sent"}
+                            >
+                              <Mail className="h-3.5 w-3.5" />
+                              Email Secure Report
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground italic text-xs">
+                    {examsSearch || examsDateFrom || examsDateTo || examsWorkflowFilter !== "all"
+                      ? "No sessions match your filters."
+                      : "No active sessions found. Ensure session documentation is started or completed."}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   Showing <span className="text-foreground">{filteredExams.length > 0 ? (examsPage - 1) * examsPerPage + 1 : 0}-{Math.min(examsPage * examsPerPage, filteredExams.length)}</span> of {filteredExams.length} sessions
                 </p>
@@ -627,12 +720,12 @@ export default function ReportsDashboard() {
 
         <TabsContent value="reports" className="space-y-6 mt-0 outline-none">
           <div className="space-y-6">
-            <div className="flex flex-col gap-4 px-2">
+            <div className="flex flex-col gap-4 px-1 sm:px-2">
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
                   variant={sharesArchiveView === "active" ? "default" : "outline"}
-                  className="rounded-xl"
+                  className="rounded-xl flex-1 sm:flex-initial"
                   onClick={() => { setSharesArchiveView("active"); setSharesPage(1); }}
                 >
                   Sent reports
@@ -640,41 +733,41 @@ export default function ReportsDashboard() {
                 <Button
                   size="sm"
                   variant={sharesArchiveView === "archived" ? "default" : "outline"}
-                  className="rounded-xl"
+                  className="rounded-xl flex-1 sm:flex-initial"
                   onClick={() => { setSharesArchiveView("archived"); setSharesPage(1); }}
                 >
                   <Archive className="mr-2 h-4 w-4" /> Archived
                 </Button>
               </div>
-              <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
                 <div className="relative w-full">
                   <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Search by examinee or email..."
-                    className="h-12 pl-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm"
+                    className="h-12 pl-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
                     value={search}
                     onChange={(e) => { setSearch(e.target.value); setSharesPage(1); }}
                   />
                 </div>
                 <Input
                   type="date"
-                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm"
+                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
                   value={sharesSearchDateFrom}
                   onChange={(e) => { setSharesSearchDateFrom(e.target.value); setSharesPage(1); }}
                 />
                 <Input
                   type="date"
-                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm"
+                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
                   value={sharesSearchDateTo}
                   onChange={(e) => { setSharesSearchDateTo(e.target.value); setSharesPage(1); }}
                 />
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {[5, 10, 20, 50].map((size) => (
                     <Button
                       key={size}
                       size="sm"
                       variant={sharesPerPage === size ? "default" : "outline"}
-                      className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest"
+                      className="h-10 px-3.5 rounded-xl text-xs font-black uppercase tracking-widest flex-1 sm:flex-initial"
                       onClick={() => { setSharesPerPage(size); setSharesPage(1); }}
                     >
                       {size}
@@ -682,13 +775,13 @@ export default function ReportsDashboard() {
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
                 {(["all", "active", "expired"] as const).map((f) => (
                   <Button
                     key={f}
                     size="sm"
                     variant={sharesStatusFilter === f ? "default" : "outline"}
-                    className="h-10 px-5 rounded-xl capitalize text-xs font-black uppercase tracking-widest"
+                    className="h-10 px-5 rounded-xl capitalize text-xs font-black uppercase tracking-widest shrink-0"
                     onClick={() => { setSharesStatusFilter(f); setSharesPage(1); }}
                   >
                     {f === "all" ? "All" : f === "active" ? "Active" : "Expired"}
@@ -697,8 +790,9 @@ export default function ReportsDashboard() {
               </div>
             </div>
 
-            <div className="rounded-[2.5rem] border border-border/40 bg-card/20 backdrop-blur-xl overflow-hidden shadow-2xl">
-              <div className="overflow-x-auto">
+            <div className="rounded-2xl sm:rounded-[2.5rem] border border-border/40 bg-card/20 backdrop-blur-xl overflow-hidden shadow-2xl">
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/30 border-b border-border/50">
@@ -840,7 +934,142 @@ export default function ReportsDashboard() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex flex-col sm:flex-row items-center justify-between px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
+
+              {/* Mobile Card List View */}
+              <div className="block md:hidden divide-y divide-border/20">
+                {loading ? (
+                  <div className="p-8 text-center text-muted-foreground font-bold italic">
+                    Loading reports list...
+                  </div>
+                ) : paginatedShares.length > 0 ? (
+                  paginatedShares.map((share) => {
+                    const isExpired = new Date(share.expires_at).getTime() < Date.now();
+                    const formattedExpiry = new Date(share.expires_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    });
+
+                    return (
+                      <div key={share.id} className="p-4 space-y-3 hover:bg-primary/[0.03] transition-all">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <h4 className="font-black text-base leading-tight text-foreground">
+                              {share.subject ? `${share.subject.first_name} ${share.subject.last_name}` : "Unknown Subject"}
+                            </h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              {share.exam_report && (
+                                <Badge
+                                  className={cn(
+                                    "text-[9px] font-black uppercase tracking-[0.1em]",
+                                    share.exam_report.verdict === "NDI"
+                                      ? "bg-emerald-500/10 text-emerald-600 border-none"
+                                      : share.exam_report.verdict === "DI"
+                                        ? "bg-rose-500/10 text-rose-600 border-none"
+                                        : "bg-neutral-500/10 text-neutral-600 border-none"
+                                  )}
+                                >
+                                  {share.exam_report.verdict}
+                                </Badge>
+                              )}
+                              <span className="text-[10px] text-muted-foreground">
+                                Sent {new Date(share.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                          <Badge
+                            className={cn(
+                              "rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest border-none shrink-0",
+                              isExpired ? "bg-rose-500/10 text-rose-600" : "bg-emerald-500/10 text-emerald-600"
+                            )}
+                          >
+                            {isExpired ? "Expired" : "Active"}
+                          </Badge>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2 text-xs bg-muted/20 p-2.5 rounded-xl border border-border/30">
+                          <div className="flex items-center gap-1.5 text-foreground/80 font-medium">
+                            <Mail className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+                            <span className="truncate">{share.recipient_email}</span>
+                          </div>
+                          <div className="flex items-center justify-between pt-1 border-t border-border/20">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase font-bold text-muted-foreground">PIN:</span>
+                              <span className="font-mono text-xs font-bold">
+                                {share.protection_mode === "secure_link" ? "No PIN" : revealedPasswords[share.id] ? (share.password || "—") : "••••••"}
+                              </span>
+                              {share.protection_mode !== "secure_link" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 rounded-md"
+                                  onClick={() => togglePasswordReveal(share.id)}
+                                >
+                                  {revealedPasswords[share.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
+                              <Calendar className="h-3 w-3 shrink-0" />
+                              {isExpired ? `Expired ${formattedExpiry}` : `Expires ${formattedExpiry}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2 pt-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1"
+                            onClick={() => handleCopyLink(share.token)}
+                            title="Copy Link"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Copy</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1 text-amber-600 hover:text-amber-700"
+                            onClick={() => handleOpenRegenerate(share)}
+                            title="Rotate Link"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Rotate</span>
+                          </Button>
+                          <a href={`/shared/report/${share.token}`} target="_blank" rel="noopener noreferrer" className="col-span-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center text-blue-600 hover:text-blue-700"
+                              title="Visit Portal"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Portal</span>
+                            </Button>
+                          </a>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1"
+                            onClick={() => void handleArchiveToggle(share)}
+                            title={share.archived_at ? "Restore" : "Archive"}
+                          >
+                            {share.archived_at ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                            <span className="hidden sm:inline">{share.archived_at ? "Restore" : "Archive"}</span>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground font-bold italic text-xs">
+                    {sharesArchiveView === "archived" ? "No archived report deliveries." : "No report shares found."}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   Showing <span className="text-foreground">{filteredShares.length > 0 ? (sharesPage - 1) * sharesPerPage + 1 : 0}-{Math.min(sharesPage * sharesPerPage, filteredShares.length)}</span> of {filteredShares.length} reports
                 </p>

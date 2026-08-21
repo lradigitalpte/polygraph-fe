@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { CredentialsRichTextContent } from "@/components/dashboard/credentials-rich-text-editor";
 import { ReportRichTextContent } from "@/components/dashboard/report-rich-text-content";
@@ -89,6 +90,7 @@ export default function ReportBuilderPage() {
   const [saving, setSaving] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(true);
+  const [mobileTab, setMobileTab] = React.useState<"editor" | "preview">("editor");
   const [isLocked, setIsLocked] = React.useState(false);
   const [overrideReason, setOverrideReason] = React.useState("");
   const [overrideDialogOpen, setOverrideDialogOpen] = React.useState(false);
@@ -525,26 +527,26 @@ export default function ReportBuilderPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden -m-4 sm:-m-6 lg:-m-8 p-3 sm:p-4">
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl">
+    <div className="flex min-h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-4rem)] flex-col overflow-hidden -m-4 sm:-m-6 lg:-m-8 p-2 sm:p-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl sm:rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl">
       {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-border/40 flex items-center justify-between shrink-0 gap-3">
-        <div className="flex items-center gap-4">
+      <div className="p-3 sm:p-5 border-b border-border/40 flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-3">
+        <div className="flex items-center gap-3">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="rounded-xl"
+            className="rounded-xl h-10 w-10 shrink-0"
             onClick={() => router.back()}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-black flex items-center gap-2">
-              <FileSignature className="h-6 w-6 text-primary" />
-              Polygraph Forensic Report Builder
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-black flex items-center gap-2 truncate">
+              <FileSignature className="h-5 w-5 sm:h-6 sm:w-6 text-primary shrink-0" />
+              <span className="truncate">Polygraph Forensic Report Builder</span>
             </h1>
-            <p className="font-semibold text-xs text-muted-foreground mt-1">
+            <p className="font-semibold text-xs text-muted-foreground mt-0.5 truncate">
               {subjectName ? (
                 <>
                   Examinee: <span className="text-foreground">{subjectName}</span>
@@ -561,16 +563,16 @@ export default function ReportBuilderPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap justify-end">
+        <div className="flex items-center gap-2 flex-wrap justify-stretch sm:justify-end w-full md:w-auto">
           {!readOnly && reportTemplates.length > 0 ? (
             <Button
               type="button"
               variant="outline"
-              className="rounded-xl h-11 px-5 font-semibold gap-2 max-w-[280px]"
+              className="rounded-xl h-10 px-4 text-xs font-semibold gap-2 flex-1 sm:flex-initial"
               onClick={() => setTemplatePickerOpen(true)}
             >
               <LayoutTemplate className="h-4 w-4 shrink-0" />
-              <span className="truncate">
+              <span className="truncate max-w-[140px]">
                 {activeTemplate ? activeTemplate.name : "Choose template"}
               </span>
             </Button>
@@ -578,20 +580,20 @@ export default function ReportBuilderPage() {
           <Button
             type="button"
             variant="outline"
-            className="rounded-xl h-11 px-5 hover:bg-muted/50 font-semibold"
+            className="hidden lg:flex rounded-xl h-10 px-4 text-xs hover:bg-muted/50 font-semibold"
             onClick={() => setShowPreview((current) => !current)}
           >
-            {showPreview ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+            {showPreview ? <EyeOff className="mr-1.5 h-4 w-4" /> : <Eye className="mr-1.5 h-4 w-4" />}
             {showPreview ? "Hide Preview" : "Show Preview"}
           </Button>
           {isLocked && canOverrideLockedReport ? (
             <Button
               type="button"
               variant="outline"
-              className="rounded-xl h-11 px-5 font-semibold"
+              className="rounded-xl h-10 px-4 text-xs font-semibold flex-1 sm:flex-initial"
               onClick={() => setOverrideDialogOpen(true)}
             >
-              <ArrowLeft className="mr-2 h-4 w-4 rotate-180" />
+              <ArrowLeft className="mr-1.5 h-4 w-4 rotate-180" />
               Unlock For Revision
             </Button>
           ) : null}
@@ -599,7 +601,7 @@ export default function ReportBuilderPage() {
             <Button
               type="button"
               variant="secondary"
-              className="rounded-xl h-11 px-5 font-bold gap-2"
+              className="rounded-xl h-10 px-4 text-xs font-bold gap-1.5 flex-1 sm:flex-initial"
               onClick={() => setFinalizeDialogOpen(true)}
               disabled={saving || finalizing || loading}
             >
@@ -609,20 +611,20 @@ export default function ReportBuilderPage() {
           ) : null}
           <Button
             variant="outline"
-            className="rounded-xl h-11 px-5 hover:bg-muted/50 font-semibold"
+            className="rounded-xl h-10 px-4 text-xs hover:bg-muted/50 font-semibold flex-1 sm:flex-initial"
             onClick={() => router.back()}
           >
-            {isLocked ? "Close" : "Cancel / Draft"}
+            {isLocked ? "Close" : "Cancel"}
           </Button>
           <Button
-            className="rounded-xl font-bold gap-2 h-11 px-6 bg-primary hover:scale-[1.02] shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-primary-foreground"
+            className="rounded-xl font-bold gap-2 h-10 px-5 text-xs bg-primary hover:scale-[1.02] shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-primary-foreground flex-1 sm:flex-initial"
             onClick={() => void handleSave()}
             disabled={saving || loading || isLocked}
           >
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Saving Report...
+                Saving...
               </>
             ) : isLocked ? (
               <>
@@ -639,6 +641,35 @@ export default function ReportBuilderPage() {
         </div>
       </div>
 
+      {/* Mobile Mode Switcher Bar (visible on < lg screens) */}
+      <div className="flex lg:hidden items-center justify-center p-1 bg-muted/40 rounded-xl border border-border/40 mx-3 my-2 shrink-0">
+        <button
+          type="button"
+          className={cn(
+            "flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
+            mobileTab === "editor" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => setMobileTab("editor")}
+        >
+          <FileSignature className="h-3.5 w-3.5" />
+          Edit Report Form
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
+            mobileTab === "preview" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => {
+            setShowPreview(true);
+            setMobileTab("preview");
+          }}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          Live A4 Preview
+        </button>
+      </div>
+
       {loading ? (
         <div className="flex justify-center items-center flex-1">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -646,7 +677,13 @@ export default function ReportBuilderPage() {
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-12">
           {/* Left Column: Form Editor (Scrollable) */}
-          <div className={`${showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12"} min-h-0 overflow-y-auto overflow-x-hidden border-border/40 p-6 space-y-6`}>
+          <div
+            className={cn(
+              "min-h-0 overflow-y-auto overflow-x-hidden border-border/40 p-4 sm:p-6 space-y-6",
+              showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12",
+              mobileTab === "editor" ? "block" : "hidden lg:block"
+            )}
+          >
             <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
               Report Parameters
             </h3>            {isLocked ? (
@@ -1063,7 +1100,12 @@ export default function ReportBuilderPage() {
 
           {/* Right Column: Live A4 Document Preview */}
           {showPreview ? (
-          <div className="lg:col-span-7 flex min-h-0 flex-col overflow-hidden bg-zinc-950/40">
+          <div
+            className={cn(
+              "lg:col-span-7 flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950/40",
+              mobileTab === "preview" ? "flex" : "hidden lg:flex"
+            )}
+          >
             <div className="z-10 flex w-full shrink-0 items-center justify-between border-b border-border/40 bg-zinc-900/60 px-4 py-2.5 backdrop-blur">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Eye className="h-4 w-4 text-primary" /> Live Document Preview
@@ -1073,7 +1115,7 @@ export default function ReportBuilderPage() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-8 rounded-lg px-2.5 text-[10px] font-bold uppercase tracking-wider"
+                  className="hidden lg:flex h-8 rounded-lg px-2.5 text-[10px] font-bold uppercase tracking-wider"
                   onClick={() => setShowPreview(false)}
                 >
                   <EyeOff className="mr-1.5 h-3.5 w-3.5" />
@@ -1085,17 +1127,17 @@ export default function ReportBuilderPage() {
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overflow-x-hidden px-4 py-6">
-
-            {/* Visual Preview Template Page 1 */}
-            <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
+            <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overflow-x-auto p-2 sm:p-6 max-w-full">
+              <div className="w-full flex flex-col items-center overflow-x-auto pb-6 no-scrollbar">
+                {/* Visual Preview Template Page 1 */}
+                <div className="relative mb-8 flex w-full max-w-[210mm] min-w-[280px] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[5%] sm:p-[6%] text-[10px] sm:text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none shrink-0">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
                   <span className="text-[9px] font-black tracking-widest text-zinc-400 uppercase">STAFF IN CONFIDENCE</span>
                 </div>
 
-                <div className="mt-8 space-y-3">
+                <div className="mt-8 space-y-4">
                   <h3 className="font-black text-xs uppercase tracking-wider border-b border-zinc-300 pb-1 text-zinc-800">
                     POLYGRAPH EXAM DETAILS
                   </h3>
@@ -1120,34 +1162,34 @@ export default function ReportBuilderPage() {
                     <div className="font-black text-zinc-900 uppercase">{formatReportPersonName(subjectName) || "—"}</div>
                   </div>
                   {identityVerificationText ? (
-                    <div className="pt-2 text-[10px] text-zinc-700">
+                    <div className="pt-3 text-[10px] text-zinc-700">
                       <ReportRichTextContent text={identityVerificationText} />
                     </div>
                   ) : null}
                 </div>
 
-                <div className="mt-8 space-y-3">
+                <div className="mt-8 space-y-4">
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 1: PRE-EXAMINATION PHASE
                   </h3>
-                  <div className="text-zinc-700">
+                  <div className="text-zinc-700 leading-relaxed">
                     <ReportRichTextContent text={preTestPhaseText} />
                   </div>
-                  <div className="text-zinc-700 italic">
+                  <div className="text-zinc-700 italic leading-relaxed pt-1">
                     <ReportRichTextContent text={preTestNotes} />
                   </div>
                 </div>
 
-                <div className="mt-8 space-y-3">
+                <div className="mt-8 space-y-4">
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 2: EXAMINATION PHASE
                   </h3>
-                  <div className="text-zinc-700">
+                  <div className="text-zinc-700 leading-relaxed">
                     <ReportRichTextContent text={examPhaseText} />
                   </div>
 
                   {questions.length > 0 && (
-                    <table className="mt-2 w-full table-fixed border-collapse border border-zinc-300 text-left">
+                    <table className="mt-3 w-full table-fixed border-collapse border border-zinc-300 text-left">
                       <thead>
                         <tr className="bg-zinc-50 text-[8px] font-black uppercase text-zinc-500 tracking-wider border-b border-zinc-300">
                           <th className="w-12 border border-zinc-300 px-2 py-1.5 text-center">S/N</th>
@@ -1201,24 +1243,24 @@ export default function ReportBuilderPage() {
             </div>
 
             {/* Visual Preview Template Page 2 — Section 3 always starts here */}
-            <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
+            <div className="relative mb-8 flex w-full max-w-[210mm] min-w-[280px] min-h-[297mm] flex-col justify-between border border-zinc-200 bg-white p-[5%] sm:p-[6%] text-[10px] sm:text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none shrink-0">
               <div>
                 <div className="flex justify-between items-end border-b-2 border-zinc-200 pb-2">
                   <img src="/logo-print.png" alt="Polygraph UAE" className="h-10 w-auto object-contain" />
                   <span className="text-[9px] font-black tracking-widest text-zinc-400 uppercase">STAFF IN CONFIDENCE</span>
                 </div>
 
-                <div className="mt-8 space-y-3">
+                <div className="mt-8 space-y-4">
                   <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
                     SECTION 3: OPINION OF EXAMINER
                   </h3>
-                  <div className="text-zinc-700">
+                  <div className="text-zinc-700 leading-relaxed">
                     <ReportRichTextContent text={opinionPhaseText} />
                   </div>
-                  <div className="text-zinc-700">
+                  <div className="text-zinc-700 leading-relaxed pt-1">
                     <ReportRichTextContent text={postTestNotes} />
                   </div>
-                  <div className="flex items-center gap-2 mt-4 pt-2">
+                  <div className="flex items-center gap-2 mt-5 pt-3">
                     <span className="font-black text-xs uppercase text-zinc-800">Result:</span>
                     <span className={`font-black text-xs uppercase ${verdictColorClass(verdict)}`}>
                       {formatVerdictLabel(verdict, verdictWording)}
@@ -1262,13 +1304,14 @@ export default function ReportBuilderPage() {
             </div>
 
             {includeCredentials && canIncludeCredentials ? (
-              <div className="relative mb-8 flex w-full max-w-[210mm] min-h-[297mm] flex-col border border-zinc-200 bg-white p-[6%] text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none">
+              <div className="relative mb-8 flex w-full max-w-[210mm] min-w-[280px] min-h-[297mm] flex-col border border-zinc-200 bg-white p-[5%] sm:p-[6%] text-[10px] sm:text-[11px] leading-relaxed text-zinc-900 shadow-2xl select-none shrink-0">
                 <h2 className="text-center text-base font-black tracking-wide text-[#b46428]">
                   POLYGRAPH EXAMINER CREDENTIALS
                 </h2>
                 <CredentialsRichTextContent html={examinerCredentialsText} className="mt-8" />
               </div>
             ) : null}
+              </div>
             </div>
           </div>
           ) : null}
