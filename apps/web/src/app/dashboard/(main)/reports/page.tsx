@@ -378,7 +378,7 @@ export default function ReportsDashboard() {
       </div>
 
       {/* Statistics widgets */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
         {[
           { label: "Total Reports Issued", value: stats?.total_reports ?? 0, icon: FileSignature, color: "bg-primary/10 text-primary" },
           {
@@ -400,15 +400,15 @@ export default function ReportsDashboard() {
             color: "bg-neutral-500/10 text-neutral-500",
           },
         ].map((stat, i) => (
-          <Card key={i} className="border-border/40 bg-card/30 backdrop-blur-md shadow-xl overflow-hidden group hover:border-primary/30 transition-all hover:scale-[1.02]">
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex justify-between items-center mb-3 sm:mb-4">
-                <div className={cn("p-2 sm:p-2.5 rounded-xl shadow-inner", stat.color)}>
+          <Card key={i} className="border-border/40 bg-card/30 backdrop-blur-md shadow-xl overflow-hidden group hover:border-primary/30 transition-all hover:scale-[1.02] min-w-0">
+            <CardContent className="p-3 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 mb-2 sm:mb-4">
+                <div className={cn("p-2 sm:p-2.5 rounded-xl shadow-inner shrink-0 w-fit", stat.color)}>
                   <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
-                <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground/60">{stat.label}</p>
+                <p className="text-[9px] sm:text-[10px] uppercase font-black tracking-wider text-muted-foreground/70 leading-tight">{stat.label}</p>
               </div>
-              <p className="text-2xl sm:text-3xl font-black tracking-tighter">{stat.value}</p>
+              <p className="text-xl sm:text-3xl font-black tracking-tighter">{stat.value}</p>
             </CardContent>
           </Card>
         ))}

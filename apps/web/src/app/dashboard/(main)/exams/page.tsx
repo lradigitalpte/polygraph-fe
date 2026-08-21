@@ -448,7 +448,7 @@ export default function ExamsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {[
           { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
           { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
@@ -457,14 +457,14 @@ export default function ExamsPage() {
             : []),
           { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
         ].map((stat) => (
-          <Card key={stat.label} className="border-border/40 shadow-sm bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-primary/30 transition-all">
-            <CardContent className="p-4 sm:p-5 flex items-center gap-4">
-              <div className={cn("p-2 sm:p-2.5 rounded-xl bg-background border border-border shadow-inner group-hover:scale-110 transition-transform", stat.color)}>
+          <Card key={stat.label} className="border-border/40 shadow-sm bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-primary/30 transition-all min-w-0">
+            <CardContent className="p-3 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
+              <div className={cn("p-2 sm:p-2.5 rounded-xl bg-background border border-border shadow-inner group-hover:scale-110 transition-transform shrink-0", stat.color)}>
                 <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
-              <div>
-                <p className="text-[10px] uppercase font-black tracking-widest text-muted-foreground">{stat.label}</p>
-                <p className="text-lg sm:text-xl font-extrabold">{stat.value}</p>
+              <div className="min-w-0">
+                <p className="text-[9px] sm:text-[10px] uppercase font-black tracking-wider text-muted-foreground leading-tight truncate">{stat.label}</p>
+                <p className="text-base sm:text-xl font-extrabold mt-0.5">{stat.value}</p>
               </div>
             </CardContent>
           </Card>
