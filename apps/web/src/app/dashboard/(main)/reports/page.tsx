@@ -431,48 +431,48 @@ export default function ReportsDashboard() {
         </TabsList>
 
         <TabsContent value="sessions" className="space-y-6 mt-0 outline-none">
-          <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-2xl sm:rounded-[2.5rem] overflow-hidden shadow-xl">
-            <CardHeader className="px-4 sm:px-8 pt-5 sm:pt-8 pb-4">
-              <div className="flex flex-col gap-4">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2 font-bold">
-                    <ClipboardList className="h-5 w-5 text-primary" />
-                    Sessions Ready for Report Customization
+          <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-2xl sm:rounded-[2.5rem] overflow-hidden shadow-xl min-w-0 max-w-full">
+            <CardHeader className="px-4 sm:px-8 pt-5 sm:pt-8 pb-4 min-w-0 max-w-full">
+              <div className="flex flex-col gap-4 min-w-0 max-w-full">
+                <div className="min-w-0 max-w-full">
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2 font-bold max-w-full leading-snug break-words">
+                    <ClipboardList className="h-5 w-5 text-primary shrink-0" />
+                    <span className="break-words">Sessions Ready for Report Customization</span>
                   </CardTitle>
-                  <CardDescription className="mt-1">
+                  <CardDescription className="mt-1 text-xs sm:text-sm leading-relaxed max-w-full">
                     Completed assessments ready for your formal Polygraph report — write, finalize, and send from here.
                   </CardDescription>
                 </div>
-                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
-                  <div className="relative w-full">
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto] min-w-0 max-w-full">
+                  <div className="relative w-full min-w-0">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Search examinee, client, or examiner..."
-                      className="h-10 pl-10 rounded-xl bg-card border-border/50 text-sm"
+                      placeholder="Search examinee, client..."
+                      className="h-10 pl-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0"
                       value={examsSearch}
                       onChange={(e) => { setExamsSearch(e.target.value); setExamsPage(1); }}
                     />
                   </div>
                   <Input
                     type="date"
-                    className="h-10 rounded-xl bg-card border-border/50 text-sm"
+                    className="h-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0 max-w-full"
                     value={examsDateFrom}
                     onChange={(e) => { setExamsDateFrom(e.target.value); setExamsPage(1); }}
                   />
                   <Input
                     type="date"
-                    className="h-10 rounded-xl bg-card border-border/50 text-sm"
+                    className="h-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0 max-w-full"
                     value={examsDateTo}
                     onChange={(e) => { setExamsDateTo(e.target.value); setExamsPage(1); }}
                   />
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="grid grid-cols-4 sm:flex sm:items-center gap-1.5 w-full sm:w-auto">
                     {[5, 10, 20, 50].map((size) => (
                       <Button
                         key={size}
                         type="button"
                         size="sm"
                         variant={examsPerPage === size ? "default" : "outline"}
-                        className="h-10 px-3.5 rounded-xl text-xs font-black uppercase tracking-widest flex-1 sm:flex-initial"
+                        className="h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-black uppercase tracking-widest w-full sm:w-auto"
                         onClick={() => { setExamsPerPage(size); setExamsPage(1); }}
                       >
                         {size}
@@ -480,7 +480,7 @@ export default function ReportsDashboard() {
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1.5 max-w-full no-scrollbar">
                   {([
                     { value: "all" as const, label: "All", count: completedExams.length },
                     { value: "none" as const, label: "Needs report", count: workflowCounts.none },
@@ -493,11 +493,11 @@ export default function ReportsDashboard() {
                       type="button"
                       size="sm"
                       variant={examsWorkflowFilter === filter.value ? "default" : "outline"}
-                      className="h-10 px-4 rounded-xl text-xs font-black uppercase tracking-widest shrink-0"
+                      className="h-10 px-3.5 sm:px-4 rounded-xl text-xs font-black uppercase tracking-widest shrink-0"
                       onClick={() => { setExamsWorkflowFilter(filter.value); setExamsPage(1); }}
                     >
                       {filter.label}
-                      <span className="ml-2 opacity-70">({filter.count})</span>
+                      <span className="ml-1.5 opacity-70">({filter.count})</span>
                     </Button>
                   ))}
                 </div>
@@ -611,15 +611,15 @@ export default function ReportsDashboard() {
                       : `Examinee #${appt.subject_id}`;
                     const status = reportWorkflow[appt.exam_id!];
                     return (
-                      <div key={appt.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h4 className="font-bold text-base text-foreground leading-tight">{examineeName}</h4>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Client: <span className="text-foreground/80 font-medium">{appt.client?.name || "Corporate"}</span>
+                      <div key={appt.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors min-w-0 max-w-full overflow-hidden">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 min-w-0">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-extrabold text-base text-foreground leading-tight break-words">{examineeName}</h4>
+                            <p className="text-xs text-muted-foreground mt-0.5 font-medium break-words">
+                              Client: <span className="text-foreground/80">{appt.client?.name || "Corporate"}</span>
                             </p>
                           </div>
-                          <div className="shrink-0">
+                          <div className="shrink-0 self-start">
                             {workflowBadge(status)}
                           </div>
                         </div>
