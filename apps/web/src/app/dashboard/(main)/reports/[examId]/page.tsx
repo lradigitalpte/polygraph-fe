@@ -1047,35 +1047,40 @@ export default function ReportBuilderPage() {
               </div>
 
               <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
-                <label className="flex items-center justify-between gap-4">
-                  <span>
-                    <span className="block text-xs font-bold uppercase tracking-wider text-primary">Examiner&apos;s Observation</span>
-                    <span className="mt-1 block text-[10px] text-muted-foreground">Show this section in the report and PDF.</span>
-                  </span>
-                  <input
-                    type="checkbox"
+                <div className="flex items-center justify-between gap-4">
+                  <span className="block text-xs font-bold uppercase tracking-wider text-primary">Examiner&apos;s Observation</span>
+                  <button
+                    type="button"
                     role="switch"
                     aria-label="Include Examiner's Observation"
-                    checked={examinersObservationEnabled}
+                    aria-checked={examinersObservationEnabled}
                     disabled={readOnly}
-                    onChange={(e) => setExaminersObservationEnabled(e.target.checked)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                </label>
+                    onClick={() => setExaminersObservationEnabled((enabled) => !enabled)}
+                    className={cn(
+                      "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                      examinersObservationEnabled ? "bg-blue-600" : "bg-zinc-300",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute left-0.5 top-0.5 block h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+                        examinersObservationEnabled ? "translate-x-5" : "translate-x-0",
+                      )}
+                    />
+                  </button>
+                </div>
                 {examinersObservationEnabled ? (
                   <div className="space-y-2">
-                    <Label htmlFor="examiners-observation" className="text-xs font-semibold text-blue-700">Observation text</Label>
-                    <div className="text-blue-600 [&_.ProseMirror]:text-blue-600">
-                      <ReportRichTextField
-                        id="examiners-observation"
-                        rows={3}
-                        value={examinersObservationText}
-                        onChange={setExaminersObservationText}
-                        disabled={readOnly}
-                        placeholder="Enter the examiner's observation..."
-                      />
-                    </div>
-                    <p className="text-[10px] text-blue-600">This text prints in blue on the final PDF.</p>
+                    <Label htmlFor="examiners-observation" className="text-xs font-semibold text-muted-foreground">Observation text</Label>
+                    <ReportRichTextField
+                      id="examiners-observation"
+                      rows={3}
+                      value={examinersObservationText}
+                      onChange={setExaminersObservationText}
+                      disabled={readOnly}
+                      placeholder="Enter the examiner's observation..."
+                      className="text-blue-600"
+                    />
                   </div>
                 ) : null}
               </div>
