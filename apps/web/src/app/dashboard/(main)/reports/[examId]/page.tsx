@@ -129,6 +129,8 @@ export default function ReportBuilderPage() {
   const [examPhaseText, setExamPhaseText] = React.useState("");
   const [limestoneNotes, setLimestoneNotes] = React.useState("");
   const [opinionPhaseText, setOpinionPhaseText] = React.useState("");
+  const [examinersObservationEnabled, setExaminersObservationEnabled] = React.useState(false);
+  const [examinersObservationText, setExaminersObservationText] = React.useState("");
   const [postTestNotes, setPostTestNotes] = React.useState("");
   const [section4FollowUp, setSection4FollowUp] = React.useState("");
   const [identityDocumentType, setIdentityDocumentType] = React.useState<"passport" | "emirates_id">("passport");
@@ -184,6 +186,8 @@ export default function ReportBuilderPage() {
     setPreTestPhaseText(content.pre_test_phase_text);
     setExamPhaseText(content.exam_phase_text);
     setOpinionPhaseText(content.opinion_phase_text);
+    setExaminersObservationEnabled(!!content.examiners_observation_enabled);
+    setExaminersObservationText(content.examiners_observation_text || "");
     setPostTestNotes(content.post_test_notes);
     setIdentityDocumentType((content.identity_document_type as "passport" | "emirates_id") || "passport");
     setIdentityVerificationText(content.identity_verification_text || "");
@@ -422,6 +426,8 @@ export default function ReportBuilderPage() {
     pre_test_phase_text: preTestPhaseText,
     exam_phase_text: examPhaseText,
     opinion_phase_text: opinionPhaseText,
+    examiners_observation_enabled: examinersObservationEnabled,
+    examiners_observation_text: examinersObservationText,
     identity_document_type: identityDocumentType,
     identity_verification_text: identityVerificationText,
     exam_start_time: examStartTime,
@@ -439,7 +445,7 @@ export default function ReportBuilderPage() {
       window.localStorage.setItem(draftKey, JSON.stringify({ verdict, content: buildReportPayload(), savedAt: new Date().toISOString() }));
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [draftKey, enableColorCoding, examDate, examId, examPhaseText, instrument, isLocked, limestoneNotes, loading, mounted, opinionPhaseText, postTestNotes, preTestNotes, preTestPhaseText, purpose, questions, referenceNo, reportDate, section4FollowUp, verdict]);
+  }, [draftKey, enableColorCoding, examDate, examId, examPhaseText, examinersObservationEnabled, examinersObservationText, instrument, isLocked, limestoneNotes, loading, mounted, opinionPhaseText, postTestNotes, preTestNotes, preTestPhaseText, purpose, questions, referenceNo, reportDate, section4FollowUp, verdict]);
 
   const handleSave = async () => {
     if (isLocked) {
@@ -760,6 +766,7 @@ export default function ReportBuilderPage() {
                   className="h-10 rounded-xl bg-card border-border/50"
                 />
               </div>
+
             </div>
 
             <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
@@ -1038,6 +1045,40 @@ export default function ReportBuilderPage() {
                   The cooperation line from Session details is added automatically after this on the report.
                 </p>
               </div>
+
+              <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
+                <label className="flex items-center justify-between gap-4">
+                  <span>
+                    <span className="block text-xs font-bold uppercase tracking-wider text-primary">Examiner&apos;s Observation</span>
+                    <span className="mt-1 block text-[10px] text-muted-foreground">Show this section in the report and PDF.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Include Examiner's Observation"
+                    checked={examinersObservationEnabled}
+                    disabled={readOnly}
+                    onChange={(e) => setExaminersObservationEnabled(e.target.checked)}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                </label>
+                {examinersObservationEnabled ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="examiners-observation" className="text-xs font-semibold text-blue-700">Observation text</Label>
+                    <div className="text-blue-600 [&_.ProseMirror]:text-blue-600">
+                      <ReportRichTextField
+                        id="examiners-observation"
+                        rows={3}
+                        value={examinersObservationText}
+                        onChange={setExaminersObservationText}
+                        disabled={readOnly}
+                        placeholder="Enter the examiner's observation..."
+                      />
+                    </div>
+                    <p className="text-[10px] text-blue-600">This text prints in blue on the final PDF.</p>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {/* Section 4: Follow up */}
@@ -1257,6 +1298,16 @@ export default function ReportBuilderPage() {
                   <div className="text-zinc-700 leading-relaxed">
                     <ReportRichTextContent text={opinionPhaseText} />
                   </div>
+                  {examinersObservationEnabled ? (
+                    <div className="pt-2">
+                      <h3 className="font-black text-xs uppercase tracking-wider underline underline-offset-4 decoration-1 text-zinc-800">
+                        EXAMINER&apos;S OBSERVATION
+                      </h3>
+                      <div className="mt-3 leading-relaxed text-blue-600">
+                        <ReportRichTextContent text={examinersObservationText} />
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="text-zinc-700 leading-relaxed pt-1">
                     <ReportRichTextContent text={postTestNotes} />
                   </div>

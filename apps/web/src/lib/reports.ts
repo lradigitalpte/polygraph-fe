@@ -192,6 +192,8 @@ export type StructuredReportData = {
   pre_test_phase_text?: string;
   exam_phase_text?: string;
   opinion_phase_text?: string;
+  examiners_observation_enabled?: boolean;
+  examiners_observation_text?: string;
   identity_document_type?: "passport" | "emirates_id" | "";
   identity_verification_text?: string;
   exam_start_time?: string;

@@ -36,6 +36,8 @@ export type ReportContent = {
   pre_test_phase_text: string;
   exam_phase_text: string;
   opinion_phase_text: string;
+  examiners_observation_enabled?: boolean;
+  examiners_observation_text?: string;
   identity_document_type?: "passport" | "emirates_id" | "";
   identity_verification_text?: string;
   exam_start_time?: string;
@@ -170,6 +172,8 @@ export function buildEmptyReportContent(ctx: ReportSessionContext): ReportConten
     pre_test_phase_text: "",
     exam_phase_text: "",
     opinion_phase_text: "",
+    examiners_observation_enabled: false,
+    examiners_observation_text: "",
     identity_document_type: "passport",
     identity_verification_text: "",
     exam_start_time: "",
@@ -273,6 +277,7 @@ export function mergeReportContent(template: ReportContent, ctx: ReportMergeCont
     exam_phase_text: mergeTemplatePlaceholders(template.exam_phase_text, ctx),
     limestone_notes: mergeTemplatePlaceholders(template.limestone_notes, ctx),
     opinion_phase_text: mergeTemplatePlaceholders(template.opinion_phase_text, ctx),
+    examiners_observation_text: mergeTemplatePlaceholders(template.examiners_observation_text || "", ctx),
     post_test_notes: mergeTemplatePlaceholders(template.post_test_notes, ctx),
     section_4_follow_up: mergeTemplatePlaceholders(template.section_4_follow_up, ctx),
     response_legend_text: mergeTemplatePlaceholders(template.response_legend_text || "", ctx),
@@ -368,6 +373,14 @@ export function parseReportContent(raw: string, fallback: ReportContent): Report
     pre_test_phase_text: coalesceField(parsed.pre_test_phase_text, fallback.pre_test_phase_text),
     exam_phase_text: coalesceField(parsed.exam_phase_text, fallback.exam_phase_text),
     opinion_phase_text: coalesceField(parsed.opinion_phase_text, fallback.opinion_phase_text),
+    examiners_observation_enabled: coalesceField(
+      parsed.examiners_observation_enabled,
+      fallback.examiners_observation_enabled,
+    ),
+    examiners_observation_text: coalesceField(
+      parsed.examiners_observation_text,
+      fallback.examiners_observation_text,
+    ),
     identity_document_type: coalesceField(parsed.identity_document_type, fallback.identity_document_type),
     identity_verification_text: coalesceField(
       parsed.identity_verification_text,
