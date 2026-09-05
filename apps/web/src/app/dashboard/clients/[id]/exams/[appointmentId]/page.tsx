@@ -17,8 +17,11 @@ import {
   Loader2,
   Paperclip,
   PlayCircle,
+  Plus,
   Save,
   ShieldCheck,
+  Sparkles,
+  Trash2,
   Upload,
   User,
 } from "lucide-react";
@@ -49,6 +52,14 @@ import {
 import { fetchSubject, type SubjectRecord } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { formatClinicDateTime } from "@/lib/clinic-time";
+import {
+  createExamQuestion,
+  deleteExamQuestion,
+  populateDefaultQuestions,
+  updateExamQuestion,
+  type ExamQuestionRecord,
+} from "@/lib/exam-questions";
+import type { QuestionCategory } from "@/lib/question-templates";
 
 const EXAM_STATUSES = ["scheduled", "in_progress", "completed", "cancelled"] as const;
 const DOC_TYPES = [
@@ -59,6 +70,12 @@ const DOC_TYPES = [
   { value: "other", label: "Other" },
 ] as const;
 const PHASE_PRESETS = ["Pre-Test", "In-Test", "Post-Test"] as const;
+const QUESTION_CATEGORIES: { value: QuestionCategory; label: string }[] = [
+  { value: "relevant", label: "Relevant" },
+  { value: "comparison", label: "Comparison" },
+  { value: "irrelevant", label: "Irrelevant" },
+];
+const QUESTION_RESPONSES = ["", "Truthful", "Deceptive", "Inconclusive"] as const;
 
 const WORKFLOW_STEPS = [
   {
@@ -129,6 +146,12 @@ export default function ExaminationDocumentationPage() {
   const [uploading, setUploading] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
 
+  const [questions, setQuestions] = React.useState<ExamQuestionRecord[]>([]);
+  const [populating, setPopulating] = React.useState(false);
+  const [savingQuestions, setSavingQuestions] = React.useState(false);
+  const [newQuestionText, setNewQuestionText] = React.useState("");
+  const [newQuestionCategory, setNewQuestionCategory] = React.useState<QuestionCategory>("relevant");
+
   const loadExam = React.useCallback(async () => {
     if (!Number.isFinite(appointmentId)) return;
     setLoading(true);
@@ -142,6 +165,7 @@ export default function ExaminationDocumentationPage() {
       if (examData) {
         setExamNotes(examData.notes ?? "");
         setExamStatus(examData.status ?? "in_progress");
+        setQuestions(examData.questions ?? []);
         if (examData.subject_id) {
           const subj = await fetchSubject(examData.subject_id).catch(() => null);
           setSubject(subj);
@@ -240,6 +264,71 @@ export default function ExaminationDocumentationPage() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const handlePopulateDefaults = async () => {
+    if (!exam) return;
+    setPopulating(true);
+    try {
+      const populated = await populateDefaultQuestions(exam.id);
+      setQuestions(populated);
+      toast.success("Default questions populated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to populate default questions");
+    } finally {
+      setPopulating(false);
+    }
+  };
+
+  const handleAddQuestion = async () => {
+    if (!exam || !newQuestionText.trim()) return;
+    setSavingQuestions(true);
+    try {
+      const created = await createExamQuestion(exam.id, {
+        text: newQuestionText.trim(),
+        category: newQuestionCategory,
+      });
+      setQuestions((current) => [...current, created]);
+      setNewQuestionText("");
+      toast.success("Question added");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add question");
+    } finally {
+      setSavingQuestions(false);
+    }
+  };
+
+  const handleQuestionFieldChange = (id: number, patch: Partial<ExamQuestionRecord>) => {
+    setQuestions((current) => current.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+  };
+
+  const handleSaveQuestion = async (question: ExamQuestionRecord) => {
+    if (!exam) return;
+    setSavingQuestions(true);
+    try {
+      const updated = await updateExamQuestion(exam.id, question.id, {
+        text: question.text,
+        category: question.category || "",
+        response: question.response || "",
+      });
+      setQuestions((current) => current.map((q) => (q.id === updated.id ? updated : q)));
+      toast.success("Question saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save question");
+    } finally {
+      setSavingQuestions(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (question: ExamQuestionRecord) => {
+    if (!exam) return;
+    try {
+      await deleteExamQuestion(exam.id, question.id);
+      setQuestions((current) => current.filter((q) => q.id !== question.id));
+      toast.success("Question removed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove question");
     }
   };
 
@@ -403,6 +492,158 @@ export default function ExaminationDocumentationPage() {
 
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2 space-y-6">
+              {/* Session Prep — what to ask this client */}
+              <Card className="border-border/50 shadow-sm">
+                <CardHeader className="bg-muted/30 pb-4">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <ListChecks className="h-5 w-5 text-primary" />
+                    Session prep — questions to ask
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Populated from the Question Library for this exam type. Editing here only affects this
+                    session — the shared library is untouched.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  {questions.length === 0 ? (
+                    !exam.exam_type ? (
+                      <p className="text-sm text-muted-foreground rounded-xl border border-dashed py-6 text-center">
+                        This exam has no exam type set, so default questions can&apos;t be populated. Set an exam
+                        type first, or add questions manually below.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-6 text-center">
+                        <p className="text-sm text-muted-foreground">
+                          No questions yet for this session.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="gap-2"
+                          disabled={populating}
+                          onClick={() => void handlePopulateDefaults()}
+                        >
+                          {populating ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-4 w-4" />
+                          )}
+                          Populate default questions for {exam.exam_type.name}
+                        </Button>
+                      </div>
+                    )
+                  ) : (
+                    <ul className="space-y-3">
+                      {questions.map((question) => (
+                        <li key={question.id} className="rounded-xl border border-border/60 px-4 py-3 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <Textarea
+                              className="min-h-[52px] rounded-lg resize-y text-sm"
+                              value={question.text}
+                              onChange={(e) => handleQuestionFieldChange(question.id, { text: e.target.value })}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0 text-destructive"
+                              onClick={() => void handleDeleteQuestion(question)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <Select
+                              value={question.category || ""}
+                              onValueChange={(v) =>
+                                handleQuestionFieldChange(question.id, { category: v as QuestionCategory })
+                              }
+                            >
+                              <SelectTrigger className="h-10 rounded-lg">
+                                <SelectValue placeholder="Category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {QUESTION_CATEGORIES.map((c) => (
+                                  <SelectItem key={c.value} value={c.value}>
+                                    {c.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={question.response || ""}
+                              onValueChange={(v) => handleQuestionFieldChange(question.id, { response: String(v) })}
+                            >
+                              <SelectTrigger className="h-10 rounded-lg">
+                                <SelectValue placeholder="Response" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {QUESTION_RESPONSES.map((r) => (
+                                  <SelectItem key={r || "none"} value={r}>
+                                    {r || "Not recorded"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              disabled={savingQuestions}
+                              onClick={() => void handleSaveQuestion(question)}
+                            >
+                              <Save className="h-4 w-4" />
+                              Save
+                            </Button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="grid gap-3 pt-2 border-t border-border/50 sm:grid-cols-[1fr_160px_auto] sm:items-end">
+                    <div className="grid gap-2">
+                      <Label className={fieldLabel}>Add a question</Label>
+                      <Textarea
+                        className="min-h-[52px] rounded-lg resize-y text-sm"
+                        placeholder="Question text for this session only..."
+                        value={newQuestionText}
+                        onChange={(e) => setNewQuestionText(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label className={fieldLabel}>Category</Label>
+                      <Select
+                        value={newQuestionCategory}
+                        onValueChange={(v) => setNewQuestionCategory(v as QuestionCategory)}
+                      >
+                        <SelectTrigger className="h-10 rounded-lg">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {QUESTION_CATEGORIES.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="gap-2"
+                      disabled={savingQuestions || !newQuestionText.trim()}
+                      onClick={() => void handleAddQuestion()}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Examiner notes */}
               <Card className="border-border/50 shadow-sm">
                 <CardHeader className="bg-muted/30 pb-4">

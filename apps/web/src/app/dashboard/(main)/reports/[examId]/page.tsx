@@ -11,6 +11,7 @@ import {
   BrainCircuit,
   Eye,
   EyeOff,
+  ListChecks,
   Printer,
   Lock,
   ArrowLeft,
@@ -44,10 +45,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { fetchAppointment, fetchExam } from "@/lib/exam-documentation";
+import { fetchExamQuestions } from "@/lib/exam-questions";
 import { fetchClient } from "@/lib/clients";
 import { fetchExaminerSignature, fetchExaminers, type UserRecord } from "@/lib/users";
 import {
   buildEmptyReportContent,
+  buildQuestionsFromExamQuestions,
   buildReportFromTemplate,
   buildReportSessionContext,
   applyReportFieldDefaults,
@@ -126,6 +129,8 @@ export default function ReportBuilderPage() {
   const [preTestPhaseText, setPreTestPhaseText] = React.useState("");
   const [preTestNotes, setPreTestNotes] = React.useState("");
   const [questions, setQuestions] = React.useState<{ text: string; answer: string; evaluation: string }[]>([]);
+  const [loadingSessionQuestions, setLoadingSessionQuestions] = React.useState(false);
+  const [replaceQuestionsDialogOpen, setReplaceQuestionsDialogOpen] = React.useState(false);
   const [examPhaseText, setExamPhaseText] = React.useState("");
   const [limestoneNotes, setLimestoneNotes] = React.useState("");
   const [opinionPhaseText, setOpinionPhaseText] = React.useState("");
@@ -410,6 +415,33 @@ export default function ReportBuilderPage() {
     setQuestions((prev) =>
       prev.map((q, i) => (i === index ? { ...q, [field]: value } : q))
     );
+  };
+
+  const applyQuestionsFromSession = async () => {
+    setLoadingSessionQuestions(true);
+    try {
+      const examQuestions = await fetchExamQuestions(examId);
+      if (examQuestions.length === 0) {
+        toast.error("No questions recorded for this session yet");
+        return;
+      }
+      const { questions: loaded, countText } = buildQuestionsFromExamQuestions(examQuestions);
+      setQuestions(loaded);
+      handleQuestionCountChange(countText);
+      toast.success("Loaded questions from the session");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load session questions");
+    } finally {
+      setLoadingSessionQuestions(false);
+    }
+  };
+
+  const handleLoadQuestionsFromSession = async () => {
+    if (questions.length > 0) {
+      setReplaceQuestionsDialogOpen(true);
+      return;
+    }
+    await applyQuestionsFromSession();
   };
 
   const buildReportPayload = (): ReportContent => ({
@@ -907,16 +939,33 @@ export default function ReportBuilderPage() {
                 <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
                   <Activity className="h-4 w-4" /> Section 2: Questions asked
                 </h4>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl text-xs gap-1.5 h-8"
-                  onClick={handleAddQuestion}
-                  disabled={readOnly}
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Question
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl text-xs gap-1.5 h-8"
+                    onClick={() => void handleLoadQuestionsFromSession()}
+                    disabled={readOnly || loadingSessionQuestions}
+                  >
+                    {loadingSessionQuestions ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ListChecks className="h-3.5 w-3.5" />
+                    )}
+                    Load from session
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl text-xs gap-1.5 h-8"
+                    onClick={handleAddQuestion}
+                    disabled={readOnly}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Question
+                  </Button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 p-3">
@@ -1543,6 +1592,35 @@ export default function ReportBuilderPage() {
             <Button type="button" onClick={() => void handleOverrideUnlock()} disabled={overrideSubmitting}>
               {overrideSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Confirm Unlock
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={replaceQuestionsDialogOpen} onOpenChange={setReplaceQuestionsDialogOpen}>
+        <DialogContent className="rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Replace questions with session data?</DialogTitle>
+            <DialogDescription>
+              This report already has {questions.length} question{questions.length === 1 ? "" : "s"} entered.
+              Loading from the session will replace them with what was recorded during the exam. This can&apos;t
+              be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setReplaceQuestionsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setReplaceQuestionsDialogOpen(false);
+                void applyQuestionsFromSession();
+              }}
+              disabled={loadingSessionQuestions}
+            >
+              {loadingSessionQuestions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Replace Questions
             </Button>
           </DialogFooter>
         </DialogContent>

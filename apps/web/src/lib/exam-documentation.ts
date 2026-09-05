@@ -1,5 +1,6 @@
 import { authenticatedFetch } from "@/lib/api-client";
 import type { AppointmentRecord } from "@/lib/exam-booking";
+import type { ExamQuestionRecord } from "@/lib/exam-questions";
 
 export type ExamDocumentRecord = {
   id: number;
@@ -45,6 +46,7 @@ export type ExamRecord = {
   };
   documents?: ExamDocumentRecord[];
   phases?: ExamPhaseRecord[];
+  questions?: ExamQuestionRecord[];
 };
 
 export async function fetchExam(examId: number): Promise<ExamRecord> {

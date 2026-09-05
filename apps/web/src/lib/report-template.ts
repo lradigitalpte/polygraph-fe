@@ -1,5 +1,6 @@
 import type { AppointmentRecord } from "@/lib/exam-booking";
 import type { ExamRecord } from "@/lib/exam-documentation";
+import type { ExamQuestionRecord } from "@/lib/exam-questions";
 import { formatClinicClock } from "@/lib/clinic-time";
 
 export type ReportSessionContext = {
@@ -233,6 +234,44 @@ export function mergeTemplatePlaceholders(text: string, ctx: ReportMergeContext)
       "{{pre_exam_question_count_text}}",
       ctx.preExamQuestionCountText || "4 relevant and 3 comparison questions",
     );
+}
+
+/** Maps the session's recorded Truthful/Deceptive/Inconclusive response to the
+ * report question's evaluation vocabulary. The report's "answer" field (the
+ * subject's Yes/No response to the question itself) isn't captured during
+ * session prep, so it's left for the examiner to fill in while writing the report. */
+function evaluationFromResponse(response?: string): string {
+  switch ((response || "").trim().toLowerCase()) {
+    case "deceptive":
+      return "Reaction / Deceptive";
+    case "truthful":
+      return "No Reaction";
+    case "inconclusive":
+      return "Inconclusive";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Turns a session's recorded ExamQuestion rows into the report's question list
+ * and count sentence, so examiners don't retype what was already asked and
+ * answered during the exam. Irrelevant questions are listed but excluded from
+ * the count sentence, matching the existing "N relevant and M comparison
+ * questions" wording convention.
+ */
+export function buildQuestionsFromExamQuestions(
+  examQuestions: ExamQuestionRecord[],
+): { questions: ReportQuestion[]; countText: string } {
+  const questions: ReportQuestion[] = examQuestions.map((q) => ({
+    text: q.text,
+    answer: "",
+    evaluation: evaluationFromResponse(q.response),
+  }));
+  const relevantCount = examQuestions.filter((q) => q.category === "relevant").length;
+  const comparisonCount = examQuestions.filter((q) => q.category === "comparison").length;
+  const countText = `**${relevantCount} relevant and ${comparisonCount} comparison questions**`;
+  return { questions, countText };
 }
 
 export function parseTemplateContent(raw: string): ReportContent {

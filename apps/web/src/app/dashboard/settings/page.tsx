@@ -224,6 +224,23 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle>Question Library</CardTitle>
+            <CardDescription>
+              Reusable question templates per exam type that auto-populate a session and its report.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Organize Relevant, Comparison, and Irrelevant question templates so examiners don&apos;t retype them per client.
+            </p>
+            <Button variant="outline" render={<Link href={"/dashboard/settings/question-library" as Route} />}>
+              Manage Question Library
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Examiner Availability</CardTitle>
             <CardDescription>
               Manage full-day and time-window blocks that drive the booking calendar.
