@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  Users, 
+import {
+  Users,
   Settings as SettingsIcon,
   ShieldCheck,
   History,
@@ -12,6 +12,7 @@ import {
   ClipboardList,
   CalendarClock,
   FileText,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ const settingsNavigation = [
   { name: "General", href: "/dashboard/settings", icon: SettingsIcon, exact: true },
   { name: "Exam Types", href: "/dashboard/settings/exam-types", icon: ClipboardList },
   { name: "Report Templates", href: "/dashboard/settings/report-templates", icon: FileText },
+  { name: "Question Library", href: "/dashboard/settings/question-library", icon: ListChecks },
   { name: "Examiner Availability", href: "/dashboard/settings/availability", icon: CalendarClock },
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },
