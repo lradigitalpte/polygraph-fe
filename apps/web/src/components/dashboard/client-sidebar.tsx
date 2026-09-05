@@ -14,6 +14,7 @@ import {
   Building2,
   Mail,
   FileSignature,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
@@ -39,6 +40,7 @@ export function ClientSidebar() {
     { name: "Client Overview", href: `/dashboard/clients/${id}`, icon: LayoutDashboard },
     { name: "Personal Details", href: `/dashboard/clients/${id}/details`, icon: User },
     { name: "Exam History", href: `/dashboard/clients/${id}/exams`, icon: FileText },
+    { name: "Session Questions", href: `/dashboard/clients/${id}/questions`, icon: ListChecks },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
     { name: "Secure Reports", href: `/dashboard/clients/${id}/reports`, icon: FileSignature },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
@@ -50,6 +52,7 @@ export function ClientSidebar() {
     { name: "Examinee Roster", href: `/dashboard/clients/${id}/roster`, icon: Users },
     { name: "Request Examinee Roster", href: `/dashboard/clients/${id}/intake`, icon: Mail },
     { name: "All Sessions", href: `/dashboard/clients/${id}/exams`, icon: FileText },
+    { name: "Session Questions", href: `/dashboard/clients/${id}/questions`, icon: ListChecks },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
     { name: "Secure Reports", href: `/dashboard/clients/${id}/reports`, icon: FileSignature },
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },

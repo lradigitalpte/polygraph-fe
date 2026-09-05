@@ -4,7 +4,8 @@ export type QuestionCategory = "relevant" | "comparison" | "irrelevant";
 
 export type QuestionTemplateRecord = {
   id: number;
-  exam_type_id: number;
+  /** Optional tag. Untagged templates are offered for every booking. */
+  exam_type_id?: number | null;
   exam_type?: {
     id: number;
     name: string;
@@ -16,7 +17,7 @@ export type QuestionTemplateRecord = {
 };
 
 export type QuestionTemplateInput = {
-  exam_type_id: number;
+  exam_type_id?: number | null;
   category: QuestionCategory;
   text: string;
   sort_order: number;
@@ -55,6 +56,11 @@ export async function createQuestionTemplate(input: QuestionTemplateInput): Prom
   return response.json();
 }
 
+/**
+ * Partial update — omitted fields are left untouched by the server, so a
+ * reorder cannot blank the rest of the row. Pass `exam_type_id: 0` to clear the
+ * exam-type tag ("Any exam type").
+ */
 export async function updateQuestionTemplate(
   id: number,
   input: Partial<QuestionTemplateInput>

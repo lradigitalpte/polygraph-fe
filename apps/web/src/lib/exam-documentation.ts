@@ -81,6 +81,7 @@ export async function updateAppointment(
     notes: string;
     status: string;
     questions_prepared: boolean;
+    exam_type_id: number;
   }>
 ): Promise<AppointmentRecord> {
   const response = await authenticatedFetch(`/api/appointments/${id}`, {

@@ -53,6 +53,8 @@ import {
 } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { convertQuotation } from "@/lib/quotations";
+import { addAppointmentQuestionsFromTemplates } from "@/lib/appointment-questions";
+import { fetchQuestionTemplates, type QuestionTemplateRecord } from "@/lib/question-templates";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 import { catalogPriceInCurrency, convertCurrency, formatMoney } from "@/lib/client-account";
 import {
@@ -120,12 +122,37 @@ function BookAppointmentPageContent() {
     reason: "",
   });
 
+  // Optional: questions picked from the library while booking. They are attached
+  // to the appointment right after it is created.
+  const [questionTemplates, setQuestionTemplates] = React.useState<QuestionTemplateRecord[]>([]);
+  const [selectedTemplateIds, setSelectedTemplateIds] = React.useState<number[]>([]);
+  const [showQuestionPicker, setShowQuestionPicker] = React.useState(false);
+
   const clientSearchRef = React.useRef<HTMLDivElement>(null);
   const subjectSearchRef = React.useRef<HTMLDivElement>(null);
 
   const deferredClientSearch = React.useDeferredValue(clientSearch);
   const deferredSubjectSearch = React.useDeferredValue(subjectSearch);
   const deferredExaminerSearch = React.useDeferredValue(examinerSearch);
+
+  // Reload the library whenever the protocol changes: templates tagged to that
+  // exam type, plus untagged ones that apply to any booking.
+  React.useEffect(() => {
+    if (!showQuestionPicker) return;
+    const examTypeId = Number(formData.examTypeId) || undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await fetchQuestionTemplates(examTypeId ? { examTypeId } : {});
+        if (!cancelled) setQuestionTemplates(rows);
+      } catch {
+        if (!cancelled) setQuestionTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showQuestionPicker, formData.examTypeId]);
 
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -597,22 +624,38 @@ function BookAppointmentPageContent() {
           examiner_id: Number(formData.examinerId),
           scheduled_at: scheduledAt,
           duration: selectedExamType.duration,
+          exam_type_id: selectedExamType.id,
         });
         toast.success("Quotation converted to a booking");
       } else {
-        await createAppointment({
+        const appointment = await createAppointment({
           client_id: Number(formData.clientId),
           subject_id: subjectID,
           examiner_id: Number(formData.examinerId),
           scheduled_at: scheduledAt,
           duration: selectedExamType.duration,
+          exam_type_id: selectedExamType.id,
           exam_fee: selectedExamType.price,
           collected_amount: collectedUSD,
           payment_status: paymentStatus,
           payment_mode: formData.paymentType,
-          notes: `${selectedExamType.name}\n\n${formData.reason}`,
+          notes: formData.reason,
           status: "pending",
         });
+
+        // Attach any questions picked during booking. A failure here must not
+        // lose the booking itself, so it only warns.
+        if (selectedTemplateIds.length > 0 && appointment?.id) {
+          try {
+            await addAppointmentQuestionsFromTemplates(appointment.id, selectedTemplateIds);
+          } catch (questionError) {
+            toast.warning(
+              questionError instanceof Error
+                ? `Booking saved, but questions were not attached: ${questionError.message}`
+                : "Booking saved, but questions were not attached"
+            );
+          }
+        }
         toast.success(isBackdatedBooking ? "Backdated appointment logged" : "Appointment booked", {
           description: isBackdatedBooking
             ? `Logged for ${formData.date} @ ${formData.time} (Dubai). Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`
@@ -987,6 +1030,72 @@ function BookAppointmentPageContent() {
                             </p>
                           </div>
                         )}
+                      </div>
+
+                      {/* Optional: pick questions now. They can also be chosen or
+                          edited later from the session's Questions tab. */}
+                      <div className="space-y-3 rounded-xl border border-border/50 bg-muted/10 p-3">
+                        <label className="flex cursor-pointer items-start gap-3">
+                          <Checkbox
+                            checked={showQuestionPicker}
+                            onCheckedChange={(checked) => {
+                              const next = checked === true;
+                              setShowQuestionPicker(next);
+                              if (!next) setSelectedTemplateIds([]);
+                            }}
+                          />
+                          <div>
+                            <div className="text-sm font-medium">Prepare questions now (optional)</div>
+                            <div className="text-xs text-muted-foreground">
+                              Pick from the Question Library. You can skip this and choose later from the
+                              session&apos;s Questions tab.
+                            </div>
+                          </div>
+                        </label>
+
+                        {showQuestionPicker ? (
+                          questionTemplates.length === 0 ? (
+                            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                              No questions in the library yet. Add some in Settings → Question Library.
+                            </p>
+                          ) : (
+                            <div className="max-h-64 space-y-2 overflow-y-auto">
+                              {questionTemplates.map((template) => {
+                                const checked = selectedTemplateIds.includes(template.id);
+                                return (
+                                  <label
+                                    key={template.id}
+                                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/50 bg-background p-2.5"
+                                  >
+                                    <Checkbox
+                                      checked={checked}
+                                      onCheckedChange={(value) =>
+                                        setSelectedTemplateIds((current) =>
+                                          value === true
+                                            ? [...current, template.id]
+                                            : current.filter((templateId) => templateId !== template.id)
+                                        )
+                                      }
+                                    />
+                                    <div className="space-y-1">
+                                      <Badge variant="outline" className="capitalize text-[10px]">
+                                        {template.category}
+                                      </Badge>
+                                      <p className="text-xs">{template.text}</p>
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )
+                        ) : null}
+
+                        {selectedTemplateIds.length > 0 ? (
+                          <p className="text-xs font-medium text-foreground">
+                            {selectedTemplateIds.length} question
+                            {selectedTemplateIds.length === 1 ? "" : "s"} will be prepared for this booking.
+                          </p>
+                        ) : null}
                       </div>
                     </CardContent>
                   </Card>

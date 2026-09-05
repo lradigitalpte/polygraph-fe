@@ -76,7 +76,13 @@ export async function sendQuotationEmail(
 // carries over as the fee and the quotation becomes that booking's invoice.
 export async function convertQuotation(
   id: number,
-  input: { subject_id: number; examiner_id: number; scheduled_at: string; duration: number },
+  input: {
+    subject_id: number;
+    examiner_id: number;
+    scheduled_at: string;
+    duration: number;
+    exam_type_id?: number;
+  },
 ): Promise<{ id: number }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/convert`, {
     method: "POST",

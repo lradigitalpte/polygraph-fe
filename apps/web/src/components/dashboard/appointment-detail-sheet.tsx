@@ -34,7 +34,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import type { AppointmentRecord } from "@/lib/exam-booking";
+import { fetchExamTypes, type AppointmentRecord, type ExamTypeRecord } from "@/lib/exam-booking";
 import { formatClinicDateTime } from "@/lib/clinic-time";
 import {
   fetchExamByAppointment,
@@ -82,6 +82,8 @@ export function AppointmentDetailSheet({
   const [loading, setLoading] = React.useState(false);
   const [schedulingNotes, setSchedulingNotes] = React.useState("");
   const [appointmentStatus, setAppointmentStatus] = React.useState("pending");
+  const [examTypeId, setExamTypeId] = React.useState("");
+  const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
   const [savingScheduling, setSavingScheduling] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -89,12 +91,13 @@ export function AppointmentDetailSheet({
     setLoading(true);
     try {
       const examData = await fetchExamByAppointment(appointment.id);
-      const [freshAppointment, examinerList, subjectData] = await Promise.all([
+      const [freshAppointment, examinerList, subjectData, examTypeList] = await Promise.all([
         fetchAppointment(appointment.id),
         fetchExaminers(),
         appointment.subject_id
           ? fetchSubject(appointment.subject_id).catch(() => null)
           : Promise.resolve(null),
+        fetchExamTypes().catch(() => [] as ExamTypeRecord[]),
       ]);
       const effectiveAppointment = examData?.status === "completed"
         ? { ...freshAppointment, status: "completed" }
@@ -105,6 +108,10 @@ export function AppointmentDetailSheet({
       setSubject(subjectData);
       setSchedulingNotes(effectiveAppointment.notes ?? "");
       setAppointmentStatus(effectiveAppointment.status ?? "pending");
+      setExamTypes(examTypeList);
+      setExamTypeId(
+        effectiveAppointment.exam_type_id ? String(effectiveAppointment.exam_type_id) : ""
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load appointment");
     } finally {
@@ -133,6 +140,7 @@ export function AppointmentDetailSheet({
       const updated = await updateAppointment(detail.id, {
         notes: schedulingNotes,
         status: appointmentStatus,
+        exam_type_id: Number(examTypeId) || undefined,
       });
       setDetail(updated);
       toast.success("Scheduling details saved");
@@ -270,6 +278,39 @@ export function AppointmentDetailSheet({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Exam type
+                  </Label>
+                  <Select value={examTypeId || "unset"} onValueChange={(v) => setExamTypeId(String(v) === "unset" ? "" : String(v))}>
+                    <SelectTrigger className={inputClass}>
+                      <SelectValue placeholder="Not set">
+                        {examTypes.find((t) => String(t.id) === examTypeId)?.name ?? "Not set"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unset">Not set</SelectItem>
+                      {examTypes.map((type) => (
+                        <SelectItem key={type.id} value={String(type.id)}>
+                          {type.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Carried onto the examination when documentation starts, and used to suggest questions.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border border-border/50 px-3 py-2.5">
+                  <span className="text-sm">Questions prepared</span>
+                  {detail?.questions_prepared ? (
+                    <Badge variant="success">Ready</Badge>
+                  ) : (
+                    <Badge variant="outline">Not yet</Badge>
+                  )}
                 </div>
 
                 <div className="grid gap-2">

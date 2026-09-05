@@ -161,7 +161,8 @@ export default function QuestionLibrarySettingsPage() {
 
   const resetForm = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, examTypeId: examTypes[0] ? String(examTypes[0].id) : "" });
+    // Default to untagged: an untagged question is offered for every booking.
+    setForm({ ...emptyForm });
   };
 
   const openCreate = () => {
@@ -172,7 +173,7 @@ export default function QuestionLibrarySettingsPage() {
   const openEdit = (template: QuestionTemplateRecord) => {
     setEditingId(template.id);
     setForm({
-      examTypeId: String(template.exam_type_id),
+      examTypeId: template.exam_type_id ? String(template.exam_type_id) : "",
       category: template.category,
       text: template.text,
       active: template.active,
@@ -181,11 +182,8 @@ export default function QuestionLibrarySettingsPage() {
   };
 
   const handleSave = async () => {
-    const examTypeId = Number(form.examTypeId);
-    if (!examTypeId) {
-      toast.error("Choose an exam type");
-      return;
-    }
+    // 0 means "any exam type" — the tag is optional and clears with an explicit 0.
+    const examTypeId = Number(form.examTypeId) || 0;
     if (!form.text.trim()) {
       toast.error("Question text is required");
       return;
@@ -205,7 +203,7 @@ export default function QuestionLibrarySettingsPage() {
       } else {
         const nextSortOrder =
           templates
-            .filter((t) => t.exam_type_id === examTypeId)
+            .filter((t) => (t.exam_type_id ?? 0) === examTypeId)
             .reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
         const created = await createQuestionTemplate({
           exam_type_id: examTypeId,
@@ -238,14 +236,19 @@ export default function QuestionLibrarySettingsPage() {
     }
   };
 
-  const examTypeName = (id: number) => examTypes.find((t) => t.id === id)?.name || `Exam type #${id}`;
+  // Untagged templates are grouped under the sentinel id 0.
+  const examTypeName = (id: number) =>
+    id === 0
+      ? "Any exam type"
+      : examTypes.find((t) => t.id === id)?.name || `Exam type #${id}`;
 
   const groupedByExamType = React.useMemo(() => {
     const groups = new Map<number, QuestionTemplateRecord[]>();
     for (const template of templates) {
-      const list = groups.get(template.exam_type_id) ?? [];
+      const key = template.exam_type_id ?? 0;
+      const list = groups.get(key) ?? [];
       list.push(template);
-      groups.set(template.exam_type_id, list);
+      groups.set(key, list);
     }
     for (const list of groups.values()) {
       list.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
@@ -266,7 +269,7 @@ export default function QuestionLibrarySettingsPage() {
 
     // Optimistic update so the drag feels instant.
     setTemplates((current) => {
-      const others = current.filter((t) => t.exam_type_id !== examTypeId);
+      const others = current.filter((t) => (t.exam_type_id ?? 0) !== examTypeId);
       return [...others, ...withNewOrder];
     });
 
@@ -353,17 +356,23 @@ export default function QuestionLibrarySettingsPage() {
 
           <div className="space-y-4">
             <div className="grid gap-2">
-              <Label>Exam Type</Label>
+              <Label>Exam Type (optional)</Label>
               <Select
-                value={form.examTypeId}
-                onValueChange={(value) => setForm((current) => ({ ...current, examTypeId: String(value) }))}
+                value={form.examTypeId || "any"}
+                onValueChange={(value) =>
+                  setForm((current) => ({
+                    ...current,
+                    examTypeId: String(value) === "any" ? "" : String(value),
+                  }))
+                }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose an exam type">
-                    {examTypes.find((t) => String(t.id) === form.examTypeId)?.name}
+                  <SelectValue placeholder="Any exam type">
+                    {examTypes.find((t) => String(t.id) === form.examTypeId)?.name ?? "Any exam type"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="any">Any exam type</SelectItem>
                   {examTypes.map((type) => (
                     <SelectItem key={type.id} value={String(type.id)}>
                       {type.name}
@@ -371,6 +380,9 @@ export default function QuestionLibrarySettingsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Tagging is only a filter. An untagged question is offered for every booking.
+              </p>
             </div>
 
             <div className="grid gap-2">

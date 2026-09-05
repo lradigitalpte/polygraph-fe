@@ -44,6 +44,7 @@ export type CreateAppointmentInput = {
   examiner_id: number;
   scheduled_at: string;
   duration: number;
+  exam_type_id?: number;
   exam_fee?: number;
   collected_amount?: number;
   payment_status?: string;
@@ -70,6 +71,7 @@ export type AppointmentRecord = {
   questions_prepared?: boolean;
   notes: string;
   exam_id?: number;
+  exam_type_id?: number | null;
   client?: {
     id: number;
     name: string;
