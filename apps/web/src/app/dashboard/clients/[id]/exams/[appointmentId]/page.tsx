@@ -559,7 +559,9 @@ export default function ExaminationDocumentationPage() {
                               }
                             >
                               <SelectTrigger className="h-10 rounded-lg">
-                                <SelectValue placeholder="Category" />
+                                <SelectValue placeholder="Category">
+                                  {QUESTION_CATEGORIES.find((c) => c.value === question.category)?.label}
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {QUESTION_CATEGORIES.map((c) => (
@@ -574,7 +576,9 @@ export default function ExaminationDocumentationPage() {
                               onValueChange={(v) => handleQuestionFieldChange(question.id, { response: String(v) })}
                             >
                               <SelectTrigger className="h-10 rounded-lg">
-                                <SelectValue placeholder="Response" />
+                                <SelectValue placeholder="Response">
+                                  {question.response || "Not recorded"}
+                                </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 {QUESTION_RESPONSES.map((r) => (
@@ -619,7 +623,9 @@ export default function ExaminationDocumentationPage() {
                         onValueChange={(v) => setNewQuestionCategory(v as QuestionCategory)}
                       >
                         <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue />
+                          <SelectValue>
+                            {QUESTION_CATEGORIES.find((c) => c.value === newQuestionCategory)?.label}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {QUESTION_CATEGORIES.map((c) => (

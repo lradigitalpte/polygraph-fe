@@ -1,8 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,7 +59,6 @@ type FormState = {
   examTypeId: string;
   category: QuestionCategory;
   text: string;
-  sortOrder: string;
   active: boolean;
 };
 
@@ -51,9 +66,65 @@ const emptyForm: FormState = {
   examTypeId: "",
   category: "relevant",
   text: "",
-  sortOrder: "0",
   active: true,
 };
+
+function SortableTemplateRow({
+  template,
+  onEdit,
+  onDelete,
+}: {
+  template: QuestionTemplateRecord;
+  onEdit: (t: QuestionTemplateRecord) => void;
+  onDelete: (t: QuestionTemplateRecord) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(template.id),
+  });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-start justify-between gap-3 rounded-lg border p-3 bg-card"
+    >
+      <button
+        type="button"
+        className="mt-1 shrink-0 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <div className="flex-1 space-y-1">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="capitalize">
+            {template.category}
+          </Badge>
+          {!template.active ? <Badge variant="outline">Inactive</Badge> : null}
+        </div>
+        <p className="text-sm">{template.text}</p>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        <Button variant="outline" size="icon" onClick={() => onEdit(template)}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        {template.active ? (
+          <Button variant="destructive" size="icon" onClick={() => void onDelete(template)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export default function QuestionLibrarySettingsPage() {
   const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
@@ -64,6 +135,11 @@ export default function QuestionLibrarySettingsPage() {
   const [saving, setSaving] = React.useState(false);
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [form, setForm] = React.useState<FormState>(emptyForm);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const load = React.useCallback(async () => {
     try {
@@ -99,7 +175,6 @@ export default function QuestionLibrarySettingsPage() {
       examTypeId: String(template.exam_type_id),
       category: template.category,
       text: template.text,
-      sortOrder: String(template.sort_order ?? 0),
       active: template.active,
     });
     setOpen(true);
@@ -107,7 +182,6 @@ export default function QuestionLibrarySettingsPage() {
 
   const handleSave = async () => {
     const examTypeId = Number(form.examTypeId);
-    const sortOrder = Number(form.sortOrder) || 0;
     if (!examTypeId) {
       toast.error("Choose an exam type");
       return;
@@ -124,17 +198,20 @@ export default function QuestionLibrarySettingsPage() {
           exam_type_id: examTypeId,
           category: form.category,
           text: form.text.trim(),
-          sort_order: sortOrder,
           active: form.active,
         });
         setTemplates((current) => current.map((item) => (item.id === updated.id ? updated : item)));
         toast.success("Question template updated");
       } else {
+        const nextSortOrder =
+          templates
+            .filter((t) => t.exam_type_id === examTypeId)
+            .reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
         const created = await createQuestionTemplate({
           exam_type_id: examTypeId,
           category: form.category,
           text: form.text.trim(),
-          sort_order: sortOrder,
+          sort_order: nextSortOrder,
           active: form.active,
         });
         setTemplates((current) => [...current, created]);
@@ -171,10 +248,37 @@ export default function QuestionLibrarySettingsPage() {
       groups.set(template.exam_type_id, list);
     }
     for (const list of groups.values()) {
-      list.sort((a, b) => a.category.localeCompare(b.category) || a.sort_order - b.sort_order);
+      list.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
     }
     return groups;
   }, [templates]);
+
+  const handleDragEnd = async (examTypeId: number, items: QuestionTemplateRecord[], event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = items.findIndex((t) => String(t.id) === String(active.id));
+    const newIndex = items.findIndex((t) => String(t.id) === String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(items, oldIndex, newIndex);
+    const withNewOrder = reordered.map((t, index) => ({ ...t, sort_order: index }));
+
+    // Optimistic update so the drag feels instant.
+    setTemplates((current) => {
+      const others = current.filter((t) => t.exam_type_id !== examTypeId);
+      return [...others, ...withNewOrder];
+    });
+
+    try {
+      await Promise.all(
+        withNewOrder.map((t) => updateQuestionTemplate(t.id, { sort_order: t.sort_order }))
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save new order");
+      void load();
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -182,8 +286,8 @@ export default function QuestionLibrarySettingsPage() {
         <div>
           <h3 className="text-lg font-medium">Question Library</h3>
           <p className="text-sm text-muted-foreground">
-            Default questions per exam type. Populating a session copies these in, so editing here never changes a
-            past exam&apos;s record.
+            Default questions per exam type. Drag to reorder. Populating a session copies these in, so editing
+            here never changes a past exam&apos;s record.
           </p>
         </div>
         <Button className="gap-2" onClick={openCreate} disabled={examTypes.length === 0}>
@@ -215,32 +319,25 @@ export default function QuestionLibrarySettingsPage() {
                 <CardDescription>{items.length} question template{items.length === 1 ? "" : "s"}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {items.map((template) => (
-                  <div
-                    key={template.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border p-3"
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={(event) => void handleDragEnd(examTypeId, items, event)}
+                >
+                  <SortableContext
+                    items={items.map((t) => String(t.id))}
+                    strategy={verticalListSortingStrategy}
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="capitalize">
-                          {template.category}
-                        </Badge>
-                        {!template.active ? <Badge variant="outline">Inactive</Badge> : null}
-                      </div>
-                      <p className="text-sm">{template.text}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button variant="outline" size="icon" onClick={() => openEdit(template)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      {template.active ? (
-                        <Button variant="destructive" size="icon" onClick={() => void handleDelete(template)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
+                    {items.map((template) => (
+                      <SortableTemplateRow
+                        key={template.id}
+                        template={template}
+                        onEdit={openEdit}
+                        onDelete={handleDelete}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
               </CardContent>
             </Card>
           ))}
@@ -262,7 +359,9 @@ export default function QuestionLibrarySettingsPage() {
                 onValueChange={(value) => setForm((current) => ({ ...current, examTypeId: String(value) }))}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose an exam type" />
+                  <SelectValue placeholder="Choose an exam type">
+                    {examTypes.find((t) => String(t.id) === form.examTypeId)?.name}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {examTypes.map((type) => (
@@ -281,7 +380,7 @@ export default function QuestionLibrarySettingsPage() {
                 onValueChange={(value) => setForm((current) => ({ ...current, category: value as QuestionCategory }))}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>{CATEGORIES.find((c) => c.value === form.category)?.label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map((cat) => (
@@ -302,16 +401,6 @@ export default function QuestionLibrarySettingsPage() {
                 onChange={(event) => setForm((current) => ({ ...current, text: event.target.value }))}
               />
               <p className="text-xs text-muted-foreground">{MERGE_FIELD_HINT}</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="question-sort-order">Sort Order</Label>
-              <Input
-                id="question-sort-order"
-                type="number"
-                value={form.sortOrder}
-                onChange={(event) => setForm((current) => ({ ...current, sortOrder: event.target.value }))}
-              />
             </div>
 
             <label className="flex items-center gap-3 rounded-lg border p-3">
