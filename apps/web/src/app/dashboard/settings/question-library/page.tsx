@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GripVertical, Plus, X } from "lucide-react";
+import { GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -134,11 +134,15 @@ function CategoryField({
 
 function SortableTableRow({
   id,
-  onClick,
+  onEdit,
+  onDeactivate,
+  active,
   children,
 }: {
   id: string;
-  onClick?: () => void;
+  onEdit: () => void;
+  onDeactivate: () => void;
+  active: boolean;
   children: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -150,7 +154,7 @@ function SortableTableRow({
   };
 
   return (
-    <TableRow ref={setNodeRef} style={style} className="cursor-pointer" onClick={onClick}>
+    <TableRow ref={setNodeRef} style={style} className="cursor-pointer" onClick={onEdit}>
       <TableCell className="w-8 pr-0">
         <button
           type="button"
@@ -164,6 +168,36 @@ function SortableTableRow({
         </button>
       </TableCell>
       {children}
+      <TableCell className="w-20 text-right">
+        <div className="flex justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label="Edit question"
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          {active ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              aria-label="Deactivate question"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDeactivate();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+        </div>
+      </TableCell>
     </TableRow>
   );
 }
@@ -356,19 +390,23 @@ export default function QuestionLibrarySettingsPage() {
     }
   };
 
-  const handleDeactivate = async () => {
-    if (!editingTemplate) return;
+  const handleDeactivateTemplate = async (template: QuestionTemplateRecord) => {
     try {
-      await deleteQuestionTemplate(editingTemplate.id);
+      await deleteQuestionTemplate(template.id);
       setTemplates((current) =>
-        current.map((item) => (item.id === editingTemplate.id ? { ...item, active: false } : item))
+        current.map((item) => (item.id === template.id ? { ...item, active: false } : item))
       );
       toast.success("Question template deactivated");
-      setEditOpen(false);
-      setEditingTemplate(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to deactivate question template");
     }
+  };
+
+  const handleDeactivate = async () => {
+    if (!editingTemplate) return;
+    await handleDeactivateTemplate(editingTemplate);
+    setEditOpen(false);
+    setEditingTemplate(null);
   };
 
   // Untagged templates are grouped under the sentinel id 0.
@@ -470,6 +508,7 @@ export default function QuestionLibrarySettingsPage() {
                         <TableRow>
                           <TableHead className="w-8" />
                           <TableHead>Title</TableHead>
+                          <TableHead className="w-20" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -477,7 +516,9 @@ export default function QuestionLibrarySettingsPage() {
                           <SortableTableRow
                             key={template.id}
                             id={String(template.id)}
-                            onClick={() => openEdit(template)}
+                            onEdit={() => openEdit(template)}
+                            onDeactivate={() => void handleDeactivateTemplate(template)}
+                            active={template.active}
                           >
                             <TableCell className="whitespace-normal">
                               <span className={template.active ? "" : "text-muted-foreground"}>
