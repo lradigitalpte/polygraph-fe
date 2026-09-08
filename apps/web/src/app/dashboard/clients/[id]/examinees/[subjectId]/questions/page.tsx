@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { useSubjectDetail } from "@/components/dashboard/subject-detail-context";
 import { SessionQuestionsPanel } from "@/components/dashboard/session-questions-panel";
 import { formatAppointmentCode } from "@/lib/exam-documentation";
 import { formatClinicDateTime } from "@/lib/clinic-time";
@@ -41,14 +41,14 @@ const QUESTIONS_FILTER_LABELS: Record<QuestionsFilter, string> = {
 
 const SESSION_FILTER_LABELS: Record<SessionFilter, string> = {
   all: "All sessions",
-  started: "Started",
+  started: "Session started",
   not_started: "Not started",
 };
 
-export default function ClientSessionQuestionsPage() {
+export default function ExamineeSessionQuestionsPage() {
   const params = useParams();
   const clientId = Number(params.id);
-  const { appointments, loading } = useClientDetail();
+  const { appointments, loading } = useSubjectDetail();
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
   const [search, setSearch] = React.useState("");
   const [questionsFilter, setQuestionsFilter] = React.useState<QuestionsFilter>("all");
@@ -81,10 +81,7 @@ export default function ClientSessionQuestionsPage() {
     const s = search.toLowerCase().trim();
     return sessions.filter((appointment) => {
       const code = formatAppointmentCode(appointment.id).toLowerCase();
-      const name = appointment.subject
-        ? `${appointment.subject.first_name} ${appointment.subject.last_name}`.toLowerCase()
-        : "";
-      const matchesSearch = !s || code.includes(s) || name.includes(s);
+      const matchesSearch = !s || code.includes(s);
 
       const matchesQuestions =
         questionsFilter === "all" ||
@@ -135,7 +132,7 @@ export default function ClientSessionQuestionsPage() {
       ) : sessions.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-sm text-muted-foreground">
-            No sessions booked for this client yet.
+            No sessions booked for this examinee yet.
           </CardContent>
         </Card>
       ) : (
@@ -146,7 +143,7 @@ export default function ClientSessionQuestionsPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-10 h-11 rounded-xl"
-                  placeholder="Search by appointment code or examinee name..."
+                  placeholder="Search by appointment code..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -192,63 +189,58 @@ export default function ClientSessionQuestionsPage() {
           ) : (
             <div className="space-y-3">
               {paginated.map((appointment) => {
-            const expanded = expandedId === appointment.id;
-            const sessionHref = `/dashboard/clients/${clientId}/exams/${appointment.id}/questions`;
-            return (
-              <Card key={appointment.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 text-left"
-                      onClick={() => setExpandedId(expanded ? null : appointment.id)}
-                    >
-                      {expanded ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <div>
-                        <CardTitle className="text-base">
-                          {formatAppointmentCode(appointment.id)}
-                          {appointment.subject
-                            ? ` · ${appointment.subject.first_name} ${appointment.subject.last_name}`
-                            : ""}
-                        </CardTitle>
-                        <CardDescription className="flex items-center gap-1.5">
-                          <CalendarClock className="h-3.5 w-3.5" />
-                          {formatClinicDateTime(appointment.scheduled_at) || appointment.scheduled_at}
-                        </CardDescription>
+                const expanded = expandedId === appointment.id;
+                const sessionHref = `/dashboard/clients/${clientId}/exams/${appointment.id}/questions`;
+                return (
+                  <Card key={appointment.id}>
+                    <CardHeader className="pb-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          className="flex items-center gap-2 text-left"
+                          onClick={() => setExpandedId(expanded ? null : appointment.id)}
+                        >
+                          {expanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <div>
+                            <CardTitle className="text-base">{formatAppointmentCode(appointment.id)}</CardTitle>
+                            <CardDescription className="flex items-center gap-1.5">
+                              <CalendarClock className="h-3.5 w-3.5" />
+                              {formatClinicDateTime(appointment.scheduled_at) || appointment.scheduled_at}
+                            </CardDescription>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          {appointment.questions_prepared ? (
+                            <Badge variant="success" className="gap-1">
+                              <ListChecks className="h-3.5 w-3.5" />
+                              Questions prepared
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">No questions yet</Badge>
+                          )}
+                          {appointment.exam_id ? <Badge variant="outline">Session started</Badge> : null}
+                          <Button variant="ghost" size="icon" render={<Link href={sessionHref as Route} />}>
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      {appointment.questions_prepared ? (
-                        <Badge variant="success" className="gap-1">
-                          <ListChecks className="h-3.5 w-3.5" />
-                          Questions prepared
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline">No questions yet</Badge>
-                      )}
-                      {appointment.exam_id ? <Badge variant="outline">Session started</Badge> : null}
-                      <Button variant="ghost" size="icon" render={<Link href={sessionHref as Route} />}>
-                        <ExternalLink className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                {expanded ? (
-                  <CardContent className="pt-2">
-                    <SessionQuestionsPanel
-                      appointmentId={appointment.id}
-                      examId={appointment.exam_id}
-                      examTypeId={appointment.exam_type_id ?? null}
-                      showResponses={Boolean(appointment.exam_id)}
-                    />
-                  </CardContent>
-                ) : null}
-              </Card>
-            );
+                    </CardHeader>
+                    {expanded ? (
+                      <CardContent className="pt-2">
+                        <SessionQuestionsPanel
+                          appointmentId={appointment.id}
+                          examId={appointment.exam_id}
+                          examTypeId={appointment.exam_type_id ?? null}
+                          showResponses={Boolean(appointment.exam_id)}
+                        />
+                      </CardContent>
+                    ) : null}
+                  </Card>
+                );
               })}
             </div>
           )}

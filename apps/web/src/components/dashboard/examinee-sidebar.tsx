@@ -7,6 +7,7 @@ import {
   FileText,
   FolderLock,
   LayoutDashboard,
+  ListChecks,
   PlayCircle,
   User,
 } from "lucide-react";
@@ -33,6 +34,7 @@ export function ExamineeSidebar() {
     { name: "Overview", href: base, icon: LayoutDashboard },
     { name: "Personal Details", href: `${base}/details`, icon: User },
     { name: "Exam History", href: `${base}/exams`, icon: FileText },
+    { name: "Session Questions", href: `${base}/questions`, icon: ListChecks },
     { name: "Documents", href: `${base}/documents`, icon: FolderLock },
   ];
 
