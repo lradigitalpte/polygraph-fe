@@ -25,8 +25,28 @@ export default function Home() {
     void fetchPublicOrganizationContact().then(setOrg);
   }, []);
 
+  const hasContact = Boolean(org && (org.phone || org.support_email));
+
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
+      {/* Top contact bar */}
+      {hasContact && (
+        <div className="bg-primary text-primary-foreground text-xs font-semibold">
+          <div className="container mx-auto px-4 py-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
+            {org?.phone && (
+              <a href={`tel:${org.phone.replace(/[^+\d]/g, "")}`} className="flex items-center gap-1.5 hover:opacity-80">
+                <Phone className="w-3.5 h-3.5" /> {org.phone}
+              </a>
+            )}
+            {org?.support_email && (
+              <a href={`mailto:${org.support_email}`} className="flex items-center gap-1.5 hover:opacity-80">
+                <Mail className="w-3.5 h-3.5" /> {org.support_email}
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="flex-1">
         {/* Hero Section */}
