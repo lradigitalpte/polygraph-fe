@@ -95,6 +95,16 @@ export async function convertQuotation(
   return response.json();
 }
 
+export async function approveQuotation(id: number): Promise<void> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/approve`, {
+    method: "PATCH",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to approve quotation (${response.status})`);
+  }
+}
+
 export async function collectQuotationPayment(
   id: number,
   input: { amount: number }

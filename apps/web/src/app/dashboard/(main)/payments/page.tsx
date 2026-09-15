@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { 
   Search, 
@@ -28,14 +29,18 @@ import {
   ClipboardList,
   Stethoscope,
   Loader2,
+  Percent,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { fetchClients, type ClientRecord } from "@/lib/clients";
 import {
+  approveQuotation,
   collectQuotationPayment,
   createQuotation,
   sendQuotationEmail,
+  type QuotationRecord,
 } from "@/lib/quotations";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { collectAppointmentPayment, formatMoney, convertCurrency, catalogPriceInCurrency, ledgerRowMoney } from "@/lib/client-account";
@@ -69,7 +74,7 @@ import {
 } from "@/components/ui/dialog";
 
 // Types for our billing system
-type TransactionStatus = "Completed" | "Pending" | "Partial" | "Overdue" | "Sent" | "Draft";
+type TransactionStatus = "Completed" | "Pending" | "Partial" | "Overdue" | "Sent" | "Approved" | "Draft";
 
 type Invoice = FinancialInvoice & {
   examId?: string;
@@ -121,61 +126,214 @@ function resolveInvoiceExamType(inv: Invoice): string {
   return parts[0]?.trim() || description;
 }
 
-// ---------- helper: generate + open printable PDF for a quotation ----------
-function downloadQuotationPDF(inv: Invoice, examiner: string, examType: string) {
-  const balance = inv.totalAmount - inv.paidAmount;
-  const currency = inv.currency || "AED";
-  const formattedBalance = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(balance);
-  const formattedTotal = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.totalAmount);
-  const formattedPaid = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(inv.paidAmount);
-  const examinerName = examiner || inv.examinerName || "—";
-  const examTypeLabel = examType || resolveInvoiceExamType(inv);
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<title>${inv.code} — Polygraph Quotation</title>
-<style>${pdfSharedStyles()}</style>
-</head>
-<body>
-${pdfDocumentHeader()}
-
-<h1>${formattedBalance}</h1>
-<div class="meta">Balance Due • <span class="badge">${inv.status}</span></div>
-
-<div class="grid">
-  <div class="field"><label>Quotation No.</label><span>${inv.code}</span></div>
-  <div class="field"><label>Issue Date</label><span>${inv.date}</span></div>
-  <div class="field"><label>Client</label><span>${inv.client}</span></div>
-  <div class="field"><label>Examiner</label><span>${examinerName}</span></div>
-  ${examTypeLabel ? `<div class="field"><label>Exam Type</label><span>${examTypeLabel}</span></div>` : ""}
-  ${inv.sentAt ? `<div class="field"><label>Emailed</label><span>${inv.sentAt}</span></div>` : ""}
-</div>
-
-<table>
-  <thead><tr><th>Description</th><th class="amount">Amount</th></tr></thead>
-  <tbody>
-    ${inv.items.map((item) => {
-      const itemAmt = new Intl.NumberFormat("en-US", { style: "currency", currency }).format(item.amount);
-      return `<tr><td>${item.description}</td><td class="amount">${itemAmt}</td></tr>`;
-    }).join("")}
-    <tr class="total-row"><td>Total</td><td class="amount">${formattedTotal}</td></tr>
-    <tr><td style="color:#888;font-size:12px">Collected</td><td class="amount" style="color:#22c55e">-${formattedPaid}</td></tr>
-    <tr class="total-row"><td>Balance Due</td><td class="amount">${formattedBalance}</td></tr>
-  </tbody>
-</table>
-
-<div class="footer">Thank you for choosing Polygraph Services. This quotation is valid for 30 days.</div>
-</body>
-</html>`;
-
+// ---------- shared: open a generated HTML document in a print-ready window ----------
+function openPrintWindow(html: string, popupBlockedMessage = "Allow popups to download PDF") {
   const win = window.open("", "_blank");
-  if (!win) { toast.error("Allow popups to download PDF"); return; }
+  if (!win) { toast.error(popupBlockedMessage); return; }
   win.document.write(html);
   win.document.close();
   win.focus();
   setTimeout(() => { win.print(); }, 400);
+}
+
+// ---------- shared: DD-MM-YYYY formatter, tolerant of already-formatted date strings ----------
+function formatPdfDate(input: string | Date): { display: string; date: Date | null } {
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (!d || Number.isNaN(d.getTime())) {
+    return { display: typeof input === "string" ? input : "—", date: null };
+  }
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return { display: `${dd}-${mm}-${d.getFullYear()}`, date: d };
+}
+
+type QuotationPdfData = {
+  code: string;
+  issueDate: string;
+  currency: string;
+  client: { name: string; email?: string; phone?: string; address?: string; taxId?: string };
+  examinerName?: string;
+  examTypeName?: string;
+  items: { description: string; amount: number }[];
+  subtotal: number;
+  discount?: { label: string; amount: number };
+  vat?: { rate: number; amount: number };
+  total: number;
+  org: { name: string; address?: string; email?: string; phone?: string };
+};
+
+// ---------- helper: build the professional, branded quotation PDF markup ----------
+function buildQuotationPdfHtml(data: QuotationPdfData): string {
+  const logoUrl = pdfLogoUrl();
+  const issue = formatPdfDate(data.issueDate);
+  const validUntil = issue.date
+    ? formatPdfDate(new Date(issue.date.getTime() + 30 * 24 * 60 * 60 * 1000)).display
+    : "—";
+  const money = (amt: number) => formatMoney(amt, data.currency);
+  const showBreakdown = Boolean((data.discount && data.discount.amount > 0) || (data.vat && data.vat.amount > 0));
+
+  const rows = data.items
+    .map(
+      (item, idx) => `
+    <tr>
+      <td class="sn">${idx + 1}</td>
+      <td class="desc">${item.description}</td>
+      <td class="num">1</td>
+      <td class="amt">${money(item.amount)}</td>
+      <td class="amt">${money(item.amount)}</td>
+    </tr>`,
+    )
+    .join("");
+
+  const notes = [
+    data.examTypeName ? `Exam Type: ${data.examTypeName}` : null,
+    data.examinerName ? `Examiner: ${data.examinerName}` : null,
+    "This quotation is valid for 30 days from the issue date.",
+  ].filter(Boolean) as string[];
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>${data.code} — Quotation</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1f2e;padding:48px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:28px}
+  .brand img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:10px}
+  .brand .org-name{font-size:17px;font-weight:900;color:#132a70;letter-spacing:-0.01em}
+  .brand .line{font-size:10.5px;color:#666;line-height:1.6;margin-top:2px;max-width:280px}
+  .header-right{text-align:right}
+  .doc-title{font-size:30px;font-weight:900;letter-spacing:-0.02em;color:#132a70;margin-bottom:12px}
+  .meta-table{border-collapse:collapse;margin-left:auto}
+  .meta-table td{padding:7px 14px;font-size:10.5px;white-space:nowrap}
+  .meta-table td.label{background:#132a70;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;text-align:left}
+  .meta-table td.value{background:#eef1fb;font-weight:800;color:#132a70;text-align:right}
+  .addresses{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:30px 0}
+  .box{border:1px solid #dde3f2;border-radius:8px;padding:16px 18px}
+  .box h4{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#132a70;font-weight:900;margin-bottom:8px}
+  .box .name{font-weight:800;font-size:13px;margin-bottom:3px}
+  .box .line{font-size:11px;color:#555;line-height:1.6}
+  table.items{width:100%;border-collapse:collapse;margin:8px 0 28px}
+  table.items thead th{background:#132a70;color:#fff;font-size:9.5px;text-transform:uppercase;letter-spacing:0.07em;padding:11px 12px;text-align:left;font-weight:700}
+  table.items thead th.num,table.items thead th.amt{text-align:right}
+  table.items thead th.sn{text-align:center;width:40px}
+  table.items tbody td{padding:11px 12px;font-size:12px;border-bottom:1px solid #eef1f7}
+  table.items tbody td.sn{text-align:center;color:#888}
+  table.items tbody td.num{text-align:right;color:#555}
+  table.items tbody td.amt{text-align:right;font-weight:700}
+  .bottom{display:grid;grid-template-columns:1fr 300px;gap:24px;align-items:start}
+  .notes ul{list-style:disc;margin-left:16px;font-size:11px;color:#444;line-height:1.8}
+  .totals{border:1px solid #dde3f2;border-radius:8px;overflow:hidden}
+  .totals .row{display:flex;justify-content:space-between;gap:12px;padding:11px 16px;font-size:12px;border-bottom:1px solid #eef1f7}
+  .totals .row.discount{color:#c0392b;font-weight:700}
+  .totals .row.total{background:#132a70;color:#fff;font-weight:900;font-size:14.5px;border-bottom:none}
+  .footer{margin-top:56px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:14px;text-align:center}
+  @media print{body{padding:32px}}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <img src="${logoUrl}" alt="${data.org.name}" />
+      <div class="org-name">${data.org.name}</div>
+      ${data.org.address ? `<div class="line">${data.org.address}</div>` : ""}
+      ${data.org.phone ? `<div class="line">Phone: ${data.org.phone}</div>` : ""}
+      ${data.org.email ? `<div class="line">${data.org.email}</div>` : ""}
+    </div>
+    <div class="header-right">
+      <div class="doc-title">Quotation</div>
+      <table class="meta-table">
+        <tr><td class="label">Quotation No.</td><td class="value">${data.code}</td></tr>
+        <tr><td class="label">Date</td><td class="value">${issue.display}</td></tr>
+        <tr><td class="label">Amount</td><td class="value">${money(data.total)}</td></tr>
+        <tr><td class="label">Valid until</td><td class="value">${validUntil}</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="addresses">
+    <div class="box">
+      <h4>Quotation To</h4>
+      <div class="name">${data.client.name}</div>
+      ${data.client.address ? `<div class="line">${data.client.address}</div>` : ""}
+      ${data.client.phone ? `<div class="line">Phone: ${data.client.phone}</div>` : ""}
+      ${data.client.email ? `<div class="line">Email: ${data.client.email}</div>` : ""}
+      ${data.client.taxId ? `<div class="line">TRN: ${data.client.taxId}</div>` : ""}
+    </div>
+    <div class="box">
+      <h4>Billing Address</h4>
+      <div class="name">${data.client.name}</div>
+      ${data.client.address ? `<div class="line">${data.client.address}</div>` : ""}
+      ${data.client.phone ? `<div class="line">Phone: ${data.client.phone}</div>` : ""}
+      ${data.client.email ? `<div class="line">Email: ${data.client.email}</div>` : ""}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th class="sn">S/N</th>
+        <th>Description</th>
+        <th class="num">Qty</th>
+        <th class="amt">Unit Price</th>
+        <th class="amt">Total Price</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+
+  <div class="bottom">
+    <div class="box notes">
+      <h4>Notes</h4>
+      <ul>${notes.map((n) => `<li>${n}</li>`).join("")}</ul>
+    </div>
+    <div class="totals">
+      ${showBreakdown ? `<div class="row"><span>Net Subtotal</span><span>${money(data.subtotal)}</span></div>` : ""}
+      ${data.discount && data.discount.amount > 0 ? `<div class="row discount"><span>${data.discount.label}</span><span>-${money(data.discount.amount)}</span></div>` : ""}
+      ${data.vat && data.vat.amount > 0 ? `<div class="row"><span>VAT (${data.vat.rate}%)</span><span>${money(data.vat.amount)}</span></div>` : ""}
+      <div class="row total"><span>Total Amount${data.vat && data.vat.amount > 0 ? " (Incl. VAT)" : ""}</span><span>${money(data.total)}</span></div>
+    </div>
+  </div>
+
+  <div class="footer">Thank you for choosing ${data.org.name}. This quotation is subject to acceptance within its validity period.</div>
+</body>
+</html>`;
+}
+
+// ---------- helper: generate + open printable PDF for an existing quotation/invoice row ----------
+function downloadQuotationPDF(
+  inv: Invoice,
+  examiner: string,
+  examType: string,
+  client: ClientRecord | undefined,
+  org: { name?: string; address?: string; support_email?: string; phone?: string } | null,
+) {
+  openPrintWindow(
+    buildQuotationPdfHtml({
+      code: inv.code,
+      issueDate: inv.date,
+      currency: inv.currency || "AED",
+      client: {
+        name: inv.client,
+        email: client?.email || inv.clientEmail,
+        phone: client?.phone,
+        address: client?.address,
+        taxId: client?.tax_id,
+      },
+      examinerName: examiner || inv.examinerName || undefined,
+      examTypeName: examType || resolveInvoiceExamType(inv) || undefined,
+      items: inv.items,
+      subtotal: inv.totalAmount,
+      total: inv.totalAmount,
+      org: {
+        name: org?.name || "Polygraph UAE",
+        address: org?.address,
+        email: org?.support_email,
+        phone: org?.phone,
+      },
+    }),
+  );
 }
 
 function isPaidInFull(status: string): boolean {
@@ -235,12 +393,7 @@ ${pdfDocumentHeader()}
 </body>
 </html>`;
 
-  const win = window.open("", "_blank");
-  if (!win) { toast.error("Allow popups to download the receipt"); return; }
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => { win.print(); }, 400);
+  openPrintWindow(html, "Allow popups to download the receipt");
 }
 // ---------------------------------------------------------------------------
 
@@ -296,6 +449,7 @@ export default function PaymentsPage() {
   const [isNewInvoiceOpen, setIsNewInvoiceOpen] = React.useState(false);
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = React.useState(false);
   const [isSendQuoteOpen, setIsSendQuoteOpen] = React.useState(false);
+  const [sendEmailStep, setSendEmailStep] = React.useState<"compose" | "confirm">("compose");
   const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "" });
   const [sendingSaving, setSendingSaving] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
@@ -314,6 +468,9 @@ export default function PaymentsPage() {
     showExamTypeList: boolean;
     showExaminerList: boolean;
     currency: string;
+    discountType: "fixed" | "percent";
+    discountValue: number;
+    includeVat: boolean;
   }>({
     client: null,
     examType: null,
@@ -326,7 +483,44 @@ export default function PaymentsPage() {
     showExamTypeList: false,
     showExaminerList: false,
     currency: "AED",
+    discountType: "fixed",
+    discountValue: 0,
+    includeVat: false,
   });
+
+  // New quotation flow: form entry -> review/confirm -> success (with PDF download).
+  const [quotationStep, setQuotationStep] = React.useState<"form" | "confirm" | "success">("form");
+  const [creatingQuotation, setCreatingQuotation] = React.useState(false);
+  const [createdQuotation, setCreatedQuotation] = React.useState<{
+    record: QuotationRecord;
+    client: ClientRecord;
+    examType: ExamTypeRecord;
+    examiner: UserRecord | null;
+    currency: string;
+    items: { description: string; amount: number }[];
+    subtotal: number;
+    discount?: { label: string; amount: number };
+    vat?: { rate: number; amount: number };
+    total: number;
+  } | null>(null);
+
+  const VAT_RATE = 5;
+
+  // Fee math for the New Quotation dialog — recomputed on every render off `form`.
+  const feeBasePrice = form.examType ? catalogPriceInCurrency(form.examType.price, form.currency, orgSettings) : 0;
+  const feeExtrasTotal = form.extraItems.reduce((s, i) => s + i.amount, 0);
+  const feeSubtotal = feeBasePrice + feeExtrasTotal;
+  const feeDiscountAmount = Math.min(
+    form.discountValue > 0
+      ? form.discountType === "percent"
+        ? feeSubtotal * (form.discountValue / 100)
+        : form.discountValue
+      : 0,
+    feeSubtotal,
+  );
+  const feeAfterDiscount = Math.max(0, feeSubtotal - feeDiscountAmount);
+  const feeVatAmount = form.includeVat ? feeAfterDiscount * (VAT_RATE / 100) : 0;
+  const feeTotal = feeAfterDiscount + feeVatAmount;
 
   const filteredFormClients = clients.filter((c) =>
     c.name.toLowerCase().includes(form.clientSearch.toLowerCase()) ||
@@ -345,7 +539,16 @@ export default function PaymentsPage() {
       clientSearch: "", examTypeSearch: "", examinerSearch: "",
       showClientList: false, showExamTypeList: false, showExaminerList: false,
       currency: orgCurrency,
+      discountType: "fixed", discountValue: 0,
+      includeVat: false,
     });
+  };
+
+  const closeNewQuotationDialog = () => {
+    setIsNewInvoiceOpen(false);
+    resetForm();
+    setQuotationStep("form");
+    setCreatedQuotation(null);
   };
 
   React.useEffect(() => {
@@ -390,6 +593,7 @@ export default function PaymentsPage() {
   // Record Payment Form State
   const [paymentAmount, setPaymentAmount] = React.useState<string>("");
   const [recordingPayment, setRecordingPayment] = React.useState(false);
+  const [approvingQuotation, setApprovingQuotation] = React.useState(false);
 
   const [statusFilter, setStatusFilter] = React.useState<string>("All");
   const [clientFilter, setClientFilter] = React.useState<string>("All");
@@ -469,25 +673,42 @@ export default function PaymentsPage() {
     }, 0),
   };
 
+  // Called from the confirm step — the form step's button only advances to "confirm".
   const handleCreateInvoice = async () => {
-    if (!form.client) { toast.error("Select a client"); return; }
-    if (!form.examType) { toast.error("Select an exam type"); return; }
+    if (!form.client || !form.examType) return;
 
     const basePrice = catalogPriceInCurrency(form.examType.price, form.currency, orgSettings);
     const lineItems: { description: string; amount: number }[] = [
       { description: form.examType.name, amount: basePrice },
       ...form.extraItems.filter((item) => item.description.trim() && item.amount > 0),
     ];
-    const total = lineItems.reduce((acc, item) => acc + item.amount, 0);
+    const subtotal = lineItems.reduce((acc, item) => acc + item.amount, 0);
+    const discountAmount = Math.min(
+      form.discountValue > 0
+        ? form.discountType === "percent"
+          ? subtotal * (form.discountValue / 100)
+          : form.discountValue
+        : 0,
+      subtotal,
+    );
+    const afterDiscount = Math.max(0, subtotal - discountAmount);
+    const vatAmount = form.includeVat ? afterDiscount * (VAT_RATE / 100) : 0;
+    const total = afterDiscount + vatAmount;
     if (total <= 0) { toast.error("Total must be greater than zero"); return; }
 
+    const discountLabel = `Discount${form.discountType === "percent" ? ` (${form.discountValue}%)` : ""}`;
     const title = [form.examType.name, form.examiner ? `— ${form.examiner.name}` : ""].filter(Boolean).join(" ");
-    const description = lineItems
-      .map((item) => `${item.description}: ${formatMoney(item.amount, form.currency)}`)
+    const description = [
+      ...lineItems.map((item) => `${item.description}: ${formatMoney(item.amount, form.currency)}`),
+      discountAmount > 0 ? `${discountLabel}: -${formatMoney(discountAmount, form.currency)}` : null,
+      vatAmount > 0 ? `VAT (${VAT_RATE}%): ${formatMoney(vatAmount, form.currency)}` : null,
+    ]
+      .filter((line): line is string => Boolean(line))
       .join("\n");
 
+    setCreatingQuotation(true);
     try {
-      await createQuotation({
+      const record = await createQuotation({
         client_id: form.client.id,
         title,
         description,
@@ -495,12 +716,56 @@ export default function PaymentsPage() {
         currency: form.currency,
       });
       await loadData();
-      setIsNewInvoiceOpen(false);
-      resetForm();
+      setCreatedQuotation({
+        record,
+        client: form.client,
+        examType: form.examType,
+        examiner: form.examiner,
+        currency: form.currency,
+        items: lineItems,
+        subtotal,
+        discount: discountAmount > 0 ? { label: discountLabel, amount: discountAmount } : undefined,
+        vat: vatAmount > 0 ? { rate: VAT_RATE, amount: vatAmount } : undefined,
+        total,
+      });
+      setQuotationStep("success");
       toast.success("Quotation created");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create quotation");
+    } finally {
+      setCreatingQuotation(false);
     }
+  };
+
+  const handleDownloadCreatedQuotationPdf = () => {
+    if (!createdQuotation) return;
+    openPrintWindow(
+      buildQuotationPdfHtml({
+        code: createdQuotation.record.code,
+        issueDate: createdQuotation.record.created_at,
+        currency: createdQuotation.currency,
+        client: {
+          name: createdQuotation.client.name,
+          email: createdQuotation.client.email,
+          phone: createdQuotation.client.phone,
+          address: createdQuotation.client.address,
+          taxId: createdQuotation.client.tax_id,
+        },
+        examinerName: createdQuotation.examiner?.name,
+        examTypeName: createdQuotation.examType.name,
+        items: createdQuotation.items,
+        subtotal: createdQuotation.subtotal,
+        discount: createdQuotation.discount,
+        vat: createdQuotation.vat,
+        total: createdQuotation.total,
+        org: {
+          name: orgSettings?.name || "Polygraph UAE",
+          address: orgSettings?.address,
+          email: orgSettings?.support_email,
+          phone: orgSettings?.phone,
+        },
+      }),
+    );
   };
 
   const handleRecordPayment = async () => {
@@ -533,6 +798,24 @@ export default function PaymentsPage() {
     }
   };
 
+  const handleApproveQuotation = async () => {
+    if (!selectedInvoice) return;
+    const quoteId = selectedInvoice.quotationId ?? (selectedInvoice.source === "quote" ? selectedInvoice.id : undefined);
+    if (!quoteId) return;
+
+    setApprovingQuotation(true);
+    try {
+      await approveQuotation(quoteId);
+      await loadData();
+      setSelectedInvoice((current) => (current ? { ...current, status: "Approved" } : current));
+      toast.success("Quotation approved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to approve quotation");
+    } finally {
+      setApprovingQuotation(false);
+    }
+  };
+
   const handleSendQuotation = async () => {
     if (!selectedInvoice) return;
     const quoteId = selectedInvoice.quotationId ?? (selectedInvoice.source === "quote" ? selectedInvoice.id : undefined);
@@ -553,6 +836,7 @@ export default function PaymentsPage() {
       });
       await loadData();
       setIsSendQuoteOpen(false);
+      setSendEmailStep("compose");
       toast.success("Quotation emailed");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send quotation");
@@ -776,10 +1060,11 @@ export default function PaymentsPage() {
                             variant="outline"
                             className={cn(
                               "rounded-full px-3 py-1 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                              inv.status === "Completed" ? "bg-emerald-500/10 text-emerald-600" : 
-                              inv.status === "Pending" ? "bg-amber-500/10 text-amber-600" : 
-                              inv.status === "Sent" ? "bg-cyan-500/10 text-cyan-600" : 
-                              inv.status === "Partial" ? "bg-blue-500/10 text-blue-600" : 
+                              inv.status === "Completed" ? "bg-emerald-500/10 text-emerald-600" :
+                              inv.status === "Pending" ? "bg-amber-500/10 text-amber-600" :
+                              inv.status === "Sent" ? "bg-cyan-500/10 text-cyan-600" :
+                              inv.status === "Approved" ? "bg-indigo-500/10 text-indigo-600" :
+                              inv.status === "Partial" ? "bg-blue-500/10 text-blue-600" :
                               "bg-rose-500/10 text-rose-600"
                             )}
                           >
@@ -935,6 +1220,27 @@ export default function PaymentsPage() {
                 </div>
 
                 <div className="pt-10 flex flex-col gap-4">
+                  {selectedInvoice.source === "quote" &&
+                    !["Approved", "Completed"].includes(selectedInvoice.status) && (
+                      <Button
+                        variant="outline"
+                        className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest gap-2 border-indigo-500/30 text-indigo-600 hover:bg-indigo-500/10"
+                        onClick={() => void handleApproveQuotation()}
+                        disabled={approvingQuotation}
+                      >
+                        {approvingQuotation ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Approving…
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Approve Quotation
+                          </>
+                        )}
+                      </Button>
+                    )}
                   <Button
                     onClick={() => setIsRecordPaymentOpen(true)}
                     className="w-full h-16 rounded-[2rem] font-black text-base shadow-2xl shadow-primary/30 bg-primary text-primary-foreground hover:scale-[1.03] transition-all"
@@ -978,6 +1284,7 @@ export default function PaymentsPage() {
                           subject: `${selectedInvoice.code} Quotation`,
                           body: `Hello ${selectedInvoice.client},\n\nPlease find your quotation ${selectedInvoice.code} for ${formatMoney(selectedInvoice.totalAmount, selectedInvoice.currency || orgCurrency)}.`,
                         });
+                        setSendEmailStep("compose");
                         setIsSendQuoteOpen(true);
                       }}
                     >
@@ -992,6 +1299,8 @@ export default function PaymentsPage() {
                           selectedInvoice,
                           selectedInvoice.examinerName || "",
                           resolveInvoiceExamType(selectedInvoice),
+                          clients.find((c) => c.id === selectedInvoice.clientId),
+                          orgSettings,
                         )
                       }
                     >
@@ -1025,9 +1334,11 @@ export default function PaymentsPage() {
       </Sheet>
 
       {/* New Quotation Dialog — smart search-select */}
-      <Dialog open={isNewInvoiceOpen} onOpenChange={(open) => { setIsNewInvoiceOpen(open); if (!open) resetForm(); }}>
+      <Dialog open={isNewInvoiceOpen} onOpenChange={(open) => { if (open) { setIsNewInvoiceOpen(true); } else { closeNewQuotationDialog(); } }}>
         <DialogContent className="sm:max-w-lg rounded-3xl p-0 overflow-hidden border-border/50 shadow-2xl">
           <div className="p-8 space-y-6 bg-background max-h-[90vh] overflow-y-auto">
+          {quotationStep === "form" && (
+            <>
             <div className="flex items-center gap-3">
               <div className="h-11 w-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
                 <FileText className="h-5 w-5" />
@@ -1241,60 +1552,337 @@ export default function PaymentsPage() {
                   >
                     + Add fee line
                   </button>
+
+                  {/* Discount */}
+                  <div className="flex items-center gap-2.5 px-4 py-3 border-t border-border/50 bg-rose-500/[0.03]">
+                    <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0">
+                      <Tag className="h-3.5 w-3.5 text-rose-500" /> Discount
+                    </span>
+                    <div className="flex items-center gap-3 ml-auto">
+                      <div className="flex items-center rounded-lg border border-border/60 bg-background p-0.5 shrink-0">
+                        <button
+                          type="button"
+                          className={cn(
+                            "h-7 w-9 rounded-md text-[10px] font-black transition-all",
+                            form.discountType === "fixed"
+                              ? "bg-rose-500 text-white shadow-sm"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setForm((f) => ({ ...f, discountType: "fixed" }))}
+                          aria-pressed={form.discountType === "fixed"}
+                        >
+                          {form.currency}
+                        </button>
+                        <button
+                          type="button"
+                          className={cn(
+                            "h-7 w-9 rounded-md text-[10px] font-black transition-all flex items-center justify-center",
+                            form.discountType === "percent"
+                              ? "bg-rose-500 text-white shadow-sm"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                          onClick={() => setForm((f) => ({ ...f, discountType: "percent" }))}
+                          aria-pressed={form.discountType === "percent"}
+                        >
+                          <Percent className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <div className="relative w-24">
+                        <Input
+                          type="number"
+                          min={0}
+                          className="h-9 text-xs text-right pr-6 rounded-lg"
+                          placeholder="0"
+                          value={form.discountValue || ""}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, discountValue: Math.max(0, parseFloat(e.target.value) || 0) }))
+                          }
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground pointer-events-none">
+                          {form.discountType === "percent" ? "%" : form.currency}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* VAT toggle */}
+                  <div className="flex items-center justify-between gap-2.5 px-4 py-3 border-t border-border/50">
+                    <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      <Percent className="h-3.5 w-3.5 text-primary" /> Add VAT ({VAT_RATE}%)
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.includeVat}
+                      onClick={() => setForm((f) => ({ ...f, includeVat: !f.includeVat }))}
+                      className={cn(
+                        "h-6 w-11 rounded-full transition-colors relative shrink-0",
+                        form.includeVat ? "bg-primary" : "bg-muted-foreground/25",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                          form.includeVat ? "translate-x-[22px]" : "translate-x-0.5",
+                        )}
+                      />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center px-1 pt-1">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total</span>
-                  <span className="text-lg font-black text-foreground">
-                    {formatMoney(
-                      catalogPriceInCurrency(form.examType.price, form.currency, orgSettings) +
-                        form.extraItems.reduce((s, i) => s + i.amount, 0),
-                      form.currency
-                    )}
-                  </span>
+
+                <div className="space-y-1.5 px-1 pt-1">
+                  {(feeDiscountAmount > 0 || feeVatAmount > 0) && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Subtotal</span>
+                      <span className="text-xs font-bold text-muted-foreground">{formatMoney(feeSubtotal, form.currency)}</span>
+                    </div>
+                  )}
+                  {feeDiscountAmount > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-rose-500/80">
+                        Discount{form.discountType === "percent" ? ` (${form.discountValue}%)` : ""}
+                      </span>
+                      <span className="text-xs font-bold text-rose-500">-{formatMoney(feeDiscountAmount, form.currency)}</span>
+                    </div>
+                  )}
+                  {feeVatAmount > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">VAT ({VAT_RATE}%)</span>
+                      <span className="text-xs font-bold text-muted-foreground">{formatMoney(feeVatAmount, form.currency)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-0.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total</span>
+                    <span className="text-lg font-black text-foreground">{formatMoney(feeTotal, form.currency)}</span>
+                  </div>
                 </div>
               </div>
             )}
 
             <Button
               className="w-full h-13 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/20"
-              onClick={() => void handleCreateInvoice()}
-              disabled={!form.client || !form.examType}
+              onClick={() => setQuotationStep("confirm")}
+              disabled={!form.client || !form.examType || feeTotal <= 0}
             >
-              Generate &amp; Save Quotation
+              Review Quotation
             </Button>
+            </>
+          )}
+
+          {quotationStep === "confirm" && form.client && form.examType && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                  <ClipboardList className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black tracking-tight">Review Quotation</h2>
+                  <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">Confirm details before creating</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border/50 bg-muted/10 p-5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Client</p>
+                    <p className="text-sm font-black">{form.client.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Examiner</p>
+                    <p className="text-sm font-black">{form.examiner?.name || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-3 border-t border-border/40">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-bold text-muted-foreground">{form.examType.name}</span>
+                    <span className="font-black">{formatMoney(feeBasePrice, form.currency)}</span>
+                  </div>
+                  {form.extraItems.filter((i) => i.description.trim() && i.amount > 0).map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-xs">
+                      <span className="font-bold text-muted-foreground">{item.description}</span>
+                      <span className="font-black">{formatMoney(item.amount, form.currency)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-1.5 pt-3 border-t border-border/40">
+                  {feeDiscountAmount > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="font-bold text-rose-500">
+                        Discount{form.discountType === "percent" ? ` (${form.discountValue}%)` : ""}
+                      </span>
+                      <span className="font-black text-rose-500">-{formatMoney(feeDiscountAmount, form.currency)}</span>
+                    </div>
+                  )}
+                  {feeVatAmount > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="font-bold text-muted-foreground">VAT ({VAT_RATE}%)</span>
+                      <span className="font-black">{formatMoney(feeVatAmount, form.currency)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total Due</span>
+                    <span className="text-xl font-black text-primary">{formatMoney(feeTotal, form.currency)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  variant="outline"
+                  className="h-13 rounded-2xl font-black text-xs uppercase tracking-widest"
+                  onClick={() => setQuotationStep("form")}
+                  disabled={creatingQuotation}
+                >
+                  Back
+                </Button>
+                <Button
+                  className="h-13 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/20"
+                  onClick={() => void handleCreateInvoice()}
+                  disabled={creatingQuotation}
+                >
+                  {creatingQuotation ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Creating…
+                    </>
+                  ) : (
+                    "Confirm & Create"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {quotationStep === "success" && createdQuotation && (
+            <div className="space-y-6 text-center py-2">
+              <div className="mx-auto h-16 w-16 rounded-[1.5rem] bg-emerald-500/10 text-emerald-500 flex items-center justify-center shadow-inner">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-2xl font-black tracking-tight">Quotation Created</h2>
+                <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">{createdQuotation.record.code}</p>
+              </div>
+              <div className="rounded-2xl border border-border/50 bg-muted/10 p-6">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 mb-1">Total Amount</p>
+                <p className="text-4xl font-black tracking-tighter">{formatMoney(createdQuotation.total, createdQuotation.currency)}</p>
+                <p className="text-xs font-bold text-muted-foreground mt-1">{createdQuotation.client.name}</p>
+              </div>
+              <div className="flex flex-col gap-3 pt-2">
+                <Button
+                  className="w-full h-13 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/20 gap-2"
+                  onClick={handleDownloadCreatedQuotationPdf}
+                >
+                  <Download className="h-4 w-4" /> Download PDF
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest"
+                  onClick={closeNewQuotationDialog}
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          )}
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isSendQuoteOpen} onOpenChange={setIsSendQuoteOpen}>
+      <Dialog
+        open={isSendQuoteOpen}
+        onOpenChange={(open) => { setIsSendQuoteOpen(open); if (!open) setSendEmailStep("compose"); }}
+      >
         <DialogContent className="sm:max-w-[520px] rounded-[2rem] p-8 border-border/50 shadow-2xl bg-background">
-          <DialogHeader>
-            <DialogTitle>Send Quotation Email</DialogTitle>
-            <DialogDescription>
-              This records email delivery details so your team can track quote communication.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              placeholder="Recipient email"
-              value={sendEmail.toEmail}
-              onChange={(e) => setSendEmail((v) => ({ ...v, toEmail: e.target.value }))}
-            />
-            <Input
-              placeholder="Email subject"
-              value={sendEmail.subject}
-              onChange={(e) => setSendEmail((v) => ({ ...v, subject: e.target.value }))}
-            />
-            <Input
-              placeholder="Message"
-              value={sendEmail.body}
-              onChange={(e) => setSendEmail((v) => ({ ...v, body: e.target.value }))}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSendQuoteOpen(false)}>Cancel</Button>
-            <Button onClick={() => void handleSendQuotation()}>Mark as Sent</Button>
-          </DialogFooter>
+          {sendEmailStep === "compose" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Send Quotation Email</DialogTitle>
+                <DialogDescription>
+                  Edit the message, then review it before it goes out.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid gap-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">To</Label>
+                  <Input
+                    placeholder="Recipient email"
+                    type="email"
+                    value={sendEmail.toEmail}
+                    onChange={(e) => setSendEmail((v) => ({ ...v, toEmail: e.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">Subject</Label>
+                  <Input
+                    placeholder="Email subject"
+                    value={sendEmail.subject}
+                    onChange={(e) => setSendEmail((v) => ({ ...v, subject: e.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">Message</Label>
+                  <Textarea
+                    placeholder="Message"
+                    rows={6}
+                    value={sendEmail.body}
+                    onChange={(e) => setSendEmail((v) => ({ ...v, body: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsSendQuoteOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={() => {
+                    if (!sendEmail.toEmail.trim()) { toast.error("Recipient email is required"); return; }
+                    setSendEmailStep("confirm");
+                  }}
+                >
+                  Review &amp; Send
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Review Before Sending</DialogTitle>
+                <DialogDescription>
+                  Confirm this is what you want your client to receive.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="rounded-2xl border border-border/50 bg-muted/10 overflow-hidden">
+                <div className="divide-y divide-border/40 px-5 py-3 text-sm">
+                  <div className="flex gap-2 py-2">
+                    <span className="w-16 shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground pt-0.5">To</span>
+                    <span className="font-bold">{sendEmail.toEmail}</span>
+                  </div>
+                  <div className="flex gap-2 py-2">
+                    <span className="w-16 shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground pt-0.5">Subject</span>
+                    <span className="font-bold">{sendEmail.subject || "(no subject)"}</span>
+                  </div>
+                </div>
+                <div className="px-5 py-4 bg-background border-t border-border/40 text-sm whitespace-pre-wrap leading-relaxed">
+                  {sendEmail.body || <span className="text-muted-foreground italic">(no message)</span>}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSendEmailStep("compose")} disabled={sendingSaving}>
+                  Back to Edit
+                </Button>
+                <Button onClick={() => void handleSendQuotation()} disabled={sendingSaving}>
+                  {sendingSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Sending…
+                    </>
+                  ) : (
+                    "Approve & Send"
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1394,6 +1982,8 @@ export default function PaymentsPage() {
                     <SelectItem value="All">All statuses</SelectItem>
                     <SelectItem value="Completed">Completed</SelectItem>
                     <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Sent">Sent</SelectItem>
+                    <SelectItem value="Approved">Approved</SelectItem>
                     <SelectItem value="Partial">Partial</SelectItem>
                     <SelectItem value="Overdue">Overdue</SelectItem>
                   </SelectContent>

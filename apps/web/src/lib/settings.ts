@@ -1,9 +1,12 @@
 import { authenticatedFetch } from "@/lib/api-client";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
 export type OrganizationSettings = {
   id: number;
   name: string;
   support_email: string;
+  phone?: string;
   address: string;
   currency?: string;
   usd_aed_rate?: number;
@@ -26,6 +29,7 @@ export async function fetchOrganizationSettings(): Promise<OrganizationSettings>
 export async function updateOrganizationSettings(input: {
   name: string;
   support_email: string;
+  phone?: string;
   address: string;
   currency?: string;
   usd_aed_rate?: number;
@@ -42,6 +46,24 @@ export async function updateOrganizationSettings(input: {
     throw new Error(payload?.error || `Failed to save organization settings (${response.status})`);
   }
   return response.json();
+}
+
+export type PublicOrganizationContact = {
+  name: string;
+  phone?: string;
+  support_email?: string;
+  address?: string;
+};
+
+/** Unauthenticated — for the public marketing/booking site footer. */
+export async function fetchPublicOrganizationContact(): Promise<PublicOrganizationContact | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/public/organization`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteOrganizationData(confirmName: string): Promise<void> {

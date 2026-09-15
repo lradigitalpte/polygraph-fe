@@ -253,6 +253,8 @@ export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInv
     uiStatus = "Completed";
   } else if (raw === "sent") {
     uiStatus = "Sent";
+  } else if (raw === "approved") {
+    uiStatus = "Approved";
   } else if (raw === "overdue") {
     uiStatus = "Overdue";
   } else if (paid > 0) {

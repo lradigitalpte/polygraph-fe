@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MockSpotsCalendar } from "@/components/mock-spots-calendar";
-import { Activity } from "lucide-react";
+import { Activity, Mail, MapPin, Phone } from "lucide-react";
+import { fetchPublicOrganizationContact, type PublicOrganizationContact } from "@/lib/settings";
 
 export default function Home() {
   const [status, setStatus] = useState<string>("Checking...");
+  const [org, setOrg] = useState<PublicOrganizationContact | null>(null);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -20,6 +22,7 @@ export default function Home() {
     };
 
     fetchStatus();
+    void fetchPublicOrganizationContact().then(setOrg);
   }, []);
 
   return (
@@ -72,9 +75,28 @@ export default function Home() {
             <div className="w-6 h-6 rounded bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs">
               P
             </div>
-            <span className="font-bold text-lg tracking-tight">Polygraph</span>
+            <span className="font-bold text-lg tracking-tight">{org?.name || "Polygraph"}</span>
           </div>
-          <p className="text-sm opacity-60">© 2026 Polygraph System. All rights reserved.</p>
+          {org && (org.phone || org.support_email || org.address) && (
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-medium">
+              {org.phone && (
+                <span className="flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5" /> {org.phone}
+                </span>
+              )}
+              {org.support_email && (
+                <span className="flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> {org.support_email}
+                </span>
+              )}
+              {org.address && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5" /> {org.address}
+                </span>
+              )}
+            </div>
+          )}
+          <p className="text-sm opacity-60">© 2026 {org?.name || "Polygraph System"}. All rights reserved.</p>
           <div className="flex items-center gap-2 mt-2">
             <div className={`w-2 h-2 rounded-full ${status === "System Online" ? "bg-green-500" : "bg-red-500"}`} />
             <span className="text-[10px] uppercase tracking-widest opacity-40">Backend: {process.env.NEXT_PUBLIC_SERVER_URL}</span>

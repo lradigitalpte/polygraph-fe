@@ -31,6 +31,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = React.useState(false);
   const [name, setName] = React.useState("");
   const [supportEmail, setSupportEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
   const [address, setAddress] = React.useState("");
   const [currency, setCurrency] = React.useState("AED");
   const [usdAedRate, setUsdAedRate] = React.useState("3.6725");
@@ -45,6 +46,7 @@ export default function SettingsPage() {
         const org = await fetchOrganizationSettings();
         setName(org.name);
         setSupportEmail(org.support_email ?? "");
+        setPhone(org.phone ?? "");
         setAddress(org.address ?? "");
         setCurrency(org.currency ?? "AED");
         setUsdAedRate(String(org.usd_aed_rate ?? 3.6725));
@@ -65,6 +67,7 @@ export default function SettingsPage() {
       const org = await updateOrganizationSettings({
         name: name.trim(),
         support_email: supportEmail.trim(),
+        phone: phone.trim(),
         address: address.trim(),
         currency: currency,
         usd_aed_rate: parseFloat(usdAedRate) || 3.6725,
@@ -128,6 +131,16 @@ export default function SettingsPage() {
                   type="email"
                   value={supportEmail}
                   onChange={(e) => setSupportEmail(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-phone">Phone Number</Label>
+                <Input
+                  id="org-phone"
+                  type="tel"
+                  placeholder="+971 4 000 0000"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
                 />
               </div>
               <div className="grid gap-2">
