@@ -69,7 +69,7 @@ import {
 } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
 
-const paymentTypes = ["Bank Transfer", "Credit Card"];
+const paymentTypes = ["Bank Transfer", "Credit Card", "Cash"];
 
 const STEP_LABELS = ["Who & exam", "Examiner & time", "Payment", "Review"];
 
