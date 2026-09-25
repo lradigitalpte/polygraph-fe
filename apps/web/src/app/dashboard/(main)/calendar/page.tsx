@@ -20,8 +20,16 @@ import {
   FileText,
   Info,
   ShieldCheck,
-  Zap
+  Zap,
+  FileWarning
 } from "lucide-react";
+import { BookingAgreementNotice } from "@/components/agreements/booking-agreement-notice";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import {
+  fetchBookingAgreementStatuses,
+  needsAgreementWarning,
+  type BookingAgreementStatus,
+} from "@/lib/agreements";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -100,6 +108,9 @@ export default function CalendarPage() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [examiners, setExaminers] = React.useState<CalendarExaminer[]>([]);
   const [appointments, setAppointments] = React.useState<CalendarAppointment[]>([]);
+  const [agreementStatuses, setAgreementStatuses] = React.useState<Record<number, BookingAgreementStatus>>({});
+  const { can, loading: userLoading } = useCurrentUser();
+  const canViewAgreements = !userLoading && can("agreement:view");
   // Load the real session timeline (exam phases) for the selected appointment.
   React.useEffect(() => {
     const appointmentId = selectedAppointment?.id;
@@ -164,6 +175,23 @@ export default function CalendarPage() {
       cancelled = true;
     };
   }, []);
+
+  // Agreement warnings are advisory: a failed lookup just hides the markers.
+  React.useEffect(() => {
+    if (!canViewAgreements || appointments.length === 0) return;
+    let cancelled = false;
+    fetchBookingAgreementStatuses(appointments.map((app) => app.id))
+      .then((map) => {
+        if (!cancelled) setAgreementStatuses(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [appointments, canViewAgreements]);
+
+  const hasAgreementWarning = (app: CalendarAppointment) =>
+    needsAgreementWarning(agreementStatuses[app.id], { status: app.status, scheduled_at: app.scheduledAt });
 
   const toggleExaminer = (id: string) => {
     setSelectedExaminers(prev =>
@@ -411,6 +439,9 @@ export default function CalendarPage() {
                                         ? "bg-amber-500"
                                         : "bg-rose-500"
                                   )} />
+                                  {hasAgreementWarning(app) && (
+                                    <FileWarning className="h-3 w-3 text-amber-600" aria-label="Agreements not signed" />
+                                  )}
                                   <span className="opacity-60 text-[8px] font-black">{app.time}</span>
                                 </div>
                               </div>
@@ -527,6 +558,9 @@ export default function CalendarPage() {
                                           ? "bg-amber-500"
                                           : "bg-rose-500"
                                     )} />
+                                    {hasAgreementWarning(app) && (
+                                      <FileWarning className="h-3 w-3 text-amber-600" aria-label="Agreements not signed" />
+                                    )}
                                   </div>
                                   </div>
 
@@ -588,6 +622,12 @@ export default function CalendarPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-card/50">
+                <BookingAgreementNotice
+                  status={agreementStatuses[selectedAppointment.id]}
+                  booking={{ status: selectedAppointment.status, scheduled_at: selectedAppointment.scheduledAt }}
+                  clientId={selectedAppointment.clientId}
+                  showSigned
+                />
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5 col-span-2">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Examinee</p>

@@ -48,6 +48,7 @@ function typeLabel(type: string) {
     privacy: "Privacy",
     legal: "Legal",
     report: "Report",
+    agreement: "Agreement",
     test_chart: "Chart",
     biometric_trace: "Trace",
     other: "Other",

@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+const MAX_LOGO_BYTES = 500 * 1024;
+
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = React.useState(true);
@@ -38,6 +40,10 @@ export default function SettingsPage() {
   const [usdGbpRate, setUsdGbpRate] = React.useState("0.7850");
   const [usdEurRate, setUsdEurRate] = React.useState("0.9250");
   const [sundayBookingsEnabled, setSundayBookingsEnabled] = React.useState(false);
+  const [website, setWebsite] = React.useState("");
+  const [logo, setLogo] = React.useState("");
+  const [logoChanged, setLogoChanged] = React.useState(false);
+  const logoInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     void (async () => {
@@ -53,6 +59,8 @@ export default function SettingsPage() {
         setUsdGbpRate(String(org.usd_gbp_rate ?? 0.7850));
         setUsdEurRate(String(org.usd_eur_rate ?? 0.9250));
         setSundayBookingsEnabled(org.sunday_bookings_enabled ?? false);
+        setWebsite(org.website ?? "");
+        setLogo(org.logo_data_url ?? "");
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load settings");
       } finally {
@@ -74,7 +82,12 @@ export default function SettingsPage() {
         usd_gbp_rate: parseFloat(usdGbpRate) || 0.7850,
         usd_eur_rate: parseFloat(usdEurRate) || 0.9250,
         sunday_bookings_enabled: sundayBookingsEnabled,
+        website: website.trim(),
+        ...(logoChanged ? { logo_data_url: logo } : {}),
       });
+      setWebsite(org.website ?? "");
+      setLogo(org.logo_data_url ?? "");
+      setLogoChanged(false);
       setName(org.name);
       setCurrency(org.currency ?? "AED");
       setUsdAedRate(String(org.usd_aed_rate ?? 3.6725));
@@ -86,6 +99,25 @@ export default function SettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleLogoFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== "image/png" && file.type !== "image/jpeg") {
+      toast.error("Logo must be a PNG or JPEG image");
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      toast.error("Logo must be 500 KB or smaller");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setLogo(String(reader.result ?? ""));
+      setLogoChanged(true);
+    };
+    reader.onerror = () => toast.error("Could not read the logo file");
+    reader.readAsDataURL(file);
   };
 
   const handleDeleteOrganization = async (confirmName: string) => {
@@ -146,6 +178,62 @@ export default function SettingsPage() {
               <div className="grid gap-2">
                 <Label htmlFor="org-address">Physical Address</Label>
                 <Input id="org-address" value={address} onChange={(e) => setAddress(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-website">Website</Label>
+                <Input
+                  id="org-website"
+                  placeholder="www.example.com"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Company Logo</Label>
+                <div className="flex flex-wrap items-center gap-4 rounded-lg border p-4">
+                  <div className="flex h-16 w-40 items-center justify-center rounded-md border border-dashed bg-muted/30">
+                    {logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- inline data: URL preview
+                      <img src={logo} alt="Company logo" className="max-h-14 max-w-36 object-contain" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No logo</span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => logoInputRef.current?.click()}>
+                        {logo ? "Replace" : "Upload"}
+                      </Button>
+                      {logo ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => {
+                            setLogo("");
+                            setLogoChanged(true);
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      PNG or JPEG, up to 500 KB. Shown on client agreements and their PDF copies.
+                    </p>
+                  </div>
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleLogoFile(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="org-currency">Default Currency</Label>
@@ -265,6 +353,23 @@ export default function SettingsPage() {
             </p>
             <Button variant="outline" render={<Link href={"/dashboard/settings/availability" as Route} />}>
               Manage Availability
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Client Agreements</CardTitle>
+            <CardDescription>
+              Payment, reschedule and cancellation terms that clients read and sign online.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Edit the wording at any time. Agreements already sent keep the version the client signed.
+            </p>
+            <Button variant="outline" render={<Link href={"/dashboard/settings/agreements" as Route} />}>
+              Manage Agreements
             </Button>
           </CardContent>
         </Card>

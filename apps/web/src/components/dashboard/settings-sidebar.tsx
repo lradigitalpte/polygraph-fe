@@ -13,6 +13,7 @@ import {
   CalendarClock,
   FileText,
   ListChecks,
+  FileSignature,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ const settingsNavigation = [
   { name: "Exam Types", href: "/dashboard/settings/exam-types", icon: ClipboardList },
   { name: "Report Templates", href: "/dashboard/settings/report-templates", icon: FileText },
   { name: "Question Library", href: "/dashboard/settings/question-library", icon: ListChecks },
+  { name: "Agreements", href: "/dashboard/settings/agreements", icon: FileSignature },
   { name: "Examiner Availability", href: "/dashboard/settings/availability", icon: CalendarClock },
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },

@@ -24,6 +24,10 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  BookingAgreementNotice,
+  useBookingAgreementStatus,
+} from "@/components/agreements/booking-agreement-notice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -115,6 +119,7 @@ export default function ExaminationDocumentationPage() {
   const { client, appointments, refresh } = useClientDetail();
 
   const appointment = appointments.find((a) => a.id === appointmentId) ?? null;
+  const agreementStatus = useBookingAgreementStatus(Number.isFinite(appointmentId) ? appointmentId : null);
 
   const [exam, setExam] = React.useState<ExamRecord | null>(null);
   const [subject, setSubject] = React.useState<SubjectRecord | null>(null);
@@ -311,6 +316,15 @@ export default function ExaminationDocumentationPage() {
           </div>
         </div>
       </div>
+
+      {appointment ? (
+        <BookingAgreementNotice
+          status={agreementStatus}
+          booking={exam?.status === "completed" ? { ...appointment, status: "completed" } : appointment}
+          clientId={clientId}
+          className="max-w-2xl"
+        />
+      ) : null}
 
       {loading ? (
         <div className="flex justify-center py-24 text-muted-foreground">

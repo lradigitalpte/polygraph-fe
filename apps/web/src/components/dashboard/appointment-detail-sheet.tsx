@@ -15,6 +15,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+import {
+  BookingAgreementNotice,
+  useBookingAgreementStatus,
+} from "@/components/agreements/booking-agreement-notice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -85,6 +89,7 @@ export function AppointmentDetailSheet({
   const [examTypeId, setExamTypeId] = React.useState("");
   const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
   const [savingScheduling, setSavingScheduling] = React.useState(false);
+  const agreementStatus = useBookingAgreementStatus(open ? appointment?.id : null);
 
   const load = React.useCallback(async () => {
     if (!appointment) return;
@@ -203,6 +208,12 @@ export function AppointmentDetailSheet({
                   </span>
                 </div>
               </SheetDescription>
+              <BookingAgreementNotice
+                status={agreementStatus}
+                booking={detail}
+                clientId={clientId}
+                showSigned
+              />
             </SheetHeader>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-6">

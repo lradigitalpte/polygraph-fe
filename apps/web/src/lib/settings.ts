@@ -8,6 +8,8 @@ export type OrganizationSettings = {
   support_email: string;
   phone?: string;
   address: string;
+  website?: string;
+  logo_data_url?: string;
   currency?: string;
   usd_aed_rate?: number;
   usd_gbp_rate?: number;
@@ -36,6 +38,9 @@ export async function updateOrganizationSettings(input: {
   usd_gbp_rate?: number;
   usd_eur_rate?: number;
   sunday_bookings_enabled?: boolean;
+  website?: string;
+  /** Omit to keep the current logo, "" to remove it. */
+  logo_data_url?: string;
 }): Promise<OrganizationSettings> {
   const response = await authenticatedFetch("/api/settings/organization", {
     method: "PATCH",
@@ -53,6 +58,8 @@ export type PublicOrganizationContact = {
   phone?: string;
   support_email?: string;
   address?: string;
+  website?: string;
+  logo_data_url?: string;
 };
 
 /** Unauthenticated — for the public marketing/booking site footer. */

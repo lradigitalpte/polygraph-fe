@@ -15,6 +15,7 @@ import {
   Mail,
   FileSignature,
   ListChecks,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
@@ -43,6 +44,9 @@ export function ClientSidebar() {
     { name: "Session Questions", href: `/dashboard/clients/${id}/questions`, icon: ListChecks },
     { name: "Document Vault", href: `/dashboard/clients/${id}/documents`, icon: FolderLock },
     { name: "Secure Reports", href: `/dashboard/clients/${id}/reports`, icon: FileSignature },
+    ...(can("agreement:view")
+      ? [{ name: "Approvals", href: `/dashboard/clients/${id}/approvals`, icon: ClipboardCheck }]
+      : []),
     { name: "Account & Billing", href: `/dashboard/clients/${id}/account`, icon: Wallet },
   ];
 
