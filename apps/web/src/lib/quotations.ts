@@ -134,3 +134,14 @@ export async function collectQuotationPayment(
     throw new Error(payload?.error || `Failed to collect payment (${response.status})`);
   }
 }
+
+/** Pull paid amount from Stripe when the webhook did not update the invoice. */
+export async function syncQuotationStripePayment(id: number): Promise<void> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/sync-stripe-payment`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to sync Stripe payment (${response.status})`);
+  }
+}

@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   DollarSign,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,6 +37,7 @@ import {
   collectQuotationPayment,
   fetchQuotation,
   sendQuotationEmail,
+  syncQuotationStripePayment,
   type QuotationRecord,
 } from "@/lib/quotations";
 import { fetchOrganizationSettings } from "@/lib/settings";
@@ -64,6 +66,7 @@ export default function InvoiceDetailPage() {
   const [sending, setSending] = React.useState(false);
   const [approving, setApproving] = React.useState(false);
   const [recording, setRecording] = React.useState(false);
+  const [syncingStripe, setSyncingStripe] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState("");
 
   const reload = React.useCallback(async () => {
@@ -248,6 +251,20 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const handleSyncStripe = async () => {
+    if (!quote) return;
+    setSyncingStripe(true);
+    try {
+      await syncQuotationStripePayment(quote.id);
+      await reload();
+      toast.success("Stripe payment applied to this invoice");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not sync Stripe payment");
+    } finally {
+      setSyncingStripe(false);
+    }
+  };
+
   const handleRecordPayment = async () => {
     if (!quote) return;
     const amount = Number(paymentAmount);
@@ -365,6 +382,21 @@ export default function InvoiceDetailPage() {
                   Convert to booking
                 </Button>
               )}
+              {quote.stripe_checkout_session_id && balance > 0 ? (
+                <Button
+                  variant="outline"
+                  className="w-full rounded-xl"
+                  onClick={() => void handleSyncStripe()}
+                  disabled={syncingStripe}
+                >
+                  {syncingStripe ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Sync payment from Stripe
+                </Button>
+              ) : null}
               <div className="space-y-2 pt-2 border-t border-border/40">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Record payment</Label>
                 <div className="flex gap-2">
