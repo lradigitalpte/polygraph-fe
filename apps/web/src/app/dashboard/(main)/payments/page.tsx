@@ -42,9 +42,14 @@ import {
   sendQuotationEmail,
   type QuotationRecord,
 } from "@/lib/quotations";
+import {
+  fetchClientAgreementRequests,
+  isAgreementRequestOpen,
+} from "@/lib/agreements";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { collectAppointmentPayment, formatMoney, convertCurrency, catalogPriceInCurrency, ledgerRowMoney } from "@/lib/client-account";
 import type { AccountSummary } from "@/lib/client-account";
+import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
@@ -470,7 +475,13 @@ export default function PaymentsPage() {
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = React.useState(false);
   const [isSendQuoteOpen, setIsSendQuoteOpen] = React.useState(false);
   const [sendEmailStep, setSendEmailStep] = React.useState<"compose" | "confirm">("compose");
-  const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "", chargeAmount: "" });
+  const [sendEmail, setSendEmail] = React.useState({
+    toEmail: "",
+    subject: "",
+    body: "",
+    chargeAmount: "",
+    agreementLink: "",
+  });
   const [sendingSaving, setSendingSaving] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
   const orgCurrency = orgSettings?.currency || "AED";
@@ -946,7 +957,7 @@ export default function PaymentsPage() {
         </div>
         <div className="flex items-center gap-3 relative z-10">
           <Button 
-            onClick={() => setIsNewInvoiceOpen(true)}
+            onClick={() => router.push("/dashboard/payments/new")}
             className="h-12 px-8 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
           >
             <Plus className="mr-2 h-5 w-5" />
@@ -1135,8 +1146,12 @@ export default function PaymentsPage() {
                             size="icon" 
                             className="h-10 w-10 rounded-2xl hover:bg-primary/10 hover:text-primary transition-all group-hover:translate-x-1"
                             onClick={() => {
-                              setSelectedInvoice(inv);
-                              setIsSheetOpen(true);
+                              const qid = inv.quotationId ?? (inv.source === "quote" ? inv.id : undefined);
+                              if (qid) {
+                                router.push(`/dashboard/payments/q/${qid}`);
+                                return;
+                              }
+                              toast.error("No invoice record to open — create or link a quotation first");
                             }}
                           >
                             <ChevronRight className="h-6 w-6" />
@@ -1342,21 +1357,50 @@ export default function PaymentsPage() {
                           toast.error("No invoice on file for this record");
                           return;
                         }
-                        setSendEmail({
-                          toEmail: selectedInvoice.clientEmail || "",
-                          subject: `${selectedInvoice.code} Quotation`,
-                          body: `Hello ${selectedInvoice.client},\n\nPlease find your quotation ${selectedInvoice.code} for ${formatMoney(selectedInvoice.totalAmount, selectedInvoice.currency || orgCurrency)}.`,
-                          chargeAmount: String(
-                            Number(
-                              (
-                                selectedInvoice.balanceDue ??
-                                Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount)
-                              ).toFixed(2),
-                            ),
-                          ),
-                        });
-                        setSendEmailStep("compose");
-                        setIsSendQuoteOpen(true);
+                        const currency = selectedInvoice.currency || orgCurrency;
+                        const balance = Number(
+                          (
+                            selectedInvoice.balanceDue ??
+                            Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount)
+                          ).toFixed(2),
+                        );
+                        const openCompose = (agreementLink = "") => {
+                          const charge = balance;
+                          setSendEmail({
+                            toEmail: selectedInvoice.clientEmail || "",
+                            subject: `${selectedInvoice.code} — invoice & payment`,
+                            body: buildInvoicePaymentEmailBody({
+                              clientName: selectedInvoice.client,
+                              code: selectedInvoice.code,
+                              currency,
+                              totalAmount: selectedInvoice.totalAmount,
+                              paidAmount: selectedInvoice.paidAmount,
+                              chargeAmount: charge,
+                              agreementLink: agreementLink || undefined,
+                            }),
+                            chargeAmount: String(charge),
+                            agreementLink,
+                          });
+                          setSendEmailStep("compose");
+                          setIsSendQuoteOpen(true);
+                        };
+
+                        // Prefer an open booking agreement link when this invoice is tied to an appointment.
+                        if (selectedInvoice.appointmentId && selectedInvoice.clientId) {
+                          void fetchClientAgreementRequests(selectedInvoice.clientId)
+                            .then((reqs) => {
+                              const open = reqs.find(
+                                (r) =>
+                                  r.appointment_id === selectedInvoice.appointmentId &&
+                                  isAgreementRequestOpen(r) &&
+                                  Boolean(r.link),
+                              );
+                              openCompose(open?.link || "");
+                            })
+                            .catch(() => openCompose(""));
+                          return;
+                        }
+                        openCompose("");
                       }}
                     >
                         <Mail className="mr-2 h-4 w-4 text-primary" />
@@ -1911,10 +1955,38 @@ export default function PaymentsPage() {
                     step="0.01"
                     placeholder="Remaining balance"
                     value={sendEmail.chargeAmount}
-                    onChange={(e) => setSendEmail((v) => ({ ...v, chargeAmount: e.target.value }))}
+                    onChange={(e) => {
+                      const nextCharge = e.target.value;
+                      setSendEmail((v) => {
+                        if (!selectedInvoice) {
+                          return { ...v, chargeAmount: nextCharge };
+                        }
+                        const currency = selectedInvoice.currency || orgCurrency;
+                        const parsed = Number(nextCharge);
+                        const balance = Math.max(
+                          0,
+                          selectedInvoice.balanceDue ??
+                            selectedInvoice.totalAmount - selectedInvoice.paidAmount,
+                        );
+                        const chargeForBody = Number.isFinite(parsed) && parsed > 0 ? parsed : balance;
+                        return {
+                          ...v,
+                          chargeAmount: nextCharge,
+                          body: buildInvoicePaymentEmailBody({
+                            clientName: selectedInvoice.client,
+                            code: selectedInvoice.code,
+                            currency,
+                            totalAmount: selectedInvoice.totalAmount,
+                            paidAmount: selectedInvoice.paidAmount,
+                            chargeAmount: chargeForBody,
+                            agreementLink: v.agreementLink || undefined,
+                          }),
+                        };
+                      });
+                    }}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Leave as the remaining balance for full payment, or enter a smaller deposit. A Stripe Checkout link is appended to the email.
+                    Enter a deposit (e.g. 100) or leave the full balance. The message updates automatically; the Stripe pay link for this amount is appended when you send.
                   </p>
                 </div>
               </div>
@@ -1955,13 +2027,16 @@ export default function PaymentsPage() {
                         Number(sendEmail.chargeAmount || 0),
                         selectedInvoice?.currency || orgCurrency,
                       )}{" "}
-                      <span className="font-semibold text-muted-foreground">(Stripe link)</span>
+                      <span className="font-semibold text-muted-foreground">(Stripe link appended on send)</span>
                     </span>
                   </div>
                 </div>
                 <div className="px-5 py-4 bg-background border-t border-border/40 text-sm whitespace-pre-wrap leading-relaxed">
                   {sendEmail.body || <span className="text-muted-foreground italic">(no message)</span>}
                 </div>
+                <p className="px-5 py-3 text-xs text-muted-foreground border-t border-border/40">
+                  On send, a secure Stripe payment link for the charge amount above is added at the bottom of the email.
+                </p>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setSendEmailStep("compose")} disabled={sendingSaving}>

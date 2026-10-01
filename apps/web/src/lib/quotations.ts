@@ -38,6 +38,17 @@ export async function fetchQuotations(search?: string): Promise<QuotationRecord[
   return response.json();
 }
 
+export async function fetchQuotation(id: number): Promise<QuotationRecord> {
+  const response = await authenticatedFetch(`/api/quotations/${id}`, {
+    method: "GET",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to load quotation (${response.status})`);
+  }
+  return response.json();
+}
+
 export async function createQuotation(input: {
   client_id: number;
   appointment_id?: number;
