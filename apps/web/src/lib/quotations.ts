@@ -16,6 +16,9 @@ export type QuotationRecord = {
   email_body?: string;
   created_at: string;
   currency?: string;
+  stripe_checkout_session_id?: string;
+  stripe_payment_intent_id?: string;
+  stripe_payment_link_url?: string;
   client?: {
     id: number;
     name: string;
@@ -60,8 +63,9 @@ export async function sendQuotationEmail(
     to_email: string;
     subject?: string;
     body?: string;
+    charge_amount?: number;
   }
-): Promise<void> {
+): Promise<{ payment_url?: string; stripe_checkout_session_id?: string }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/send-email`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -70,6 +74,7 @@ export async function sendQuotationEmail(
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to send quotation email (${response.status})`);
   }
+  return response.json().catch(() => ({}));
 }
 
 // Convert a standalone quotation into a booked appointment. The quote's amount

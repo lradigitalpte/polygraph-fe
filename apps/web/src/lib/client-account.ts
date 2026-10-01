@@ -27,6 +27,7 @@ export type AccountLedgerEntry = {
   payment_mode?: string;
   currency?: string;
   examiner_name?: string;
+  stripe_payment_link_url?: string;
 };
 
 export type ClientAccountResponse = {
@@ -85,6 +86,7 @@ export function paymentBalance(total: number, paid: number) {
  * - Appointment fees / collected amounts are stored in org currency after save.
  * - Ledger API returns amounts already in org currency — do not convert again.
  * - Use catalogPriceInCurrency() to show USD catalog prices in another currency.
+ * - Cross-currency conversion rounds UP to a whole unit (no .xx fils/cents after FX).
  * - Use ledgerRowMoney() for ledger rows; it converts at most once when currencies differ.
  */
 export function formatMoney(amount: number, currency = "USD") {
@@ -121,7 +123,10 @@ export function convertCurrency(
   const rateTo = rateMap[cleanTo] ?? 1;
 
   const amountInUSD = amount / rateFrom;
-  return amountInUSD * rateTo;
+  const converted = amountInUSD * rateTo;
+  // Round FX results up to a whole unit so billed amounts stay .00 (e.g. 367.25 → 368).
+  if (converted <= 0) return 0;
+  return Math.ceil(converted - 1e-9);
 }
 
 /** Exam type catalog prices are always stored in USD in the database. */

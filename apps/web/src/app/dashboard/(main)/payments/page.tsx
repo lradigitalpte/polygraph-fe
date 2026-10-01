@@ -470,7 +470,7 @@ export default function PaymentsPage() {
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = React.useState(false);
   const [isSendQuoteOpen, setIsSendQuoteOpen] = React.useState(false);
   const [sendEmailStep, setSendEmailStep] = React.useState<"compose" | "confirm">("compose");
-  const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "" });
+  const [sendEmail, setSendEmail] = React.useState({ toEmail: "", subject: "", body: "", chargeAmount: "" });
   const [sendingSaving, setSendingSaving] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
   const orgCurrency = orgSettings?.currency || "AED";
@@ -847,17 +847,35 @@ export default function PaymentsPage() {
       toast.error("Recipient email is required");
       return;
     }
+    const balance = selectedInvoice.balanceDue ?? Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount);
+    let chargeAmount = balance;
+    if (sendEmail.chargeAmount.trim() !== "") {
+      chargeAmount = Number(sendEmail.chargeAmount);
+      if (!Number.isFinite(chargeAmount) || chargeAmount <= 0) {
+        toast.error("Enter a valid charge amount greater than zero");
+        return;
+      }
+      if (chargeAmount > balance + 0.0001) {
+        toast.error("Charge amount cannot exceed the remaining balance");
+        return;
+      }
+    }
     setSendingSaving(true);
     try {
-      await sendQuotationEmail(quoteId, {
+      const result = await sendQuotationEmail(quoteId, {
         to_email: sendEmail.toEmail.trim(),
         subject: sendEmail.subject.trim(),
         body: sendEmail.body.trim(),
+        ...(balance > 0 ? { charge_amount: chargeAmount } : {}),
       });
       await loadData();
       setIsSendQuoteOpen(false);
       setSendEmailStep("compose");
-      toast.success("Quotation emailed");
+      if (result?.payment_url) {
+        toast.success("Invoice emailed with Stripe payment link");
+      } else {
+        toast.success("Quotation emailed");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send quotation");
     } finally {
@@ -1225,6 +1243,29 @@ export default function PaymentsPage() {
                       Emailed: {selectedInvoice.sentAt}
                     </p>
                   ) : null}
+                  {selectedInvoice.stripePaymentLinkUrl ? (
+                    <div className="rounded-2xl border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        Stripe payment link
+                      </p>
+                      <p className="text-xs break-all text-foreground/80">{selectedInvoice.stripePaymentLinkUrl}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(selectedInvoice.stripePaymentLinkUrl || "");
+                            toast.success("Payment link copied");
+                          } catch {
+                            toast.error("Could not copy link");
+                          }
+                        }}
+                      >
+                        Copy link
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="space-y-4">
@@ -1294,22 +1335,32 @@ export default function PaymentsPage() {
                     <Button
                       variant="outline"
                       className="h-14 rounded-2xl font-black text-[10px] uppercase tracking-widest border-border/50 hover:bg-muted/20"
-                      disabled={selectedInvoice.source !== "quote"}
+                      disabled={!selectedInvoice.quotationId && selectedInvoice.source !== "quote"}
                       onClick={() => {
-                        if (selectedInvoice.source !== "quote") {
+                        const quoteId = selectedInvoice.quotationId ?? (selectedInvoice.source === "quote" ? selectedInvoice.id : undefined);
+                        if (!quoteId) {
+                          toast.error("No invoice on file for this record");
                           return;
                         }
                         setSendEmail({
                           toEmail: selectedInvoice.clientEmail || "",
                           subject: `${selectedInvoice.code} Quotation`,
                           body: `Hello ${selectedInvoice.client},\n\nPlease find your quotation ${selectedInvoice.code} for ${formatMoney(selectedInvoice.totalAmount, selectedInvoice.currency || orgCurrency)}.`,
+                          chargeAmount: String(
+                            Number(
+                              (
+                                selectedInvoice.balanceDue ??
+                                Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount)
+                              ).toFixed(2),
+                            ),
+                          ),
                         });
                         setSendEmailStep("compose");
                         setIsSendQuoteOpen(true);
                       }}
                     >
                         <Mail className="mr-2 h-4 w-4 text-primary" />
-                        {selectedInvoice.quotationId ? "Email invoice" : "Email (invoice only)"}
+                        {selectedInvoice.quotationId || selectedInvoice.source === "quote" ? "Email invoice" : "Email (invoice only)"}
                     </Button>
                     <Button
                       variant="outline"
@@ -1850,6 +1901,22 @@ export default function PaymentsPage() {
                     onChange={(e) => setSendEmail((v) => ({ ...v, body: e.target.value }))}
                   />
                 </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">
+                    Stripe charge amount
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Remaining balance"
+                    value={sendEmail.chargeAmount}
+                    onChange={(e) => setSendEmail((v) => ({ ...v, chargeAmount: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave as the remaining balance for full payment, or enter a smaller deposit. A Stripe Checkout link is appended to the email.
+                  </p>
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsSendQuoteOpen(false)}>Cancel</Button>
@@ -1880,6 +1947,16 @@ export default function PaymentsPage() {
                   <div className="flex gap-2 py-2">
                     <span className="w-16 shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground pt-0.5">Subject</span>
                     <span className="font-bold">{sendEmail.subject || "(no subject)"}</span>
+                  </div>
+                  <div className="flex gap-2 py-2">
+                    <span className="w-16 shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground pt-0.5">Charge</span>
+                    <span className="font-bold">
+                      {formatMoney(
+                        Number(sendEmail.chargeAmount || 0),
+                        selectedInvoice?.currency || orgCurrency,
+                      )}{" "}
+                      <span className="font-semibold text-muted-foreground">(Stripe link)</span>
+                    </span>
                   </div>
                 </div>
                 <div className="px-5 py-4 bg-background border-t border-border/40 text-sm whitespace-pre-wrap leading-relaxed">

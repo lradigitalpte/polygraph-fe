@@ -234,6 +234,7 @@ export type FinancialInvoice = {
   sentAt?: string;
   currency?: string;
   examinerName?: string;
+  stripePaymentLinkUrl?: string;
 };
 
 export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInvoice {
@@ -278,6 +279,7 @@ export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInv
     items: [{ description: entry.title, amount: total }],
     currency: entry.currency,
     examinerName: entry.examiner_name,
+    stripePaymentLinkUrl: entry.stripe_payment_link_url,
   };
 }
 
