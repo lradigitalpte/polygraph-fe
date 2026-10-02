@@ -17,6 +17,10 @@ export type QuotationRecord = {
   title: string;
   description?: string;
   amount: number;
+  subtotal_amount?: number;
+  discount_amount?: number;
+  vat_rate?: number;
+  vat_amount?: number;
   collected_amount: number;
   status: string;
   sent_at?: string;
@@ -65,6 +69,10 @@ export async function createQuotation(input: {
   title: string;
   description?: string;
   amount: number;
+  subtotal_amount?: number;
+  discount_amount?: number;
+  vat_rate?: number;
+  vat_amount?: number;
   currency?: string;
 }): Promise<QuotationRecord> {
   const response = await authenticatedFetch("/api/quotations", {
@@ -86,6 +94,8 @@ export async function sendQuotationEmail(
     body?: string;
     charge_amount?: number;
     pass_processing_fee?: boolean;
+    processing_fee_percent?: number;
+    processing_fee_fixed?: number;
   }
 ): Promise<{ payment_url?: string; stripe_checkout_session_id?: string }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/send-email`, {
@@ -118,6 +128,28 @@ export async function convertQuotation(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to convert quotation (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function updateQuotation(
+  id: number,
+  input: {
+    title?: string;
+    amount?: number;
+    subtotal_amount?: number;
+    discount_amount?: number;
+    vat_rate?: number;
+    vat_amount?: number;
+  },
+): Promise<QuotationRecord> {
+  const response = await authenticatedFetch(`/api/quotations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to update quotation (${response.status})`);
   }
   return response.json();
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
+import { CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
@@ -43,6 +44,7 @@ export default function SettingsPage() {
   const [passStripeFees, setPassStripeFees] = React.useState(false);
   const [stripeFeePercent, setStripeFeePercent] = React.useState("2.9");
   const [stripeFeeFixed, setStripeFeeFixed] = React.useState("1");
+  const [defaultVatRate, setDefaultVatRate] = React.useState("5");
   const [website, setWebsite] = React.useState("");
   const [logo, setLogo] = React.useState("");
   const [logoChanged, setLogoChanged] = React.useState(false);
@@ -65,6 +67,7 @@ export default function SettingsPage() {
         setPassStripeFees(org.pass_stripe_fees_to_customer ?? false);
         setStripeFeePercent(String(org.stripe_card_fee_percent ?? 2.9));
         setStripeFeeFixed(String(org.stripe_card_fee_fixed ?? 1));
+        setDefaultVatRate(String(org.default_vat_rate ?? 5));
         setWebsite(org.website ?? "");
         setLogo(org.logo_data_url ?? "");
       } catch (err) {
@@ -91,6 +94,7 @@ export default function SettingsPage() {
         pass_stripe_fees_to_customer: passStripeFees,
         stripe_card_fee_percent: parseFloat(stripeFeePercent) || 2.9,
         stripe_card_fee_fixed: parseFloat(stripeFeeFixed) || 1,
+        default_vat_rate: parseFloat(defaultVatRate) || 5,
         website: website.trim(),
         ...(logoChanged ? { logo_data_url: logo } : {}),
       });
@@ -294,43 +298,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-              <div className="space-y-3 rounded-lg border p-4">
-                <label className="flex items-center gap-3">
-                  <Checkbox
-                    checked={passStripeFees}
-                    onCheckedChange={(checked) => setPassStripeFees(Boolean(checked))}
-                  />
-                  <div>
-                    <div className="text-sm font-medium">Pass card processing fee to customer (Stripe)</div>
-                    <div className="text-xs text-muted-foreground">
-                      Adds a separate “Card processing fee” line on Checkout. The invoice still credits the deposit/balance
-                      amount only — confirm this matches your local rules before enabling.
-                    </div>
-                  </div>
-                </label>
-                <div className="grid grid-cols-2 gap-3 pl-7">
-                  <div className="grid gap-1">
-                    <Label htmlFor="stripe-fee-percent">Estimated fee %</Label>
-                    <Input
-                      id="stripe-fee-percent"
-                      type="number"
-                      step="0.1"
-                      value={stripeFeePercent}
-                      onChange={(e) => setStripeFeePercent(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label htmlFor="stripe-fee-fixed">Fixed fee ({currency})</Label>
-                    <Input
-                      id="stripe-fee-fixed"
-                      type="number"
-                      step="0.01"
-                      value={stripeFeeFixed}
-                      onChange={(e) => setStripeFeeFixed(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
               <label className="flex items-center gap-3 rounded-lg border p-4">
                 <Checkbox
                   checked={sundayBookingsEnabled}
@@ -344,7 +311,79 @@ export default function SettingsPage() {
                 </div>
               </label>
               <Button className="w-fit" onClick={() => void handleSave()} disabled={saving || !name.trim()}>
-                {saving ? "Saving…" : "Save Changes"}
+                {saving ? "Saving…" : "Save profile & booking options"}
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            Online card payments
+          </CardTitle>
+          <CardDescription>
+            Optional processing fee shown to clients on the payment page. You can override per invoice when sending email.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <>
+              <label className="flex items-start gap-3 rounded-lg border p-4">
+                <Checkbox
+                  checked={passStripeFees}
+                  onCheckedChange={(checked) => setPassStripeFees(Boolean(checked))}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="text-sm font-medium">Pass processing fee to customer</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    The payment page lists the invoice/deposit plus a separate processing fee line. Only the invoice amount
+                    reduces the balance due. Confirm this complies with your local rules before enabling.
+                  </div>
+                </div>
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="proc-fee-percent">Processing fee (%)</Label>
+                  <Input
+                    id="proc-fee-percent"
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    value={stripeFeePercent}
+                    onChange={(e) => setStripeFeePercent(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="proc-fee-fixed">Fixed fee per charge ({currency})</Label>
+                  <Input
+                    id="proc-fee-fixed"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={stripeFeeFixed}
+                    onChange={(e) => setStripeFeeFixed(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2 max-w-xs">
+                <Label htmlFor="default-vat-rate">Default VAT rate for new quotations (%)</Label>
+                <Input
+                  id="default-vat-rate"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={defaultVatRate}
+                  onChange={(e) => setDefaultVatRate(e.target.value)}
+                />
+              </div>
+              <Button className="w-fit" onClick={() => void handleSave()} disabled={saving || !name.trim()}>
+                {saving ? "Saving…" : "Save payment & tax defaults"}
               </Button>
             </>
           )}

@@ -1,6 +1,6 @@
 import { formatMoney } from "@/lib/client-account";
 
-/** Default client email for invoice + deposit / full Stripe payment. */
+/** Default client email for invoice + deposit / full online payment. */
 export function buildInvoicePaymentEmailBody(input: {
   clientName: string;
   code: string;
@@ -49,8 +49,8 @@ export function buildInvoicePaymentEmailBody(input: {
   }
   lines.push(
     isDeposit
-      ? `2) Pay the deposit of ${chargeLabel} using the secure Stripe payment link at the bottom of this email.`
-      : `2) Pay ${chargeLabel} using the secure Stripe payment link at the bottom of this email.`,
+      ? `2) Pay the deposit of ${chargeLabel} using the secure payment link at the bottom of this email.`
+      : `2) Pay ${chargeLabel} using the secure payment link at the bottom of this email.`,
   );
   if (isDeposit) {
     lines.push(

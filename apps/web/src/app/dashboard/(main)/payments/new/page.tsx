@@ -31,10 +31,9 @@ import { fetchClients, type ClientRecord } from "@/lib/clients";
 import { catalogPriceInCurrency, formatMoney } from "@/lib/client-account";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { createQuotation } from "@/lib/quotations";
+import { computeQuotationTotal } from "@/lib/quotation-pricing";
 import { fetchOrganizationSettings } from "@/lib/settings";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
-
-const VAT_RATE = 5;
 
 export default function NewQuotationPage() {
   const router = useRouter();
@@ -64,6 +63,7 @@ export default function NewQuotationPage() {
     discountType: "percent" as "percent" | "fixed",
     discountValue: 0,
     includeVat: false,
+    vatRate: 5,
     extraItems: [] as { description: string; amount: number }[],
   });
 
@@ -88,7 +88,11 @@ export default function NewQuotationPage() {
           usd_gbp_rate: org?.usd_gbp_rate,
           usd_eur_rate: org?.usd_eur_rate,
         });
-        setForm((f) => ({ ...f, currency }));
+        setForm((f) => ({
+          ...f,
+          currency,
+          vatRate: org?.default_vat_rate ?? 5,
+        }));
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load form data");
       } finally {
@@ -134,10 +138,20 @@ export default function NewQuotationPage() {
         : 0,
       subtotal,
     );
-    const afterDiscount = Math.max(0, subtotal - discountAmount);
-    const vatAmount = form.includeVat ? afterDiscount * (VAT_RATE / 100) : 0;
-    const total = afterDiscount + vatAmount;
-    return { lineItems, subtotal, discountAmount, vatAmount, total };
+    const priced = computeQuotationTotal({
+      subtotal,
+      discountAmount,
+      vatRate: form.vatRate,
+      applyVat: form.includeVat,
+    });
+    return {
+      lineItems,
+      subtotal: priced.subtotal,
+      discountAmount: priced.discountAmount,
+      vatAmount: priced.vatAmount,
+      vatRate: priced.vatRate,
+      total: priced.total,
+    };
   }, [form, orgSettings]);
 
   const handleCreate = async () => {
@@ -155,7 +169,7 @@ export default function NewQuotationPage() {
     const description = [
       ...preview.lineItems.map((item) => `${item.description}: ${formatMoney(item.amount, form.currency)}`),
       preview.discountAmount > 0 ? `${discountLabel}: -${formatMoney(preview.discountAmount, form.currency)}` : null,
-      preview.vatAmount > 0 ? `VAT (${VAT_RATE}%): ${formatMoney(preview.vatAmount, form.currency)}` : null,
+      preview.vatAmount > 0 ? `VAT (${preview.vatRate}%): ${formatMoney(preview.vatAmount, form.currency)}` : null,
     ]
       .filter((line): line is string => Boolean(line))
       .join("\n");
@@ -167,6 +181,10 @@ export default function NewQuotationPage() {
         title,
         description,
         amount: preview.total,
+        subtotal_amount: preview.subtotal,
+        discount_amount: preview.discountAmount,
+        vat_rate: preview.vatAmount > 0 ? preview.vatRate : 0,
+        vat_amount: preview.vatAmount,
         currency: form.currency,
       });
       toast.success("Quotation created");
@@ -374,14 +392,28 @@ export default function NewQuotationPage() {
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-sm font-semibold">
-            <input
-              type="checkbox"
-              checked={form.includeVat}
-              onChange={(e) => setForm((f) => ({ ...f, includeVat: e.target.checked }))}
-            />
-            Include VAT ({VAT_RATE}%)
-          </label>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-semibold shrink-0">
+              <input
+                type="checkbox"
+                checked={form.includeVat}
+                onChange={(e) => setForm((f) => ({ ...f, includeVat: e.target.checked }))}
+              />
+              Include VAT
+            </label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">VAT rate (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                className="h-10 w-24 rounded-xl"
+                value={form.vatRate}
+                disabled={!form.includeVat}
+                onChange={(e) => setForm((f) => ({ ...f, vatRate: Number(e.target.value) || 0 }))}
+              />
+            </div>
+          </div>
 
           {preview && (
             <div className="rounded-2xl border border-border/50 bg-muted/10 p-4 space-y-2">

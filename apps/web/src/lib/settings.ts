@@ -18,6 +18,7 @@ export type OrganizationSettings = {
   pass_stripe_fees_to_customer?: boolean;
   stripe_card_fee_percent?: number;
   stripe_card_fee_fixed?: number;
+  default_vat_rate?: number;
   created_at: string;
   updated_at: string;
 };
@@ -44,6 +45,7 @@ export async function updateOrganizationSettings(input: {
   pass_stripe_fees_to_customer?: boolean;
   stripe_card_fee_percent?: number;
   stripe_card_fee_fixed?: number;
+  default_vat_rate?: number;
   website?: string;
   /** Omit to keep the current logo, "" to remove it. */
   logo_data_url?: string;

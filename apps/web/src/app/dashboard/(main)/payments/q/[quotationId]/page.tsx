@@ -40,10 +40,12 @@ import {
   fetchQuotation,
   sendQuotationEmail,
   syncQuotationStripePayment,
+  updateQuotation,
   type QuotationRecord,
 } from "@/lib/quotations";
+import { computeQuotationTotal } from "@/lib/quotation-pricing";
 import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
-import { fetchOrganizationSettings } from "@/lib/settings";
+import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ quotationId: string }>();
@@ -53,13 +55,7 @@ export default function InvoiceDetailPage() {
 
   const [quote, setQuote] = React.useState<QuotationRecord | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [orgSettings, setOrgSettings] = React.useState<{
-    name?: string;
-    address?: string;
-    support_email?: string;
-    phone?: string;
-    currency?: string;
-  } | null>(null);
+  const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
 
   const [agreementLink, setAgreementLink] = React.useState("");
   const [toEmail, setToEmail] = React.useState("");
@@ -72,6 +68,14 @@ export default function InvoiceDetailPage() {
   const [syncingStripe, setSyncingStripe] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState("");
   const [passProcessingFee, setPassProcessingFee] = React.useState(false);
+  const [feePercentOverride, setFeePercentOverride] = React.useState("");
+  const [feeFixedOverride, setFeeFixedOverride] = React.useState("");
+  const [editTitle, setEditTitle] = React.useState("");
+  const [editSubtotal, setEditSubtotal] = React.useState("");
+  const [editDiscount, setEditDiscount] = React.useState("");
+  const [editVatRate, setEditVatRate] = React.useState("");
+  const [editIncludeVat, setEditIncludeVat] = React.useState(false);
+  const [savingPricing, setSavingPricing] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!Number.isFinite(quotationId) || quotationId <= 0) {
@@ -86,7 +90,7 @@ export default function InvoiceDetailPage() {
     if (org?.pass_stripe_fees_to_customer != null) {
       setPassProcessingFee(org.pass_stripe_fees_to_customer);
     }
-    return q;
+    return { q, org };
   }, [quotationId]);
 
   React.useEffect(() => {
@@ -94,9 +98,9 @@ export default function InvoiceDetailPage() {
     (async () => {
       setLoading(true);
       try {
-        const q = await reload();
+        const { q, org } = await reload();
         if (cancelled) return;
-        const currency = (q.currency || orgSettings?.currency || "AED").toUpperCase();
+        const currency = (q.currency || org?.currency || "AED").toUpperCase();
         const balance = Math.max(0, Number(q.amount) - Number(q.collected_amount || 0));
         const charge = Number(balance.toFixed(2));
         let link = "";
@@ -115,6 +119,15 @@ export default function InvoiceDetailPage() {
           }
         }
         if (cancelled) return;
+        const sub =
+          Number(q.subtotal_amount) > 0
+            ? Number(q.subtotal_amount)
+            : Math.max(0, Number(q.amount) - Number(q.vat_amount || 0));
+        setEditTitle(q.title || "");
+        setEditSubtotal(String(sub));
+        setEditDiscount(String(Number(q.discount_amount || 0)));
+        setEditVatRate(String(Number(q.vat_rate || org?.default_vat_rate || 5)));
+        setEditIncludeVat(Number(q.vat_amount || 0) > 0 || Number(q.vat_rate || 0) > 0);
         setAgreementLink(link);
         setToEmail(q.sent_to_email || q.client?.email || "");
         setSubject(`${q.code} — invoice & payment`);
@@ -158,16 +171,35 @@ export default function InvoiceDetailPage() {
     return balance;
   }, [chargeAmount, balance]);
 
+  const effectiveFeePercent = React.useMemo(() => {
+    const o = feePercentOverride.trim();
+    if (o !== "" && Number.isFinite(Number(o))) return Number(o);
+    return orgSettings?.stripe_card_fee_percent ?? 2.9;
+  }, [feePercentOverride, orgSettings?.stripe_card_fee_percent]);
+
+  const effectiveFeeFixed = React.useMemo(() => {
+    const o = feeFixedOverride.trim();
+    if (o !== "" && Number.isFinite(Number(o))) return Number(o);
+    return orgSettings?.stripe_card_fee_fixed ?? 1;
+  }, [feeFixedOverride, orgSettings?.stripe_card_fee_fixed]);
+
   const feePreview = React.useMemo(() => {
     if (!passProcessingFee || chargeNet <= 0) {
       return null;
     }
-    return estimateStripeGrossCharge(
-      chargeNet,
-      orgSettings?.stripe_card_fee_percent ?? 2.9,
-      orgSettings?.stripe_card_fee_fixed ?? 1,
-    );
-  }, [passProcessingFee, chargeNet, orgSettings?.stripe_card_fee_percent, orgSettings?.stripe_card_fee_fixed]);
+    return estimateStripeGrossCharge(chargeNet, effectiveFeePercent, effectiveFeeFixed);
+  }, [passProcessingFee, chargeNet, effectiveFeePercent, effectiveFeeFixed]);
+
+  const pricingPreview = React.useMemo(() => {
+    const subtotal = Number(editSubtotal);
+    if (!Number.isFinite(subtotal) || subtotal < 0) return null;
+    return computeQuotationTotal({
+      subtotal,
+      discountAmount: Number(editDiscount) || 0,
+      vatRate: Number(editVatRate) || 0,
+      applyVat: editIncludeVat,
+    });
+  }, [editSubtotal, editDiscount, editVatRate, editIncludeVat]);
 
   const paymentHistory = React.useMemo(() => {
     const rows = [...(quote?.payment_history || [])];
@@ -216,11 +248,22 @@ export default function InvoiceDetailPage() {
         to_email: toEmail.trim(),
         subject: subject.trim(),
         body: body.trim(),
-        ...(balance > 0 ? { charge_amount: charge, pass_processing_fee: passProcessingFee } : {}),
+        ...(balance > 0
+          ? {
+              charge_amount: charge,
+              pass_processing_fee: passProcessingFee,
+              ...(feePercentOverride.trim() !== ""
+                ? { processing_fee_percent: Number(feePercentOverride) }
+                : {}),
+              ...(feeFixedOverride.trim() !== ""
+                ? { processing_fee_fixed: Number(feeFixedOverride) }
+                : {}),
+            }
+          : {}),
       });
       await reload();
       if (result?.payment_url) {
-        toast.success("Invoice emailed with PDF and Stripe payment link");
+        toast.success("Invoice emailed with PDF and payment link");
       } else {
         toast.success("Invoice emailed with PDF");
       }
@@ -255,8 +298,12 @@ export default function InvoiceDetailPage() {
         name: quote.client?.name || `Client #${quote.client_id}`,
         email: quote.client?.email,
       },
-      items: [{ description: quote.title || "Polygraph services", amount: total }],
-      subtotal: total,
+      items: [{ description: quote.title || "Polygraph services", amount: Number(quote.subtotal_amount || total) }],
+      subtotal: Number(quote.subtotal_amount || total),
+      vat:
+        Number(quote.vat_amount || 0) > 0
+          ? { rate: Number(quote.vat_rate || 0), amount: Number(quote.vat_amount) }
+          : undefined,
       total,
       paidAmount: paid,
       balanceDue: balance,
@@ -283,15 +330,43 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const handleSavePricing = async () => {
+    if (!quote || !pricingPreview) {
+      toast.error("Enter valid pricing amounts");
+      return;
+    }
+    if (pricingPreview.total < paid - 0.0001) {
+      toast.error("Total cannot be less than amount already paid");
+      return;
+    }
+    setSavingPricing(true);
+    try {
+      await updateQuotation(quote.id, {
+        title: editTitle.trim() || quote.title,
+        amount: pricingPreview.total,
+        subtotal_amount: pricingPreview.subtotal,
+        discount_amount: pricingPreview.discountAmount,
+        vat_rate: editIncludeVat ? pricingPreview.vatRate : 0,
+        vat_amount: editIncludeVat ? pricingPreview.vatAmount : 0,
+      });
+      await reload();
+      toast.success("Quotation pricing updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update pricing");
+    } finally {
+      setSavingPricing(false);
+    }
+  };
+
   const handleSyncStripe = async () => {
     if (!quote) return;
     setSyncingStripe(true);
     try {
       await syncQuotationStripePayment(quote.id);
       await reload();
-      toast.success("Stripe payment applied to this invoice");
+      toast.success("Card payment applied to this invoice");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not sync Stripe payment");
+      toast.error(error instanceof Error ? error.message : "Could not sync card payment");
     } finally {
       setSyncingStripe(false);
     }
@@ -365,6 +440,18 @@ export default function InvoiceDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {Number(quote.subtotal_amount || 0) > 0 && Number(quote.vat_amount || 0) > 0 ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span>{formatMoney(Number(quote.subtotal_amount), currency)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">VAT ({Number(quote.vat_rate || 0)}%)</span>
+                    <span>{formatMoney(Number(quote.vat_amount), currency)}</span>
+                  </div>
+                </>
+              ) : null}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total</span>
                 <span className="font-bold">{formatMoney(total, currency)}</span>
@@ -379,7 +466,7 @@ export default function InvoiceDetailPage() {
               </div>
               {quote.stripe_payment_link_url ? (
                 <div className="rounded-xl border border-border/40 bg-muted/10 p-3 space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Stripe payment link</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Online payment link</p>
                   <p className="text-xs break-all">{quote.stripe_payment_link_url}</p>
                 </div>
               ) : null}
@@ -388,6 +475,81 @@ export default function InvoiceDetailPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          {quote.status !== "Completed" && can("appointment:manage") ? (
+            <Card className="border-border/50">
+              <CardHeader>
+                <CardTitle className="text-lg">Edit quotation pricing</CardTitle>
+                <CardDescription>Adjust line totals, VAT, and invoice total before sending.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Title</Label>
+                  <Input className="h-11 rounded-xl" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-1.5">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Subtotal</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="h-11 rounded-xl"
+                      value={editSubtotal}
+                      onChange={(e) => setEditSubtotal(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discount</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="h-11 rounded-xl"
+                      value={editDiscount}
+                      onChange={(e) => setEditDiscount(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold">
+                    <Checkbox checked={editIncludeVat} onCheckedChange={(c) => setEditIncludeVat(Boolean(c))} />
+                    Include VAT
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Rate (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="h-10 w-24 rounded-xl"
+                      disabled={!editIncludeVat}
+                      value={editVatRate}
+                      onChange={(e) => setEditVatRate(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {pricingPreview ? (
+                  <div className="rounded-xl border border-border/40 bg-muted/10 p-3 text-sm space-y-1">
+                    {pricingPreview.vatAmount > 0 ? (
+                      <div className="flex justify-between">
+                        <span>VAT</span>
+                        <span>{formatMoney(pricingPreview.vatAmount, currency)}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex justify-between font-bold">
+                      <span>Invoice total</span>
+                      <span>{formatMoney(pricingPreview.total, currency)}</span>
+                    </div>
+                  </div>
+                ) : null}
+                <Button className="w-full rounded-xl" onClick={() => void handleSavePricing()} disabled={savingPricing}>
+                  {savingPricing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save pricing
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card className="border-border/50">
             <CardHeader>
@@ -401,14 +563,14 @@ export default function InvoiceDetailPage() {
               {paymentHistory.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {paid > 0
-                    ? "No per-payment timestamps yet (older payments). New Stripe and manual payments will appear here."
+                    ? "No per-payment timestamps yet (older payments). New card and manual payments will appear here."
                     : "No payments recorded yet."}
                 </p>
               ) : (
                 <ul className="space-y-3">
                   {paymentHistory.map((entry, idx) => {
                     const when = new Date(entry.paid_at);
-                    const label = entry.method === "stripe" ? "Stripe card" : "Manual";
+                    const label = entry.method === "stripe" ? "Card online" : "Manual";
                     const customerPaid =
                       entry.total_charged && entry.total_charged > 0
                         ? entry.total_charged
@@ -428,7 +590,7 @@ export default function InvoiceDetailPage() {
                         </div>
                         {entry.processing_fee != null && entry.processing_fee > 0 ? (
                           <div className="flex justify-between text-muted-foreground">
-                            <span>Card processing fee (customer)</span>
+                            <span>Processing fee</span>
                             <span>{formatMoney(entry.processing_fee, currency)}</span>
                           </div>
                         ) : null}
@@ -485,7 +647,7 @@ export default function InvoiceDetailPage() {
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  Sync payment from Stripe
+                  Sync online payment
                 </Button>
               ) : null}
               <div className="space-y-2 pt-2 border-t border-border/40">
@@ -534,7 +696,7 @@ export default function InvoiceDetailPage() {
                 Send invoice email
               </CardTitle>
               <CardDescription>
-                Includes the invoice PDF and a Stripe payment link for the charge amount below.
+                Includes the invoice PDF and a secure payment link for the charge amount below.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -548,7 +710,7 @@ export default function InvoiceDetailPage() {
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Stripe charge amount
+                  Payment amount (applied to invoice)
                 </Label>
                 <Input
                   type="number"
@@ -572,16 +734,48 @@ export default function InvoiceDetailPage() {
                       className="mt-0.5"
                     />
                     <div className="space-y-1 text-xs">
-                      <div className="font-semibold text-sm">Pass estimated card processing fee to customer</div>
+                      <div className="font-semibold text-sm">Add processing fee for customer</div>
                       <p className="text-muted-foreground">
-                        Checkout shows invoice/deposit plus a separate fee line. You still receive{" "}
+                        Customer pays invoice/deposit plus processing fee. You still receive{" "}
                         {formatMoney(chargeNet, currency)} toward the invoice.
                       </p>
+                      <div className="grid grid-cols-2 gap-2 pt-2">
+                        <div>
+                          <Label className="text-[10px] uppercase text-muted-foreground">Fee % (optional)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.1"
+                            placeholder={String(orgSettings?.stripe_card_fee_percent ?? 2.9)}
+                            className="h-9 rounded-lg mt-1"
+                            value={feePercentOverride}
+                            onChange={(e) => setFeePercentOverride(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] uppercase text-muted-foreground">Fixed fee ({currency})</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            placeholder={String(orgSettings?.stripe_card_fee_fixed ?? 1)}
+                            className="h-9 rounded-lg mt-1"
+                            value={feeFixedOverride}
+                            onChange={(e) => setFeeFixedOverride(e.target.value)}
+                          />
+                        </div>
+                      </div>
                       {feePreview && feePreview.fee > 0 ? (
-                        <p className="text-foreground font-medium">
-                          Customer pays about {formatMoney(feePreview.gross, currency)} (includes{" "}
-                          {formatMoney(feePreview.fee, currency)} fee).
-                        </p>
+                        <div className="rounded-lg bg-muted/30 p-2 mt-2 space-y-1 text-foreground font-medium">
+                          <div className="flex justify-between">
+                            <span>Processing fee</span>
+                            <span>{formatMoney(feePreview.fee, currency)}</span>
+                          </div>
+                          <div className="flex justify-between text-base font-black">
+                            <span>Customer pays total</span>
+                            <span>{formatMoney(feePreview.gross, currency)}</span>
+                          </div>
+                        </div>
                       ) : null}
                     </div>
                   </label>
