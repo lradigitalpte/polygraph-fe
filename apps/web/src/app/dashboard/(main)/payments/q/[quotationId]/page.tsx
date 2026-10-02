@@ -13,6 +13,7 @@ import {
   Mail,
   DollarSign,
   RefreshCw,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -21,6 +22,7 @@ import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +42,7 @@ import {
   syncQuotationStripePayment,
   type QuotationRecord,
 } from "@/lib/quotations";
+import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings } from "@/lib/settings";
 
 export default function InvoiceDetailPage() {
@@ -68,6 +71,7 @@ export default function InvoiceDetailPage() {
   const [recording, setRecording] = React.useState(false);
   const [syncingStripe, setSyncingStripe] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState("");
+  const [passProcessingFee, setPassProcessingFee] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     if (!Number.isFinite(quotationId) || quotationId <= 0) {
@@ -79,6 +83,9 @@ export default function InvoiceDetailPage() {
     ]);
     setQuote(q);
     setOrgSettings(org);
+    if (org?.pass_stripe_fees_to_customer != null) {
+      setPassProcessingFee(org.pass_stripe_fees_to_customer);
+    }
     return q;
   }, [quotationId]);
 
@@ -143,6 +150,31 @@ export default function InvoiceDetailPage() {
   const paid = Number(quote?.collected_amount || 0);
   const balance = Math.max(0, total - paid);
 
+  const chargeNet = React.useMemo(() => {
+    const parsed = Number(chargeAmount);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(parsed, balance);
+    }
+    return balance;
+  }, [chargeAmount, balance]);
+
+  const feePreview = React.useMemo(() => {
+    if (!passProcessingFee || chargeNet <= 0) {
+      return null;
+    }
+    return estimateStripeGrossCharge(
+      chargeNet,
+      orgSettings?.stripe_card_fee_percent ?? 2.9,
+      orgSettings?.stripe_card_fee_fixed ?? 1,
+    );
+  }, [passProcessingFee, chargeNet, orgSettings?.stripe_card_fee_percent, orgSettings?.stripe_card_fee_fixed]);
+
+  const paymentHistory = React.useMemo(() => {
+    const rows = [...(quote?.payment_history || [])];
+    rows.sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime());
+    return rows;
+  }, [quote?.payment_history]);
+
   const rebuildBody = (nextCharge: string) => {
     if (!quote) return;
     const parsed = Number(nextCharge);
@@ -184,7 +216,7 @@ export default function InvoiceDetailPage() {
         to_email: toEmail.trim(),
         subject: subject.trim(),
         body: body.trim(),
-        ...(balance > 0 ? { charge_amount: charge } : {}),
+        ...(balance > 0 ? { charge_amount: charge, pass_processing_fee: passProcessingFee } : {}),
       });
       await reload();
       if (result?.payment_url) {
@@ -359,6 +391,65 @@ export default function InvoiceDetailPage() {
 
           <Card className="border-border/50">
             <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                Payment history
+              </CardTitle>
+              <CardDescription>Each line shows what was applied to this invoice and when.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {paymentHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {paid > 0
+                    ? "No per-payment timestamps yet (older payments). New Stripe and manual payments will appear here."
+                    : "No payments recorded yet."}
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {paymentHistory.map((entry, idx) => {
+                    const when = new Date(entry.paid_at);
+                    const label = entry.method === "stripe" ? "Stripe card" : "Manual";
+                    const customerPaid =
+                      entry.total_charged && entry.total_charged > 0
+                        ? entry.total_charged
+                        : entry.amount + (entry.processing_fee || 0);
+                    return (
+                      <li
+                        key={`${entry.paid_at}-${idx}`}
+                        className="rounded-xl border border-border/40 bg-muted/10 p-3 text-sm space-y-1"
+                      >
+                        <div className="flex justify-between gap-2 font-semibold">
+                          <span>{when.toLocaleString()}</span>
+                          <span>{label}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Applied to invoice</span>
+                          <span className="text-foreground font-medium">{formatMoney(entry.amount, currency)}</span>
+                        </div>
+                        {entry.processing_fee != null && entry.processing_fee > 0 ? (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Card processing fee (customer)</span>
+                            <span>{formatMoney(entry.processing_fee, currency)}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Customer paid</span>
+                          <span>{formatMoney(customerPaid, currency)}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <div className="flex justify-between border-t border-border/40 pt-3 text-sm font-bold">
+                <span>Balance remaining</span>
+                <span>{formatMoney(balance, currency)}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader>
               <CardTitle className="text-lg">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -473,6 +564,28 @@ export default function InvoiceDetailPage() {
                 <p className="text-xs text-muted-foreground">
                   Enter a deposit (e.g. 100) or the full balance. Message updates automatically.
                 </p>
+                {balance > 0 ? (
+                  <label className="flex items-start gap-3 rounded-xl border border-border/40 p-3 mt-2">
+                    <Checkbox
+                      checked={passProcessingFee}
+                      onCheckedChange={(checked) => setPassProcessingFee(Boolean(checked))}
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-1 text-xs">
+                      <div className="font-semibold text-sm">Pass estimated card processing fee to customer</div>
+                      <p className="text-muted-foreground">
+                        Checkout shows invoice/deposit plus a separate fee line. You still receive{" "}
+                        {formatMoney(chargeNet, currency)} toward the invoice.
+                      </p>
+                      {feePreview && feePreview.fee > 0 ? (
+                        <p className="text-foreground font-medium">
+                          Customer pays about {formatMoney(feePreview.gross, currency)} (includes{" "}
+                          {formatMoney(feePreview.fee, currency)} fee).
+                        </p>
+                      ) : null}
+                    </div>
+                  </label>
+                ) : null}
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Message</Label>

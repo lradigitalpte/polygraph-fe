@@ -40,6 +40,9 @@ export default function SettingsPage() {
   const [usdGbpRate, setUsdGbpRate] = React.useState("0.7850");
   const [usdEurRate, setUsdEurRate] = React.useState("0.9250");
   const [sundayBookingsEnabled, setSundayBookingsEnabled] = React.useState(false);
+  const [passStripeFees, setPassStripeFees] = React.useState(false);
+  const [stripeFeePercent, setStripeFeePercent] = React.useState("2.9");
+  const [stripeFeeFixed, setStripeFeeFixed] = React.useState("1");
   const [website, setWebsite] = React.useState("");
   const [logo, setLogo] = React.useState("");
   const [logoChanged, setLogoChanged] = React.useState(false);
@@ -59,6 +62,9 @@ export default function SettingsPage() {
         setUsdGbpRate(String(org.usd_gbp_rate ?? 0.7850));
         setUsdEurRate(String(org.usd_eur_rate ?? 0.9250));
         setSundayBookingsEnabled(org.sunday_bookings_enabled ?? false);
+        setPassStripeFees(org.pass_stripe_fees_to_customer ?? false);
+        setStripeFeePercent(String(org.stripe_card_fee_percent ?? 2.9));
+        setStripeFeeFixed(String(org.stripe_card_fee_fixed ?? 1));
         setWebsite(org.website ?? "");
         setLogo(org.logo_data_url ?? "");
       } catch (err) {
@@ -82,6 +88,9 @@ export default function SettingsPage() {
         usd_gbp_rate: parseFloat(usdGbpRate) || 0.7850,
         usd_eur_rate: parseFloat(usdEurRate) || 0.9250,
         sunday_bookings_enabled: sundayBookingsEnabled,
+        pass_stripe_fees_to_customer: passStripeFees,
+        stripe_card_fee_percent: parseFloat(stripeFeePercent) || 2.9,
+        stripe_card_fee_fixed: parseFloat(stripeFeeFixed) || 1,
         website: website.trim(),
         ...(logoChanged ? { logo_data_url: logo } : {}),
       });
@@ -281,6 +290,43 @@ export default function SettingsPage() {
                       step="0.0001"
                       value={usdEurRate}
                       onChange={(e) => setUsdEurRate(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3 rounded-lg border p-4">
+                <label className="flex items-center gap-3">
+                  <Checkbox
+                    checked={passStripeFees}
+                    onCheckedChange={(checked) => setPassStripeFees(Boolean(checked))}
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Pass card processing fee to customer (Stripe)</div>
+                    <div className="text-xs text-muted-foreground">
+                      Adds a separate “Card processing fee” line on Checkout. The invoice still credits the deposit/balance
+                      amount only — confirm this matches your local rules before enabling.
+                    </div>
+                  </div>
+                </label>
+                <div className="grid grid-cols-2 gap-3 pl-7">
+                  <div className="grid gap-1">
+                    <Label htmlFor="stripe-fee-percent">Estimated fee %</Label>
+                    <Input
+                      id="stripe-fee-percent"
+                      type="number"
+                      step="0.1"
+                      value={stripeFeePercent}
+                      onChange={(e) => setStripeFeePercent(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <Label htmlFor="stripe-fee-fixed">Fixed fee ({currency})</Label>
+                    <Input
+                      id="stripe-fee-fixed"
+                      type="number"
+                      step="0.01"
+                      value={stripeFeeFixed}
+                      onChange={(e) => setStripeFeeFixed(e.target.value)}
                     />
                   </div>
                 </div>

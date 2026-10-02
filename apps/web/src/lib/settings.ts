@@ -15,6 +15,9 @@ export type OrganizationSettings = {
   usd_gbp_rate?: number;
   usd_eur_rate?: number;
   sunday_bookings_enabled?: boolean;
+  pass_stripe_fees_to_customer?: boolean;
+  stripe_card_fee_percent?: number;
+  stripe_card_fee_fixed?: number;
   created_at: string;
   updated_at: string;
 };
@@ -38,6 +41,9 @@ export async function updateOrganizationSettings(input: {
   usd_gbp_rate?: number;
   usd_eur_rate?: number;
   sunday_bookings_enabled?: boolean;
+  pass_stripe_fees_to_customer?: boolean;
+  stripe_card_fee_percent?: number;
+  stripe_card_fee_fixed?: number;
   website?: string;
   /** Omit to keep the current logo, "" to remove it. */
   logo_data_url?: string;

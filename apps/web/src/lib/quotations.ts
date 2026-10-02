@@ -1,5 +1,14 @@
 import { authenticatedFetch } from "@/lib/api-client";
 
+export type QuotationPaymentEntry = {
+  paid_at: string;
+  amount: number;
+  processing_fee?: number;
+  total_charged?: number;
+  method: string;
+  stripe_session_id?: string;
+};
+
 export type QuotationRecord = {
   id: number;
   code: string;
@@ -19,6 +28,7 @@ export type QuotationRecord = {
   stripe_checkout_session_id?: string;
   stripe_payment_intent_id?: string;
   stripe_payment_link_url?: string;
+  payment_history?: QuotationPaymentEntry[];
   client?: {
     id: number;
     name: string;
@@ -75,6 +85,7 @@ export async function sendQuotationEmail(
     subject?: string;
     body?: string;
     charge_amount?: number;
+    pass_processing_fee?: boolean;
   }
 ): Promise<{ payment_url?: string; stripe_checkout_session_id?: string }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/send-email`, {
