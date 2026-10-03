@@ -31,7 +31,7 @@ import {
   isAgreementRequestOpen,
 } from "@/lib/agreements";
 import { deleteInvoice } from "@/lib/billing";
-import { collectAppointmentPayment, formatMoney } from "@/lib/client-account";
+import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { downloadQuotationPdfFromData } from "@/lib/invoice-pdf";
 import {
@@ -43,7 +43,7 @@ import {
   updateQuotation,
   type QuotationRecord,
 } from "@/lib/quotations";
-import { computeQuotationTotal } from "@/lib/quotation-pricing";
+import { computeQuotationTotal, normalizedQuotationAmounts } from "@/lib/quotation-pricing";
 import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
 
@@ -101,8 +101,10 @@ export default function InvoiceDetailPage() {
         const { q, org } = await reload();
         if (cancelled) return;
         const currency = (q.currency || org?.currency || "AED").toUpperCase();
-        const balance = Math.max(0, Number(q.amount) - Number(q.collected_amount || 0));
-        const charge = Number(balance.toFixed(2));
+        const priced = normalizedQuotationAmounts(q);
+        const paidNow = wholeMoneyAmount(Number(q.collected_amount || 0));
+        const balance = Math.max(0, priced.total - paidNow);
+        const charge = balance;
         let link = "";
         if (q.appointment_id && q.client_id) {
           try {
@@ -119,13 +121,9 @@ export default function InvoiceDetailPage() {
           }
         }
         if (cancelled) return;
-        const sub =
-          Number(q.subtotal_amount) > 0
-            ? Number(q.subtotal_amount)
-            : Math.max(0, Number(q.amount) - Number(q.vat_amount || 0));
         setEditTitle(q.title || "");
-        setEditSubtotal(String(sub));
-        setEditDiscount(String(Number(q.discount_amount || 0)));
+        setEditSubtotal(String(priced.subtotal));
+        setEditDiscount(String(priced.discountAmount));
         setEditVatRate(String(Number(q.vat_rate || org?.default_vat_rate || 5)));
         setEditIncludeVat(Number(q.vat_amount || 0) > 0 || Number(q.vat_rate || 0) > 0);
         setAgreementLink(link);
@@ -138,8 +136,8 @@ export default function InvoiceDetailPage() {
             clientName: q.client?.name || "there",
             code: q.code,
             currency,
-            totalAmount: Number(q.amount),
-            paidAmount: Number(q.collected_amount || 0),
+            totalAmount: priced.total,
+            paidAmount: paidNow,
             chargeAmount: charge,
             agreementLink: link || undefined,
           }),
@@ -159,12 +157,20 @@ export default function InvoiceDetailPage() {
   }, [reload, router]);
 
   const currency = (quote?.currency || orgSettings?.currency || "AED").toUpperCase();
-  const total = Number(quote?.amount || 0);
-  const paid = Number(quote?.collected_amount || 0);
+  const quoteAmounts = React.useMemo(
+    () => (quote ? normalizedQuotationAmounts(quote) : null),
+    [quote],
+  );
+  const total = quoteAmounts?.total ?? 0;
+  const paid = wholeMoneyAmount(Number(quote?.collected_amount || 0));
   const balance = Math.max(0, total - paid);
+  const displaySubtotal = quoteAmounts?.subtotal ?? 0;
+  const displayDiscount = quoteAmounts?.discountAmount ?? 0;
+  const displayVat = quoteAmounts?.vatAmount ?? 0;
+  const displayVatRate = quoteAmounts?.vatRate ?? Number(quote?.vat_rate || 0);
 
   const chargeNet = React.useMemo(() => {
-    const parsed = Number(chargeAmount);
+    const parsed = wholeMoneyAmount(Number(chargeAmount));
     if (Number.isFinite(parsed) && parsed > 0) {
       return Math.min(parsed, balance);
     }
@@ -298,11 +304,15 @@ export default function InvoiceDetailPage() {
         name: quote.client?.name || `Client #${quote.client_id}`,
         email: quote.client?.email,
       },
-      items: [{ description: quote.title || "Polygraph services", amount: Number(quote.subtotal_amount || total) }],
-      subtotal: Number(quote.subtotal_amount || total),
+      items: [{ description: quote.title || "Polygraph services", amount: displaySubtotal || total }],
+      subtotal: displaySubtotal || total,
+      discount:
+        displayDiscount > 0
+          ? { label: "Discount", amount: displayDiscount }
+          : undefined,
       vat:
-        Number(quote.vat_amount || 0) > 0
-          ? { rate: Number(quote.vat_rate || 0), amount: Number(quote.vat_amount) }
+        displayVat > 0
+          ? { rate: displayVatRate, amount: displayVat }
           : undefined,
       total,
       paidAmount: paid,
@@ -440,17 +450,23 @@ export default function InvoiceDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {Number(quote.subtotal_amount || 0) > 0 && Number(quote.vat_amount || 0) > 0 ? (
-                <>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal</span>
-                    <span>{formatMoney(Number(quote.subtotal_amount), currency)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">VAT ({Number(quote.vat_rate || 0)}%)</span>
-                    <span>{formatMoney(Number(quote.vat_amount), currency)}</span>
-                  </div>
-                </>
+              {displaySubtotal > 0 ? (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>{formatMoney(displaySubtotal, currency)}</span>
+                </div>
+              ) : null}
+              {displayDiscount > 0 ? (
+                <div className="flex justify-between text-sm text-rose-600">
+                  <span className="text-muted-foreground">Discount</span>
+                  <span className="font-semibold">-{formatMoney(displayDiscount, currency)}</span>
+                </div>
+              ) : null}
+              {displayVat > 0 ? (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">VAT ({displayVatRate}%)</span>
+                  <span>{formatMoney(displayVat, currency)}</span>
+                </div>
               ) : null}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total</span>
@@ -531,6 +547,12 @@ export default function InvoiceDetailPage() {
                 </div>
                 {pricingPreview ? (
                   <div className="rounded-xl border border-border/40 bg-muted/10 p-3 text-sm space-y-1">
+                    {pricingPreview.discountAmount > 0 ? (
+                      <div className="flex justify-between text-rose-600">
+                        <span>Discount</span>
+                        <span>-{formatMoney(pricingPreview.discountAmount, currency)}</span>
+                      </div>
+                    ) : null}
                     {pricingPreview.vatAmount > 0 ? (
                       <div className="flex justify-between">
                         <span>VAT</span>

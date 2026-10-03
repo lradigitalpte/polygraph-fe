@@ -32,6 +32,7 @@ import { catalogPriceInCurrency, formatMoney } from "@/lib/client-account";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { createQuotation } from "@/lib/quotations";
 import { computeQuotationTotal } from "@/lib/quotation-pricing";
+import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings } from "@/lib/settings";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 
@@ -48,6 +49,9 @@ export default function NewQuotationPage() {
     usd_gbp_rate?: number;
     usd_eur_rate?: number;
   }>({});
+  const [passProcessingFeeToCustomer, setPassProcessingFeeToCustomer] = React.useState(false);
+  const [cardFeePercent, setCardFeePercent] = React.useState(2.9);
+  const [cardFeeFixed, setCardFeeFixed] = React.useState(1);
 
   const [form, setForm] = React.useState({
     client: null as ClientRecord | null,
@@ -88,6 +92,9 @@ export default function NewQuotationPage() {
           usd_gbp_rate: org?.usd_gbp_rate,
           usd_eur_rate: org?.usd_eur_rate,
         });
+        setPassProcessingFeeToCustomer(Boolean(org?.pass_stripe_fees_to_customer));
+        setCardFeePercent(org?.stripe_card_fee_percent ?? 2.9);
+        setCardFeeFixed(org?.stripe_card_fee_fixed ?? 1);
         setForm((f) => ({
           ...f,
           currency,
@@ -153,6 +160,13 @@ export default function NewQuotationPage() {
       total: priced.total,
     };
   }, [form, orgSettings]);
+
+  const onlinePaymentPreview = React.useMemo(() => {
+    if (!preview || !passProcessingFeeToCustomer || preview.total <= 0) {
+      return null;
+    }
+    return estimateStripeGrossCharge(preview.total, cardFeePercent, cardFeeFixed);
+  }, [preview, passProcessingFeeToCustomer, cardFeePercent, cardFeeFixed]);
 
   const handleCreate = async () => {
     if (!form.client || !form.examType || !preview) {
@@ -437,6 +451,27 @@ export default function NewQuotationPage() {
                 <span>Total</span>
                 <span>{formatMoney(preview.total, form.currency)}</span>
               </div>
+              {onlinePaymentPreview ? (
+                <div className="mt-3 rounded-xl border border-amber-200/70 bg-amber-50/60 dark:bg-amber-950/20 p-3 space-y-1.5 text-xs">
+                  <p className="font-bold text-amber-950 dark:text-amber-100">
+                    If the customer pays by card (processing fee passed through)
+                  </p>
+                  <div className="flex justify-between">
+                    <span>Processing fee (est.)</span>
+                    <span className="font-semibold">
+                      {formatMoney(onlinePaymentPreview.fee, form.currency)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between font-bold">
+                    <span>Customer pays online</span>
+                    <span>{formatMoney(onlinePaymentPreview.gross, form.currency)}</span>
+                  </div>
+                  <p className="text-muted-foreground pt-1">
+                    You still receive {formatMoney(preview.total, form.currency)} toward this invoice when they pay
+                    the full balance.
+                  </p>
+                </div>
+              ) : null}
             </div>
           )}
 

@@ -89,6 +89,12 @@ export function paymentBalance(total: number, paid: number) {
  * - Cross-currency conversion rounds UP to a whole unit (no .xx fils/cents after FX).
  * - Use ledgerRowMoney() for ledger rows; it converts at most once when currencies differ.
  */
+/** Round up to a whole currency unit (display/storage as X.00, no fractional fils/cents). */
+export function wholeMoneyAmount(amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return Math.ceil(amount - 1e-9);
+}
+
 export function formatMoney(amount: number, currency = "USD") {
   const cleanCurrency = (currency || "USD").toUpperCase();
   try {
