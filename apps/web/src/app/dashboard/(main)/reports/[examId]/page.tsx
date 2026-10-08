@@ -65,6 +65,7 @@ import {
   reportVerdictWordingDescription,
   resolveExamDate,
   splitSignerCaptionLines,
+  syncOpinionPhaseTextWithVerdict,
   verdictColorClass,
   type ReportContent,
   type ReportSessionContext,
@@ -212,15 +213,22 @@ export default function ReportBuilderPage() {
       gender: string,
       wording: ReportVerdictWording,
       startTime: string,
+      verdictValue = "NDI",
     ) => {
       const content = applyReportFieldDefaults(
         buildReportFromTemplate(ctx, template, {
           subjectGender: gender,
           identityDocType: "passport",
           cooperationMode: "cooperated",
-          verdictLabel: formatVerdictOptionLabel("NDI", wording),
+          verdictLabel: formatVerdictOptionLabel(verdictValue, wording),
           examStartTime: startTime,
         }),
+      );
+      content.opinion_phase_text = syncOpinionPhaseTextWithVerdict(
+        content.opinion_phase_text,
+        verdictValue,
+        wording,
+        ctx.subjectName,
       );
       applyReportContent(content);
       setSelectedTemplateId(String(template.id));
@@ -240,17 +248,26 @@ export default function ReportBuilderPage() {
   const applySavedReport = React.useCallback(
     (
       report: NonNullable<Awaited<ReturnType<typeof fetchReport>>>,
-      ctx: ReportSessionContext
+      ctx: ReportSessionContext,
+      wording: ReportVerdictWording,
     ) => {
       const fallback = buildEmptyReportContent(ctx);
-      setVerdict(report.verdict || "NDI");
+      const verdictValue = report.verdict || "NDI";
+      setVerdict(verdictValue);
       setIsLocked(Boolean(report.is_locked));
       setLockedAt(report.locked_at ?? null);
 
       try {
-        applyReportContent(parseReportContent(report.content, fallback));
+        const parsed = parseReportContent(report.content, fallback);
+        parsed.opinion_phase_text = syncOpinionPhaseTextWithVerdict(
+          parsed.opinion_phase_text,
+          verdictValue,
+          wording,
+          ctx.subjectName,
+        );
+        applyReportContent(parsed);
       } catch {
-        applyReportDefaults(ctx, report.verdict || "NDI");
+        applyReportDefaults(ctx, verdictValue);
       }
       setIncludeCredentials(Boolean(report.include_credentials));
       setLockedCredentialsText(report.credentials_text || "");
@@ -260,7 +277,17 @@ export default function ReportBuilderPage() {
           defaultSignerCaptionFromProfile(report.signer_title, report.signer_organization),
       );
     },
-    [applyReportContent, applyReportDefaults]
+    [applyReportContent, applyReportDefaults],
+  );
+
+  const handleVerdictChange = React.useCallback(
+    (newVerdict: string) => {
+      setVerdict(newVerdict);
+      setOpinionPhaseText((prev) =>
+        syncOpinionPhaseTextWithVerdict(prev, newVerdict, verdictWording, subjectName),
+      );
+    },
+    [subjectName, verdictWording],
   );
 
   // Load exam context + any saved report
@@ -310,7 +337,7 @@ export default function ReportBuilderPage() {
 
         if (report) {
           setHasSavedReport(true);
-          applySavedReport(report, ctx);
+          applySavedReport(report, ctx, wording);
         } else {
           setHasSavedReport(false);
           const template = client?.default_report_template_id
@@ -334,7 +361,15 @@ export default function ReportBuilderPage() {
               const parsed = JSON.parse(localDraft) as { verdict: string; content: ReportContent; savedAt: string };
               if (parsed.content && parsed.verdict) {
                 setVerdict(parsed.verdict);
-                applyReportContent(parsed.content);
+                applyReportContent({
+                  ...parsed.content,
+                  opinion_phase_text: syncOpinionPhaseTextWithVerdict(
+                    parsed.content.opinion_phase_text,
+                    parsed.verdict,
+                    wording,
+                    ctx.subjectName,
+                  ),
+                });
                 toast.info(`Recovered an unsaved local draft from ${new Date(parsed.savedAt).toLocaleString()}.`);
               }
             }
@@ -379,6 +414,7 @@ export default function ReportBuilderPage() {
       subjectGender,
       verdictWording,
       examStartTime || formatClinicClock(new Date()),
+      verdict,
     );
     setTemplatePickerOpen(false);
     toast.success(`Loaded template: ${template.name}`);
@@ -892,7 +928,7 @@ export default function ReportBuilderPage() {
               </p>
               <Select
                 value={verdict}
-                onValueChange={(val) => setVerdict(String(val))}
+                onValueChange={(val) => handleVerdictChange(String(val))}
                 disabled={readOnly}
               >
                 <SelectTrigger className="rounded-xl h-11 bg-background">
@@ -904,6 +940,9 @@ export default function ReportBuilderPage() {
                   <SelectItem value="Inconclusive">{formatVerdictOptionLabel("Inconclusive", verdictWording)}</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[10px] text-muted-foreground">
+                Changing the verdict updates the Truthful / Not Truthful phrase in Section 3 opinion notes.
+              </p>
             </div>
 
             {/* Section 1: Pre-Examination */}

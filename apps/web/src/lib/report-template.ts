@@ -465,6 +465,62 @@ export function formatVerdictOptionLabel(verdict: string, wording: ReportVerdict
   return "Inconclusive";
 }
 
+/** Wording embedded in Section 3 (“concluded as …”), not the bold RESULT line. */
+export function verdictConclusionInOpinion(verdict: string, wording: ReportVerdictWording = "plain"): string {
+  return formatVerdictOptionLabel(verdict, wording);
+}
+
+const OPINION_VERDICT_TAIL =
+  /Truthful|Not Truthful|Inconclusive|No Deception Indicated \(NDI\)|Deception Indicated \(DI\)|TRUTHFUL|NOT TRUTHFUL|INCONCLUSIVE|\{\{verdict_label\}\}/i;
+
+export function defaultOpinionPhaseText(
+  subjectName: string,
+  verdict: string,
+  wording: ReportVerdictWording = "plain",
+): string {
+  const label = verdictConclusionInOpinion(verdict, wording);
+  const name = (subjectName || "").trim() || "{{subject_name}}";
+  return `Based on the diagnostic evaluations and analysis of the polygrams, I am of the opinion that the examination conducted on ${name} concluded as ${label}.`;
+}
+
+/** Keeps examiner edits but swaps the conclusion phrase when the verdict dropdown changes. */
+export function syncOpinionPhaseTextWithVerdict(
+  text: string,
+  verdict: string,
+  wording: ReportVerdictWording = "plain",
+  subjectName?: string,
+): string {
+  const label = verdictConclusionInOpinion(verdict, wording);
+  const trimmed = (text || "").trim();
+  if (!trimmed) {
+    return defaultOpinionPhaseText(subjectName || "", verdict, wording);
+  }
+
+  const concluded = /(\bconcluded as\s+)([^.]+?)(\.\s*$|\.$|$)/i;
+  if (concluded.test(trimmed)) {
+    return trimmed.replace(concluded, `$1${label}$3`);
+  }
+
+  const concludedAlt = /(\bin the opinion that the examination on .+? concluded as\s+)([^.]+?)(\.\s*$|\.$|$)/i;
+  if (concludedAlt.test(trimmed)) {
+    return trimmed.replace(concludedAlt, `$1${label}$3`);
+  }
+
+  const asTail = new RegExp(
+    `(\\bas\\s+)(${OPINION_VERDICT_TAIL.source})(\\.\\s*$|\\.$|$)`,
+    "i",
+  );
+  if (asTail.test(trimmed)) {
+    return trimmed.replace(asTail, `$1${label}$3`);
+  }
+
+  if (trimmed.includes("{{verdict_label}}")) {
+    return trimmed.replaceAll("{{verdict_label}}", label);
+  }
+
+  return trimmed;
+}
+
 export function reportVerdictWordingDescription(wording: ReportVerdictWording): string {
   return wording === "forensic"
     ? "Reports print Deception Indicated / No Deception Indicated."
