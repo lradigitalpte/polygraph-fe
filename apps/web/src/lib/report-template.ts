@@ -473,6 +473,9 @@ export function verdictConclusionInOpinion(verdict: string, wording: ReportVerdi
 const OPINION_VERDICT_TAIL =
   /Truthful|Not Truthful|Inconclusive|No Deception Indicated \(NDI\)|Deception Indicated \(DI\)|TRUTHFUL|NOT TRUTHFUL|INCONCLUSIVE|\{\{verdict_label\}\}/i;
 
+/** Opening bold/italic/underline tags that may sit just before the verdict word. */
+const OPTIONAL_INLINE_TAGS = "(?:<(?:strong|b|em|i|u)>)*";
+
 export function defaultOpinionPhaseText(
   subjectName: string,
   verdict: string,
@@ -496,22 +499,20 @@ export function syncOpinionPhaseTextWithVerdict(
     return defaultOpinionPhaseText(subjectName || "", verdict, wording);
   }
 
-  const concluded = /(\bconcluded as\s+)([^.]+?)(\.\s*$|\.$|$)/i;
+  // The opinion is rich text (editor HTML such as "<p>… concluded as Truthful.</p>"),
+  // so the verdict ends at a full stop or the next tag, not at the end of the text.
+  // It may also be wrapped in bold, italic or underline.
+  const concluded = new RegExp(`(\\bconcluded as\\s+${OPTIONAL_INLINE_TAGS})([^.<]+?)(?=\\s*(?:[.<]|$))`, "i");
   if (concluded.test(trimmed)) {
-    return trimmed.replace(concluded, `$1${label}$3`);
-  }
-
-  const concludedAlt = /(\bin the opinion that the examination on .+? concluded as\s+)([^.]+?)(\.\s*$|\.$|$)/i;
-  if (concludedAlt.test(trimmed)) {
-    return trimmed.replace(concludedAlt, `$1${label}$3`);
+    return trimmed.replace(concluded, `$1${label}`);
   }
 
   const asTail = new RegExp(
-    `(\\bas\\s+)(${OPINION_VERDICT_TAIL.source})(\\.\\s*$|\\.$|$)`,
+    `(\\bas\\s+${OPTIONAL_INLINE_TAGS})(${OPINION_VERDICT_TAIL.source})(?=\\s*(?:[.<]|$))`,
     "i",
   );
   if (asTail.test(trimmed)) {
-    return trimmed.replace(asTail, `$1${label}$3`);
+    return trimmed.replace(asTail, `$1${label}`);
   }
 
   if (trimmed.includes("{{verdict_label}}")) {
