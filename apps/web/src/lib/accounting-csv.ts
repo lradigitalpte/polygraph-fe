@@ -1,5 +1,5 @@
 import type { Expense, SalesReport, VatReturnReport } from "@/lib/accounting";
-import { toDateInputValue } from "@/lib/accounting";
+import { toDateInputValue, toDateInputValueUTC } from "@/lib/accounting";
 
 /** RFC4180-style CSV with UTF-8 BOM for Excel. */
 export function downloadCsvFile(filename: string, rows: string[][]) {
@@ -87,7 +87,7 @@ export function buildVatReturnCsvRows(report: VatReturnReport, from: string, to:
     ...report.output_lines.map((l) => [
       l.invoice_code,
       l.client_name,
-      toDateInputValue(new Date(l.paid_at)),
+      toDateInputValueUTC(new Date(l.paid_at)),
       l.method,
       String(l.gross_paid),
       String(l.ex_vat_portion),
@@ -143,7 +143,7 @@ export function buildSalesReportCsvRows(report: SalesReport, from: string, to: s
     ...report.lines.map((l) => [
       l.invoice_code,
       l.client_name,
-      toDateInputValue(new Date(l.paid_at)),
+      toDateInputValueUTC(new Date(l.paid_at)),
       l.method,
       l.has_vat ? "Yes" : "No",
       l.has_vat ? String(l.vat_rate) : "",

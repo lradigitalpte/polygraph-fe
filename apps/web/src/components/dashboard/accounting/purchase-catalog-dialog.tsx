@@ -208,7 +208,7 @@ export function PurchaseCatalogDialog({ open, onOpenChange, onChanged }: Props) 
               <Label>VAT</Label>
               <Select
                 value={form.vat_mode || "rate"}
-                onValueChange={(v) => setForm((f) => ({ ...f, vat_mode: v }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, vat_mode: String(v) }))}
               >
                 <SelectTrigger>
                   <SelectValue />

@@ -17,6 +17,10 @@ import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { AccountingShell } from "@/components/dashboard/accounting/accounting-shell";
 import { MetricCard } from "@/components/dashboard/accounting/metric-card";
+import {
+  AccountingTablePagination,
+  useAccountingPagination,
+} from "@/components/dashboard/accounting/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,6 +58,8 @@ export default function VatReturnsPage() {
   const [report, setReport] = React.useState<VatReturnReport | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [initialLoad, setInitialLoad] = React.useState(true);
+  const [outputPageSize, setOutputPageSize] = React.useState(10);
+  const [inputPageSize, setInputPageSize] = React.useState(10);
 
   React.useEffect(() => {
     if (!userLoading && !can("accounting:view")) {
@@ -82,6 +88,15 @@ export default function VatReturnsPage() {
       void load();
     }
   }, [userLoading, can, load]);
+
+  const outputLineCount = report?.output_lines?.length ?? 0;
+  const inputLineCount = report?.input_lines?.length ?? 0;
+  const outputPagination = useAccountingPagination(outputLineCount, outputPageSize);
+  const inputPagination = useAccountingPagination(inputLineCount, inputPageSize);
+  const pagedOutputLines =
+    report?.output_lines?.slice(outputPagination.sliceStart, outputPagination.sliceEnd) ?? [];
+  const pagedInputLines =
+    report?.input_lines?.slice(inputPagination.sliceStart, inputPagination.sliceEnd) ?? [];
 
   function applyMonth(offset: number) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
@@ -245,7 +260,7 @@ export default function VatReturnsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {report.output_lines.map((line, i) => (
+                      {pagedOutputLines.map((line, i) => (
                         <TableRow key={`${line.quotation_id}-${line.paid_at}-${i}`}>
                           <TableCell>
                             <Link
@@ -296,6 +311,15 @@ export default function VatReturnsPage() {
                       </TableRow>
                     </TableFooter>
                   </Table>
+                  <AccountingTablePagination
+                    currentPage={outputPagination.page}
+                    totalPages={outputPagination.totalPages}
+                    totalItems={outputLineCount}
+                    pageSize={outputPageSize}
+                    onPageChange={outputPagination.setPage}
+                    onPageSizeChange={setOutputPageSize}
+                    label="sales lines"
+                  />
                 </div>
               )}
             </CardContent>
@@ -328,7 +352,7 @@ export default function VatReturnsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {report.input_lines.map((line) => (
+                      {pagedInputLines.map((line) => (
                         <TableRow key={line.expense_id}>
                           <TableCell className="tabular-nums whitespace-nowrap">
                             {toDateInputValue(new Date(line.expense_date))}
@@ -370,6 +394,15 @@ export default function VatReturnsPage() {
                       </TableRow>
                     </TableFooter>
                   </Table>
+                  <AccountingTablePagination
+                    currentPage={inputPagination.page}
+                    totalPages={inputPagination.totalPages}
+                    totalItems={inputLineCount}
+                    pageSize={inputPageSize}
+                    onPageChange={inputPagination.setPage}
+                    onPageSizeChange={setInputPageSize}
+                    label="expense lines"
+                  />
                 </div>
               )}
             </CardContent>

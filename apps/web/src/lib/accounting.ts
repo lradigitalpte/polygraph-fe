@@ -238,7 +238,7 @@ export async function fetchPaymentMethods(): Promise<ExpensePaymentMethod[]> {
 export async function fetchPurchaseItems(search?: string, includeInactive = false): Promise<ExpensePurchaseItem[]> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
-  if includeInactive) params.set("include_inactive", "true");
+  if (includeInactive) params.set("include_inactive", "true");
   const qs = params.toString();
   const response = await authenticatedFetch(`/api/accounting/purchase-items${qs ? `?${qs}` : ""}`);
   if (!response.ok) throw new Error("Failed to load purchase items");
@@ -368,6 +368,14 @@ export function toDateInputValue(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Calendar date in UTC — matches accounting report period boundaries. */
+export function toDateInputValueUTC(d: Date) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 

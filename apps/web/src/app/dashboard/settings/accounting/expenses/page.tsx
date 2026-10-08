@@ -19,9 +19,14 @@ import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { AccountingShell } from "@/components/dashboard/accounting/accounting-shell";
 import { ExpenseFormDialog } from "@/components/dashboard/accounting/expense-form-dialog";
 import { MetricCard } from "@/components/dashboard/accounting/metric-card";
+import {
+  AccountingTablePagination,
+  useAccountingPagination,
+} from "@/components/dashboard/accounting/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -85,6 +90,7 @@ export default function AccountingExpensesPage() {
   const [deleting, setDeleting] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
   const [search, setSearch] = React.useState("");
+  const [pageSize, setPageSize] = React.useState(10);
 
   const now = new Date();
   const defaultRange = monthRange(now.getFullYear(), now.getMonth());
@@ -152,6 +158,12 @@ export default function AccountingExpensesPage() {
         item.category.toLowerCase().includes(q)
     );
   }, [items, search]);
+
+  const { page, setPage, totalPages, sliceStart, sliceEnd } = useAccountingPagination(
+    filtered.length,
+    pageSize
+  );
+  const pagedExpenses = filtered.slice(sliceStart, sliceEnd);
 
   const totals = React.useMemo(() => {
     let exVat = 0;
@@ -350,7 +362,7 @@ export default function AccountingExpensesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((item) => (
+                  {pagedExpenses.map((item) => (
                     <TableRow key={item.id} className="group">
                       <TableCell className="whitespace-nowrap tabular-nums">
                         {toDateInputValue(new Date(item.expense_date))}
@@ -415,6 +427,15 @@ export default function AccountingExpensesPage() {
                   ))}
                 </TableBody>
               </Table>
+              <AccountingTablePagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={filtered.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                label="expenses"
+              />
             </div>
           )}
         </CardContent>

@@ -14,6 +14,10 @@ import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { AccountingShell } from "@/components/dashboard/accounting/accounting-shell";
 import { MetricCard } from "@/components/dashboard/accounting/metric-card";
+import {
+  AccountingTablePagination,
+  useAccountingPagination,
+} from "@/components/dashboard/accounting/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,7 +38,7 @@ import {
   formatMoney,
   monthRange,
   quarterRange,
-  toDateInputValue,
+  toDateInputValueUTC,
   type SalesReport,
 } from "@/lib/accounting";
 import { buildSalesReportCsvRows, downloadCsvFile } from "@/lib/accounting-csv";
@@ -55,6 +59,7 @@ export default function SalesReportPage() {
   const [loading, setLoading] = React.useState(false);
   const [initialLoad, setInitialLoad] = React.useState(true);
   const [vatFilter, setVatFilter] = React.useState<VatFilter>("all");
+  const [pageSize, setPageSize] = React.useState(10);
 
   React.useEffect(() => {
     if (!userLoading && !can("accounting:view")) {
@@ -103,6 +108,12 @@ export default function SalesReportPage() {
     }
     return { gross, ex, vat, count: visibleLines.length };
   }, [visibleLines]);
+
+  const { page, setPage, totalPages, sliceStart, sliceEnd } = useAccountingPagination(
+    visibleLines.length,
+    pageSize
+  );
+  const pagedLines = visibleLines.slice(sliceStart, sliceEnd);
 
   function applyMonth(offset: number) {
     const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
@@ -267,6 +278,8 @@ export default function SalesReportPage() {
             <CardHeader>
               <CardTitle className="text-base">Payment lines</CardTitle>
               <CardDescription>
+                <span className="font-medium text-foreground">Paid</span> dates are UTC. Booking collections without a
+                payment timestamp use the exam date (same day as the invoice date on Payments).{" "}
                 <span className="font-medium text-foreground">Incl. VAT</span> = gross paid ·{" "}
                 <span className="font-medium text-foreground">Ex-VAT</span> and{" "}
                 <span className="font-medium text-foreground">VAT</span> split proportionally on VAT invoices; non-VAT
@@ -285,7 +298,7 @@ export default function SalesReportPage() {
                       <TableRow>
                         <TableHead>Invoice</TableHead>
                         <TableHead>Client</TableHead>
-                        <TableHead>Paid</TableHead>
+                        <TableHead>Paid (UTC)</TableHead>
                         <TableHead>VAT</TableHead>
                         <TableHead className="text-right">Incl. VAT (gross)</TableHead>
                         <TableHead className="text-right">Ex-VAT</TableHead>
@@ -293,7 +306,7 @@ export default function SalesReportPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {visibleLines.map((line, i) => (
+                      {pagedLines.map((line, i) => (
                         <TableRow key={`${line.quotation_id}-${line.paid_at}-${i}`}>
                           <TableCell>
                             <Link
@@ -305,7 +318,7 @@ export default function SalesReportPage() {
                           </TableCell>
                           <TableCell>{line.client_name || "—"}</TableCell>
                           <TableCell className="tabular-nums whitespace-nowrap">
-                            {toDateInputValue(new Date(line.paid_at))}
+                            {toDateInputValueUTC(new Date(line.paid_at))}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -344,6 +357,15 @@ export default function SalesReportPage() {
                       </TableRow>
                     </TableFooter>
                   </Table>
+                  <AccountingTablePagination
+                    currentPage={page}
+                    totalPages={totalPages}
+                    totalItems={visibleLines.length}
+                    pageSize={pageSize}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                    label="payment lines"
+                  />
                 </div>
               )}
             </CardContent>

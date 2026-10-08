@@ -293,7 +293,13 @@ export function ExpenseFormDialog({ open, onOpenChange, editing, currency, canMa
                   onChange={(e) => setItemSearch(e.target.value)}
                   className="mb-1"
                 />
-                <Select value={form.purchase_item_id || "none"} onValueChange={(v) => applyPurchaseItem(v === "none" ? "" : v)}>
+                <Select
+                  value={form.purchase_item_id || "none"}
+                  onValueChange={(v) => {
+                    const id = String(v);
+                    applyPurchaseItem(id === "none" ? "" : id);
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select from catalog (optional)" />
                   </SelectTrigger>
@@ -403,7 +409,7 @@ export function ExpenseFormDialog({ open, onOpenChange, editing, currency, canMa
                 <Label>Saved account</Label>
                 <Select
                   value={form.payment_method_id || "manual"}
-                  onValueChange={onPaymentMethodPick}
+                  onValueChange={(v) => onPaymentMethodPick(String(v))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Card or bank account" />
@@ -426,7 +432,9 @@ export function ExpenseFormDialog({ open, onOpenChange, editing, currency, canMa
                       <Label>Payment type</Label>
                       <Select
                         value={form.payment_type}
-                        onValueChange={(v) => setForm((f) => ({ ...f, payment_type: v }))}
+                        onValueChange={(v) =>
+                          setForm((f) => ({ ...f, payment_type: String(v) }))
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue />
