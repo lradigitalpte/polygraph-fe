@@ -86,9 +86,10 @@ export default function SalesReportPage() {
 
   const visibleLines = React.useMemo(() => {
     if (!report) return [];
-    if (vatFilter === "with") return report.lines.filter((l) => l.has_vat);
-    if (vatFilter === "without") return report.lines.filter((l) => !l.has_vat);
-    return report.lines;
+    const lines = report.lines ?? [];
+    if (vatFilter === "with") return lines.filter((l) => l.has_vat);
+    if (vatFilter === "without") return lines.filter((l) => !l.has_vat);
+    return lines;
   }, [report, vatFilter]);
 
   const visibleTotals = React.useMemo(() => {

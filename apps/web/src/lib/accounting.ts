@@ -86,7 +86,8 @@ export async function fetchExpenses(filters?: {
   if (!response.ok) {
     throw new Error(`Failed to load expenses (${response.status})`);
   }
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createExpense(input: {
@@ -185,7 +186,20 @@ export async function fetchSalesReport(from: string, to: string): Promise<SalesR
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || `Failed to load sales report (${response.status})`);
   }
-  return response.json();
+  const data: SalesReport = await response.json();
+  return {
+    ...data,
+    lines: data.lines ?? [],
+    summary: data.summary ?? {
+      total_gross_incl_vat: 0,
+      total_ex_vat: 0,
+      total_vat: 0,
+      payment_line_count: 0,
+      with_vat_line_count: 0,
+      without_vat_line_count: 0,
+      currency: "AED",
+    },
+  };
 }
 
 export async function fetchVatReturn(from: string, to: string): Promise<VatReturnReport> {
@@ -195,7 +209,19 @@ export async function fetchVatReturn(from: string, to: string): Promise<VatRetur
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || `Failed to load VAT return (${response.status})`);
   }
-  return response.json();
+  const data: VatReturnReport = await response.json();
+  return {
+    ...data,
+    output_lines: data.output_lines ?? [],
+    input_lines: data.input_lines ?? [],
+    summary: data.summary ?? {
+      taxable_supplies_ex_vat: 0,
+      output_vat: 0,
+      input_vat: 0,
+      net_vat_payable: 0,
+      currency: "AED",
+    },
+  };
 }
 
 export function formatMoney(amount: number, currency: string) {
