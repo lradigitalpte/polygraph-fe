@@ -17,14 +17,12 @@ import {
 import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { AccountingShell } from "@/components/dashboard/accounting/accounting-shell";
+import { ExpenseFormDialog } from "@/components/dashboard/accounting/expense-form-dialog";
 import { MetricCard } from "@/components/dashboard/accounting/metric-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -43,15 +41,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  computeExpenseTotals,
-  createExpense,
   deleteExpense,
   fetchExpenses,
   formatMoney,
   monthRange,
   quarterRange,
+  resolveReceiptUrl,
   toDateInputValue,
-  updateExpense,
   type Expense,
 } from "@/lib/accounting";
 import {
@@ -60,29 +56,15 @@ import {
   expensesExportFilename,
 } from "@/lib/accounting-csv";
 
-type ExpenseForm = {
-  expense_date: string;
-  vendor: string;
-  description: string;
-  category: string;
-  amount_ex_vat: string;
-  vat_rate: string;
-  receipt_ref: string;
-  apply_vat: boolean;
-};
-
-const EXPENSE_CATEGORIES = ["General", "Office", "Travel", "Equipment", "Software", "Professional fees"];
-
-const emptyForm = (defaultVatRate = "5"): ExpenseForm => ({
-  expense_date: toDateInputValue(new Date()),
-  vendor: "",
-  description: "",
-  category: "General",
-  amount_ex_vat: "",
-  vat_rate: defaultVatRate,
-  receipt_ref: "",
-  apply_vat: true,
-});
+function paymentSummary(item: Expense) {
+  if (item.payment_label) {
+    return item.payment_last_four
+      ? `${item.payment_label} •••• ${item.payment_last_four}`
+      : item.payment_label;
+  }
+  if (item.payment_last_four) return `•••• ${item.payment_last_four}`;
+  return item.payment_type || "—";
+}
 
 export default function AccountingExpensesPage() {
   const router = useRouter();
@@ -98,12 +80,10 @@ export default function AccountingExpensesPage() {
 
   const [items, setItems] = React.useState<Expense[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState<Expense | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [editing, setEditing] = React.useState<Expense | null>(null);
-  const [form, setForm] = React.useState<ExpenseForm>(emptyForm());
   const [search, setSearch] = React.useState("");
 
   const now = new Date();
@@ -185,77 +165,14 @@ export default function AccountingExpensesPage() {
     return { exVat, inputVat, gross, count: items.length };
   }, [items]);
 
-  const preview = React.useMemo(() => {
-    const ex = Number(form.amount_ex_vat) || 0;
-    const rate = Number(form.vat_rate) || 0;
-    return computeExpenseTotals({
-      amountExVat: ex,
-      vatRate: rate,
-      applyVat: form.apply_vat,
-    });
-  }, [form.amount_ex_vat, form.vat_rate, form.apply_vat]);
-
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm());
     setDialogOpen(true);
   }
 
   function openEdit(item: Expense) {
     setEditing(item);
-    setForm({
-      expense_date: toDateInputValue(new Date(item.expense_date)),
-      vendor: item.vendor,
-      description: item.description,
-      category: item.category,
-      amount_ex_vat: String(item.amount_ex_vat),
-      vat_rate: String(item.vat_rate),
-      receipt_ref: item.receipt_ref || "",
-      apply_vat: item.vat_rate > 0 || item.vat_amount > 0,
-    });
     setDialogOpen(true);
-  }
-
-  async function handleSave() {
-    const ex = Number(form.amount_ex_vat);
-    if (!Number.isFinite(ex) || ex <= 0) {
-      toast.error("Enter a valid amount (ex-VAT).");
-      return;
-    }
-    const rate = form.apply_vat ? Number(form.vat_rate) || 0 : 0;
-    const computed = computeExpenseTotals({
-      amountExVat: ex,
-      vatRate: rate,
-      applyVat: form.apply_vat,
-    });
-
-    setSaving(true);
-    try {
-      const payload = {
-        expense_date: form.expense_date,
-        vendor: form.vendor,
-        description: form.description,
-        category: form.category,
-        amount_ex_vat: computed.afterDiscount,
-        vat_rate: computed.vatRate,
-        vat_amount: computed.vatAmount,
-        amount_inc_vat: computed.total,
-        receipt_ref: form.receipt_ref,
-      };
-      if (editing) {
-        await updateExpense(editing.id, payload);
-        toast.success("Expense updated");
-      } else {
-        await createExpense(payload);
-        toast.success("Expense recorded");
-      }
-      setDialogOpen(false);
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function confirmDelete() {
@@ -424,6 +341,8 @@ export default function AccountingExpensesPage() {
                     <TableHead>Vendor</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Description</TableHead>
+                    <TableHead>Paid with</TableHead>
+                    <TableHead>Receipt</TableHead>
                     <TableHead className="text-right">Ex-VAT</TableHead>
                     <TableHead className="text-right">VAT</TableHead>
                     <TableHead className="text-right">Incl. VAT</TableHead>
@@ -444,6 +363,27 @@ export default function AccountingExpensesPage() {
                       </TableCell>
                       <TableCell className="max-w-[200px] truncate text-muted-foreground">
                         {item.description || "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">
+                        {paymentSummary(item)}
+                      </TableCell>
+                      <TableCell>
+                        {item.receipt_url ? (
+                          <a
+                            href={resolveReceiptUrl(item.receipt_url)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs underline"
+                          >
+                            File
+                          </a>
+                        ) : item.receipt_ref ? (
+                          <span className="text-xs text-muted-foreground truncate max-w-[80px] inline-block">
+                            Ref
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatMoney(item.amount_ex_vat, item.currency)}
@@ -480,130 +420,14 @@ export default function AccountingExpensesPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg gap-0 p-0 overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-            <DialogTitle>{editing ? "Edit expense" : "New expense"}</DialogTitle>
-            <DialogDescription>
-              Enter amounts ex-VAT; VAT is calculated using your rate (same rules as invoicing).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 px-6 py-5 max-h-[min(70vh,520px)] overflow-y-auto">
-            <div className="grid gap-2">
-              <Label htmlFor="expense_date">Date</Label>
-              <Input
-                id="expense_date"
-                type="date"
-                value={form.expense_date}
-                onChange={(e) => setForm((f) => ({ ...f, expense_date: e.target.value }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="vendor">Vendor</Label>
-              <Input
-                id="vendor"
-                placeholder="Supplier name"
-                value={form.vendor}
-                onChange={(e) => setForm((f) => ({ ...f, vendor: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="category">Category</Label>
-                <Input
-                  id="category"
-                  list="expense-categories"
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                />
-                <datalist id="expense-categories">
-                  {EXPENSE_CATEGORIES.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="receipt_ref">Receipt ref / URL</Label>
-                <Input
-                  id="receipt_ref"
-                  placeholder="Optional"
-                  value={form.receipt_ref}
-                  onChange={(e) => setForm((f) => ({ ...f, receipt_ref: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                rows={2}
-                placeholder="What was purchased"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="amount_ex_vat">Amount (ex-VAT)</Label>
-                <Input
-                  id="amount_ex_vat"
-                  type="number"
-                  min={0}
-                  value={form.amount_ex_vat}
-                  onChange={(e) => setForm((f) => ({ ...f, amount_ex_vat: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="vat_rate">VAT rate (%)</Label>
-                <Input
-                  id="vat_rate"
-                  type="number"
-                  min={0}
-                  disabled={!form.apply_vat}
-                  value={form.vat_rate}
-                  onChange={(e) => setForm((f) => ({ ...f, vat_rate: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2.5">
-              <Checkbox
-                id="apply_vat"
-                checked={form.apply_vat}
-                onCheckedChange={(checked) =>
-                  setForm((f) => ({ ...f, apply_vat: checked === true }))
-                }
-              />
-              <Label htmlFor="apply_vat" className="cursor-pointer font-normal leading-snug">
-                Include recoverable VAT on this expense
-              </Label>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
-              <div className="flex justify-between tabular-nums">
-                <span>Ex-VAT</span>
-                <span>{formatMoney(preview.afterDiscount, displayCurrency)}</span>
-              </div>
-              <div className="flex justify-between tabular-nums">
-                <span>VAT</span>
-                <span>{formatMoney(preview.vatAmount, displayCurrency)}</span>
-              </div>
-              <div className="flex justify-between font-semibold tabular-nums pt-1 border-t border-border">
-                <span>Total incl. VAT</span>
-                <span>{formatMoney(preview.total, displayCurrency)}</span>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="px-6 py-4 border-t border-border bg-muted/20">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving || !canManage}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editing ? "Save changes" : "Record expense"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ExpenseFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editing={editing}
+        currency={displayCurrency}
+        canManage={canManage}
+        onSaved={() => void load()}
+      />
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent className="max-w-md">

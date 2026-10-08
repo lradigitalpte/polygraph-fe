@@ -1,5 +1,29 @@
 import { authenticatedFetch } from "@/lib/api-client";
+import { wholeMoneyAmount } from "@/lib/client-account";
 import { computeQuotationTotal } from "@/lib/quotation-pricing";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+
+export type ExpensePaymentMethod = {
+  id: number;
+  label: string;
+  type: string;
+  last_four?: string;
+  bank_name?: string;
+  is_default?: boolean;
+};
+
+export type ExpensePurchaseItem = {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  default_amount_ex_vat: number;
+  vat_mode: "rate" | "fixed" | "none" | string;
+  vat_rate: number;
+  vat_amount_fixed: number;
+  active: boolean;
+};
 
 export type Expense = {
   id: number;
@@ -15,6 +39,15 @@ export type Expense = {
   amount_inc_vat: number;
   currency: string;
   receipt_ref?: string;
+  receipt_file_name?: string;
+  receipt_url?: string;
+  purchase_item_id?: number;
+  payment_method_id?: number;
+  payment_type?: string;
+  payment_label?: string;
+  payment_last_four?: string;
+  payment_method?: ExpensePaymentMethod;
+  purchase_item?: ExpensePurchaseItem;
   created_by_user_id?: number;
 };
 
@@ -63,13 +96,34 @@ export function computeExpenseTotals(input: {
   amountExVat: number;
   vatRate: number;
   applyVat?: boolean;
+  vatMode?: string;
+  vatAmountFixed?: number;
 }) {
+  const ex = wholeMoneyAmount(Math.max(0, input.amountExVat));
+  const applyVat = input.applyVat !== false && input.vatMode !== "none";
+  if (applyVat && input.vatMode === "fixed") {
+    const vatAmount = wholeMoneyAmount(input.vatAmountFixed ?? 0);
+    return {
+      subtotal: ex,
+      discountAmount: 0,
+      afterDiscount: ex,
+      vatRate: 0,
+      vatAmount,
+      total: ex + vatAmount,
+    };
+  }
   return computeQuotationTotal({
-    subtotal: input.amountExVat,
+    subtotal: ex,
     discountAmount: 0,
     vatRate: input.vatRate,
-    applyVat: input.applyVat !== false && input.vatRate > 0,
+    applyVat: applyVat && input.vatRate > 0,
   });
+}
+
+export function resolveReceiptUrl(receiptUrl?: string) {
+  if (!receiptUrl) return "";
+  if (receiptUrl.startsWith("http://") || receiptUrl.startsWith("https://")) return receiptUrl;
+  return `${API_BASE.replace(/\/$/, "")}${receiptUrl.startsWith("/") ? "" : "/"}${receiptUrl}`;
 }
 
 export async function fetchExpenses(filters?: {
@@ -101,6 +155,13 @@ export async function createExpense(input: {
   amount_inc_vat?: number;
   currency?: string;
   receipt_ref?: string;
+  purchase_item_id?: number;
+  payment_method_id?: number;
+  payment_type?: string;
+  payment_label?: string;
+  payment_last_four?: string;
+  payment_bank_name?: string;
+  save_payment_method?: boolean;
 }): Promise<Expense> {
   const response = await authenticatedFetch("/api/accounting/expenses", {
     method: "POST",
@@ -126,6 +187,11 @@ export async function updateExpense(
     amount_inc_vat: number;
     currency: string;
     receipt_ref: string;
+    purchase_item_id: number;
+    payment_method_id: number;
+    payment_type: string;
+    payment_label: string;
+    payment_last_four: string;
   }>
 ): Promise<Expense> {
   const response = await authenticatedFetch(`/api/accounting/expenses/${id}`, {
@@ -146,6 +212,67 @@ export async function deleteExpense(id: number): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to delete expense (${response.status})`);
   }
+}
+
+export async function uploadExpenseReceipt(expenseId: number, file: File): Promise<Expense> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await authenticatedFetch(`/api/accounting/expenses/${expenseId}/receipt`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Failed to upload receipt");
+  }
+  return response.json();
+}
+
+export async function fetchPaymentMethods(): Promise<ExpensePaymentMethod[]> {
+  const response = await authenticatedFetch("/api/accounting/payment-methods");
+  if (!response.ok) throw new Error("Failed to load payment methods");
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchPurchaseItems(search?: string, includeInactive = false): Promise<ExpensePurchaseItem[]> {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if includeInactive) params.set("include_inactive", "true");
+  const qs = params.toString();
+  const response = await authenticatedFetch(`/api/accounting/purchase-items${qs ? `?${qs}` : ""}`);
+  if (!response.ok) throw new Error("Failed to load purchase items");
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createPurchaseItem(input: Omit<ExpensePurchaseItem, "id" | "active"> & { active?: boolean }) {
+  const response = await authenticatedFetch("/api/accounting/purchase-items", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Failed to create item");
+  }
+  return response.json() as Promise<ExpensePurchaseItem>;
+}
+
+export async function updatePurchaseItem(id: number, input: Partial<ExpensePurchaseItem>) {
+  const response = await authenticatedFetch(`/api/accounting/purchase-items/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Failed to update item");
+  }
+  return response.json() as Promise<ExpensePurchaseItem>;
+}
+
+export async function deletePurchaseItem(id: number) {
+  const response = await authenticatedFetch(`/api/accounting/purchase-items/${id}`, { method: "DELETE" });
+  if (!response.ok) throw new Error("Failed to delete item");
 }
 
 export type SalesReportSummary = {
