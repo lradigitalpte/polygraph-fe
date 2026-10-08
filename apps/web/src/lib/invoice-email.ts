@@ -7,35 +7,52 @@ export function buildInvoicePaymentEmailBody(input: {
   currency: string;
   totalAmount: number;
   paidAmount: number;
+  /** Amount credited to the invoice (deposit or balance). */
   chargeAmount: number;
+  /** What the customer pays at checkout when processing fee is included (optional). */
+  checkoutPayTotal?: number;
   agreementLink?: string;
 }) {
-  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, agreementLink } = input;
+  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, agreementLink } =
+    input;
   const balance = Math.max(0, totalAmount - paidAmount);
   const safeCharge = Math.max(0, Math.min(chargeAmount || balance, balance));
   const remainingAfter = Math.max(0, balance - safeCharge);
   const isDeposit = safeCharge + 0.0001 < balance;
+  const payNow =
+    checkoutPayTotal != null && checkoutPayTotal > safeCharge ? checkoutPayTotal : safeCharge;
   const totalLabel = formatMoney(totalAmount, currency);
   const chargeLabel = formatMoney(safeCharge, currency);
+  const payNowLabel = formatMoney(payNow, currency);
   const remainingLabel = formatMoney(remainingAfter, currency);
   const paidLabel = formatMoney(paidAmount, currency);
+  const includesProcessing = payNow > safeCharge + 0.0001;
+  const fullBalanceCardPay =
+    includesProcessing && !isDeposit && safeCharge + 0.0001 >= balance;
 
   const lines = [
     `Hello ${clientName || "there"},`,
     "",
     `Please find your invoice ${code} (PDF attached).`,
     "",
-    `Total fee: ${totalLabel}`,
   ];
-  if (paidAmount > 0) {
-    lines.push(`Already paid: ${paidLabel}`);
-  }
-  lines.push(`Balance due: ${formatMoney(balance, currency)}`);
-  if (isDeposit) {
-    lines.push(`Deposit due now: ${chargeLabel}`);
-    lines.push(`Remaining after this deposit: ${remainingLabel}`);
+  if (fullBalanceCardPay) {
+    lines.push(`Total due: ${payNowLabel}`);
+    lines.push(`Amount due now: ${payNowLabel}`);
   } else {
-    lines.push(`Amount due now: ${chargeLabel}`);
+    lines.push(`Total fee: ${totalLabel}`);
+    if (paidAmount > 0) {
+      lines.push(`Already paid: ${paidLabel}`);
+    }
+    lines.push(`Balance due: ${formatMoney(balance, currency)}`);
+    if (isDeposit) {
+      lines.push(
+        includesProcessing ? `Deposit due now: ${payNowLabel}` : `Deposit due now: ${chargeLabel}`,
+      );
+      lines.push(`Remaining after this deposit: ${remainingLabel}`);
+    } else {
+      lines.push(includesProcessing ? `Amount due now: ${payNowLabel}` : `Amount due now: ${chargeLabel}`);
+    }
   }
   lines.push("");
   lines.push("Next steps:");
@@ -49,8 +66,8 @@ export function buildInvoicePaymentEmailBody(input: {
   }
   lines.push(
     isDeposit
-      ? `2) Pay the deposit of ${chargeLabel} using the secure payment link at the bottom of this email.`
-      : `2) Pay ${chargeLabel} using the secure payment link at the bottom of this email.`,
+      ? `2) Pay the deposit of ${payNowLabel} using the secure payment link at the bottom of this email.`
+      : `2) Pay ${payNowLabel} using the secure payment link at the bottom of this email.`,
   );
   if (isDeposit) {
     lines.push(

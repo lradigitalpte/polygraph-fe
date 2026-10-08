@@ -14,8 +14,12 @@ import {
   FileText,
   ListChecks,
   FileSignature,
+  Receipt,
+  Calculator,
+  FileBarChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 
 const settingsNavigation = [
   { name: "General", href: "/dashboard/settings", icon: SettingsIcon, exact: true },
@@ -27,6 +31,24 @@ const settingsNavigation = [
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },
   { name: "Audit Logs", href: "/dashboard/settings/audit", icon: History },
+  {
+    name: "Expenses",
+    href: "/dashboard/settings/accounting/expenses",
+    icon: Receipt,
+    requires: "accounting:view",
+  },
+  {
+    name: "Sales report",
+    href: "/dashboard/settings/accounting/sales-report",
+    icon: FileBarChart,
+    requires: "accounting:view",
+  },
+  {
+    name: "VAT returns",
+    href: "/dashboard/settings/accounting/vat-returns",
+    icon: Calculator,
+    requires: "accounting:view",
+  },
 ];
 
 function isSettingsNavActive(pathname: string, href: string, exact?: boolean) {
@@ -38,6 +60,14 @@ function isSettingsNavActive(pathname: string, href: string, exact?: boolean) {
 
 export function SettingsSidebar() {
   const pathname = usePathname();
+  const { can } = useCurrentUser();
+
+  const visibleNav = settingsNavigation.filter((item) => {
+    if ("requires" in item && item.requires) {
+      return can(item.requires);
+    }
+    return true;
+  });
 
   return (
     <div className="flex h-full w-64 flex-col bg-background border-r border-border">
@@ -56,8 +86,8 @@ export function SettingsSidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 pb-6">
-        {settingsNavigation.map((item) => {
-          const isActive = isSettingsNavActive(pathname ?? "", item.href, item.exact);
+        {visibleNav.map((item) => {
+          const isActive = isSettingsNavActive(pathname ?? "", item.href, "exact" in item ? item.exact : undefined);
           return (
             <Link
               key={item.name}

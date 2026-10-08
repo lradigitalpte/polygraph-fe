@@ -217,6 +217,12 @@ export default function InvoiceDetailPage() {
     if (!quote) return;
     const parsed = Number(nextCharge);
     const chargeForBody = Number.isFinite(parsed) && parsed > 0 ? parsed : balance;
+    const netForFee =
+      Number.isFinite(parsed) && parsed > 0 ? Math.min(wholeMoneyAmount(parsed), balance) : balance;
+    const gross =
+      passProcessingFee && netForFee > 0
+        ? estimateStripeGrossCharge(netForFee, effectiveFeePercent, effectiveFeeFixed).gross
+        : chargeForBody;
     setBody(
       buildInvoicePaymentEmailBody({
         clientName: quote.client?.name || "there",
@@ -225,10 +231,18 @@ export default function InvoiceDetailPage() {
         totalAmount: total,
         paidAmount: paid,
         chargeAmount: chargeForBody,
+        checkoutPayTotal:
+          passProcessingFee && gross > chargeForBody + 0.0001 ? gross : undefined,
         agreementLink: agreementLink || undefined,
       }),
     );
   };
+
+  React.useEffect(() => {
+    if (!quote) return;
+    rebuildBody(chargeAmount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when fee toggle or inputs change
+  }, [quote?.id, chargeAmount, passProcessingFee, effectiveFeePercent, effectiveFeeFixed, total, paid, balance]);
 
   const handleSend = async () => {
     if (!quote) return;
@@ -480,6 +494,22 @@ export default function InvoiceDetailPage() {
                 <span>Balance due</span>
                 <span>{formatMoney(balance, currency)}</span>
               </div>
+              {feePreview && feePreview.fee > 0 ? (
+                <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Processing fee (est.)</span>
+                    <span>{formatMoney(feePreview.fee, currency)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold">
+                    <span>Customer pays by card</span>
+                    <span>{formatMoney(feePreview.gross, currency)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Client sees {formatMoney(feePreview.gross, currency)} on checkout and in the email (service
+                    breakdown stays on the PDF only).
+                  </p>
+                </div>
+              ) : null}
               {quote.stripe_payment_link_url ? (
                 <div className="rounded-xl border border-border/40 bg-muted/10 p-3 space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Online payment link</p>
@@ -752,7 +782,9 @@ export default function InvoiceDetailPage() {
                   <label className="flex items-start gap-3 rounded-xl border border-border/40 p-3 mt-2">
                     <Checkbox
                       checked={passProcessingFee}
-                      onCheckedChange={(checked) => setPassProcessingFee(Boolean(checked))}
+                      onCheckedChange={(checked) => {
+                        setPassProcessingFee(Boolean(checked));
+                      }}
                       className="mt-0.5"
                     />
                     <div className="space-y-1 text-xs">
