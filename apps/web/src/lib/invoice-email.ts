@@ -1,4 +1,5 @@
 import { formatMoney } from "@/lib/client-account";
+import { bankDetailsEmailText, type BankDetails } from "@/lib/bank-accounts";
 
 /** Default client email for invoice + deposit / full online payment. */
 export function buildInvoicePaymentEmailBody(input: {
@@ -12,8 +13,10 @@ export function buildInvoicePaymentEmailBody(input: {
   /** What the customer pays at checkout when processing fee is included (optional). */
   checkoutPayTotal?: number;
   agreementLink?: string;
+  /** Bank transfer option listed after the card payment steps. */
+  bankAccounts?: BankDetails[];
 }) {
-  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, agreementLink } =
+  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, agreementLink, bankAccounts } =
     input;
   const balance = Math.max(0, totalAmount - paidAmount);
   const safeCharge = Math.max(0, Math.min(chargeAmount || balance, balance));
@@ -73,6 +76,11 @@ export function buildInvoicePaymentEmailBody(input: {
     lines.push(
       `3) The remaining ${remainingLabel} can be paid later (we can send another payment link when ready).`,
     );
+  }
+  const bankText = bankDetailsEmailText(bankAccounts, code);
+  if (bankText) {
+    lines.push("");
+    lines.push(bankText);
   }
   lines.push("");
   lines.push("If you have any questions, just reply to this email.");

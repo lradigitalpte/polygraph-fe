@@ -1,4 +1,5 @@
 import { authenticatedFetch } from "@/lib/api-client";
+import type { BankDetails } from "@/lib/bank-accounts";
 
 export type QuotationPaymentEntry = {
   paid_at: string;
@@ -33,6 +34,8 @@ export type QuotationRecord = {
   stripe_payment_intent_id?: string;
   stripe_payment_link_url?: string;
   payment_history?: QuotationPaymentEntry[];
+  /** Bank transfer details printed on the invoice (resolved by the API). */
+  bank_accounts?: BankDetails[];
   client?: {
     id: number;
     name: string;
@@ -74,6 +77,8 @@ export async function createQuotation(input: {
   vat_rate?: number;
   vat_amount?: number;
   currency?: string;
+  /** Omit to use the currency's default account; [] for none. */
+  bank_account_ids?: number[];
 }): Promise<QuotationRecord> {
   const response = await authenticatedFetch("/api/quotations", {
     method: "POST",
@@ -141,6 +146,8 @@ export async function updateQuotation(
     discount_amount?: number;
     vat_rate?: number;
     vat_amount?: number;
+    /** Replaces the bank details on the invoice; [] for none. */
+    bank_account_ids?: number[];
   },
 ): Promise<QuotationRecord> {
   const response = await authenticatedFetch(`/api/quotations/${id}`, {

@@ -39,6 +39,7 @@ import {
   approveQuotation,
   collectQuotationPayment,
   createQuotation,
+  fetchQuotation,
   sendQuotationEmail,
   type QuotationRecord,
 } from "@/lib/quotations";
@@ -54,7 +55,16 @@ import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInv
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
-import { ORG_CONTACT_CSS, orgContactHtml, pdfOrgFromSettings, type PdfOrg } from "@/lib/invoice-pdf";
+import {
+  ORG_CONTACT_CSS,
+  PAYMENT_DETAILS_CSS,
+  orgContactHtml,
+  paymentDetailsHtml,
+  pdfOrgFromSettings,
+  type PdfOrg,
+} from "@/lib/invoice-pdf";
+import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
+import { BankAccountPicker, resolveBankAccountIds } from "@/components/dashboard/bank-account-picker";
 import {
   Select,
   SelectContent,
@@ -173,6 +183,7 @@ type QuotationPdfData = {
   vat?: { rate: number; amount: number };
   total: number;
   org: PdfOrg;
+  bankAccounts?: BankDetails[];
 };
 
 // ---------- helper: build the professional, branded quotation PDF markup ----------
@@ -219,6 +230,7 @@ function buildQuotationPdfHtml(data: QuotationPdfData): string {
   .brand img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:10px}
   .brand .org-name{font-size:17px;font-weight:900;color:#111;letter-spacing:-0.01em}
 ${ORG_CONTACT_CSS}
+${PAYMENT_DETAILS_CSS}
   .header-right{text-align:right}
   .doc-title{font-size:30px;font-weight:900;letter-spacing:-0.02em;color:#111;margin-bottom:12px}
   .meta-table{border-collapse:collapse;margin-left:auto}
@@ -314,6 +326,7 @@ ${ORG_CONTACT_CSS}
       <div class="row total"><span>Total Amount${data.vat && data.vat.amount > 0 ? " (Incl. VAT)" : ""}</span><span>${money(data.total)}</span></div>
     </div>
   </div>
+${paymentDetailsHtml(data.bankAccounts, data.code)}
 
   <div class="footer">Thank you for choosing ${data.org.name}. This quotation is subject to acceptance within its validity period.</div>
 </div>
@@ -328,6 +341,7 @@ function downloadQuotationPDF(
   examType: string,
   client: ClientRecord | undefined,
   org: Parameters<typeof pdfOrgFromSettings>[0],
+  bankAccounts: BankDetails[] | undefined,
 ) {
   openPrintWindow(
     buildQuotationPdfHtml({
@@ -347,6 +361,7 @@ function downloadQuotationPDF(
       subtotal: inv.totalAmount,
       total: inv.totalAmount,
       org: pdfOrgFromSettings(org),
+      bankAccounts,
     }),
   );
 }
@@ -478,6 +493,9 @@ export default function PaymentsPage() {
   const [sendingSaving, setSendingSaving] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
   const orgCurrency = orgSettings?.currency || "AED";
+  const [bankAccounts, setBankAccounts] = React.useState<BankAccount[]>([]);
+  // Bank details for the invoice open in the side panel, pre-fetched so PDF/email use them synchronously.
+  const [selectedBankDetails, setSelectedBankDetails] = React.useState<BankDetails[] | undefined>(undefined);
 
   // New quotation form state
   const [form, setForm] = React.useState<{
@@ -495,6 +513,8 @@ export default function PaymentsPage() {
     discountType: "fixed" | "percent";
     discountValue: number;
     includeVat: boolean;
+    /** null = follow the currency's default account. */
+    bankAccountIds: number[] | null;
   }>({
     client: null,
     examType: null,
@@ -510,6 +530,7 @@ export default function PaymentsPage() {
     discountType: "fixed",
     discountValue: 0,
     includeVat: false,
+    bankAccountIds: null,
   });
 
   // New quotation flow: form entry -> review/confirm -> success (with PDF download).
@@ -527,6 +548,28 @@ export default function PaymentsPage() {
     vat?: { rate: number; amount: number };
     total: number;
   } | null>(null);
+
+  React.useEffect(() => {
+    void fetchBankAccounts().then(setBankAccounts).catch(() => setBankAccounts([]));
+  }, []);
+
+  React.useEffect(() => {
+    setSelectedBankDetails(undefined);
+    const quoteId = selectedInvoice?.quotationId;
+    const currency = (selectedInvoice?.currency || orgCurrency).toUpperCase();
+    if (!quoteId) {
+      // Bookings without a quotation show the current default for their currency.
+      setSelectedBankDetails(bankAccounts.filter((a) => a.is_default && !a.archived && a.currency === currency));
+      return;
+    }
+    let cancelled = false;
+    void fetchQuotation(quoteId)
+      .then((q) => !cancelled && setSelectedBankDetails(q.bank_accounts ?? []))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedInvoice?.quotationId, selectedInvoice?.currency, orgCurrency, bankAccounts]);
 
   const VAT_RATE = 5;
 
@@ -565,6 +608,7 @@ export default function PaymentsPage() {
       currency: orgCurrency,
       discountType: "fixed", discountValue: 0,
       includeVat: false,
+      bankAccountIds: null,
     });
   };
 
@@ -738,6 +782,7 @@ export default function PaymentsPage() {
         description,
         amount: total,
         currency: form.currency,
+        bank_account_ids: resolveBankAccountIds(bankAccounts, form.currency, form.bankAccountIds),
       });
       await loadData();
       setCreatedQuotation({
@@ -783,6 +828,7 @@ export default function PaymentsPage() {
         vat: createdQuotation.vat,
         total: createdQuotation.total,
         org: pdfOrgFromSettings(orgSettings),
+        bankAccounts: createdQuotation.record.bank_accounts,
       }),
     );
   };
@@ -1365,6 +1411,7 @@ export default function PaymentsPage() {
                               paidAmount: selectedInvoice.paidAmount,
                               chargeAmount: charge,
                               agreementLink: agreementLink || undefined,
+                              bankAccounts: selectedBankDetails,
                             }),
                             chargeAmount: String(charge),
                             agreementLink,
@@ -1404,6 +1451,7 @@ export default function PaymentsPage() {
                           resolveInvoiceExamType(selectedInvoice),
                           clients.find((c) => c.id === selectedInvoice.clientId),
                           orgSettings,
+                          selectedBankDetails,
                         )
                       }
                     >
@@ -1601,6 +1649,19 @@ export default function PaymentsPage() {
               </Select>
             </div>
 
+            {/* Bank transfer details printed on the invoice */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">
+                Bank details on invoice
+              </Label>
+              <BankAccountPicker
+                accounts={bankAccounts}
+                currency={form.currency}
+                value={form.bankAccountIds}
+                onChange={(ids) => setForm((f) => ({ ...f, bankAccountIds: ids }))}
+              />
+            </div>
+
             {/* Fee preview / extra items */}
             {form.examType && (
               <div className="space-y-3">
@@ -1794,6 +1855,15 @@ export default function PaymentsPage() {
                     <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Examiner</p>
                     <p className="text-sm font-black">{form.examiner?.name || "—"}</p>
                   </div>
+                  <div className="col-span-2">
+                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Bank details</p>
+                    <p className="text-sm font-black">
+                      {bankAccounts
+                        .filter((a) => resolveBankAccountIds(bankAccounts, form.currency, form.bankAccountIds).includes(a.id))
+                        .map((a) => a.label)
+                        .join(", ") || "None (card payment only)"}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-2 pt-3 border-t border-border/40">
@@ -1968,6 +2038,7 @@ export default function PaymentsPage() {
                             paidAmount: selectedInvoice.paidAmount,
                             chargeAmount: chargeForBody,
                             agreementLink: v.agreementLink || undefined,
+                            bankAccounts: selectedBankDetails,
                           }),
                         };
                       });

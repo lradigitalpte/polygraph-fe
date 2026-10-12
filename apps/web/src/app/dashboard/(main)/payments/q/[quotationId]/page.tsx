@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   DollarSign,
+  Landmark,
   RefreshCw,
   Clock,
 } from "lucide-react";
@@ -34,6 +35,8 @@ import { deleteInvoice } from "@/lib/billing";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
+import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
+import { BankAccountPicker } from "@/components/dashboard/bank-account-picker";
 import {
   approveQuotation,
   collectQuotationPayment,
@@ -76,6 +79,14 @@ export default function InvoiceDetailPage() {
   const [editVatRate, setEditVatRate] = React.useState("");
   const [editIncludeVat, setEditIncludeVat] = React.useState(false);
   const [savingPricing, setSavingPricing] = React.useState(false);
+  const [bankAccounts, setBankAccounts] = React.useState<BankAccount[]>([]);
+  const [editingBanks, setEditingBanks] = React.useState(false);
+  const [bankSelection, setBankSelection] = React.useState<number[]>([]);
+  const [savingBanks, setSavingBanks] = React.useState(false);
+
+  React.useEffect(() => {
+    void fetchBankAccounts().then(setBankAccounts).catch(() => setBankAccounts([]));
+  }, []);
 
   const reload = React.useCallback(async () => {
     if (!Number.isFinite(quotationId) || quotationId <= 0) {
@@ -140,6 +151,7 @@ export default function InvoiceDetailPage() {
             paidAmount: paidNow,
             chargeAmount: charge,
             agreementLink: link || undefined,
+            bankAccounts: q.bank_accounts,
           }),
         );
       } catch (err) {
@@ -213,7 +225,7 @@ export default function InvoiceDetailPage() {
     return rows;
   }, [quote?.payment_history]);
 
-  const rebuildBody = (nextCharge: string) => {
+  const rebuildBody = (nextCharge: string, banks: BankDetails[] | undefined = quote?.bank_accounts) => {
     if (!quote) return;
     const parsed = Number(nextCharge);
     const chargeForBody = Number.isFinite(parsed) && parsed > 0 ? parsed : balance;
@@ -234,6 +246,7 @@ export default function InvoiceDetailPage() {
         checkoutPayTotal:
           passProcessingFee && gross > chargeForBody + 0.0001 ? gross : undefined,
         agreementLink: agreementLink || undefined,
+        bankAccounts: banks,
       }),
     );
   };
@@ -308,9 +321,42 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const startEditingBanks = () => {
+    if (!quote) return;
+    // Snapshots carry no ids, so match the printed details back to current accounts.
+    const same = (a?: string, b?: string) => (a || "") === (b || "");
+    setBankSelection(
+      bankAccounts
+        .filter((a) =>
+          (quote.bank_accounts ?? []).some(
+            (d) => d.currency === a.currency && same(d.iban, a.iban) && same(d.account_number, a.account_number),
+          ),
+        )
+        .map((a) => a.id),
+    );
+    setEditingBanks(true);
+  };
+
+  const handleSaveBanks = async () => {
+    if (!quote) return;
+    setSavingBanks(true);
+    try {
+      const updated = await updateQuotation(quote.id, { bank_account_ids: bankSelection });
+      setQuote(updated);
+      rebuildBody(chargeAmount, updated.bank_accounts);
+      setEditingBanks(false);
+      toast.success("Bank details updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update bank details");
+    } finally {
+      setSavingBanks(false);
+    }
+  };
+
   const handleDownloadPdf = () => {
     if (!quote) return;
     downloadQuotationPdfFromData({
+      bankAccounts: quote.bank_accounts,
       code: quote.code,
       issueDate: quote.created_at,
       currency,
@@ -514,6 +560,76 @@ export default function InvoiceDetailPage() {
               {quote.sent_at ? (
                 <p className="text-xs text-emerald-600 font-semibold">Last emailed: {new Date(quote.sent_at).toLocaleString()}</p>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Landmark className="h-5 w-5 text-primary" />
+                    Bank transfer details
+                  </CardTitle>
+                  <CardDescription>Printed on the invoice PDF and in the invoice email.</CardDescription>
+                </div>
+                {can("appointment:manage") && !editingBanks ? (
+                  <Button variant="outline" size="sm" className="rounded-xl" onClick={startEditingBanks}>
+                    Change
+                  </Button>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {editingBanks ? (
+                <>
+                  <BankAccountPicker
+                    accounts={bankAccounts}
+                    currency={currency}
+                    value={bankSelection}
+                    onChange={setBankSelection}
+                  />
+                  <div className="flex gap-2">
+                    <Button className="rounded-xl" onClick={() => void handleSaveBanks()} disabled={savingBanks}>
+                      {savingBanks ? "Saving…" : "Save"}
+                    </Button>
+                    <Button variant="outline" className="rounded-xl" onClick={() => setEditingBanks(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : quote.bank_accounts?.length ? (
+                quote.bank_accounts.map((d, idx) => (
+                  <dl key={idx} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 rounded-xl border border-border/40 bg-muted/10 p-3 text-sm">
+                    <dt className="text-muted-foreground">Bank</dt>
+                    <dd className="font-semibold">
+                      {d.bank_name} · {d.currency}
+                    </dd>
+                    <dt className="text-muted-foreground">Account name</dt>
+                    <dd className="break-words">{d.account_name}</dd>
+                    {d.account_number ? (
+                      <>
+                        <dt className="text-muted-foreground">Account no.</dt>
+                        <dd className="font-mono">{d.account_number}</dd>
+                      </>
+                    ) : null}
+                    {d.iban ? (
+                      <>
+                        <dt className="text-muted-foreground">IBAN</dt>
+                        <dd className="font-mono break-all">{d.iban}</dd>
+                      </>
+                    ) : null}
+                    {d.swift_code ? (
+                      <>
+                        <dt className="text-muted-foreground">SWIFT / BIC</dt>
+                        <dd className="font-mono">{d.swift_code}</dd>
+                      </>
+                    ) : null}
+                  </dl>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">None — this invoice shows card payment only.</p>
+              )}
             </CardContent>
           </Card>
 

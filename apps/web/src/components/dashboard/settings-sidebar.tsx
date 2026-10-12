@@ -17,6 +17,7 @@ import {
   Receipt,
   Calculator,
   FileBarChart,
+  Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
@@ -27,6 +28,7 @@ const settingsNavigation = [
   { name: "Report Templates", href: "/dashboard/settings/report-templates", icon: FileText },
   { name: "Question Library", href: "/dashboard/settings/question-library", icon: ListChecks },
   { name: "Agreements", href: "/dashboard/settings/agreements", icon: FileSignature },
+  { name: "Bank Accounts", href: "/dashboard/settings/bank-accounts", icon: Landmark },
   { name: "Examiner Availability", href: "/dashboard/settings/availability", icon: CalendarClock },
   { name: "Manage Users", href: "/dashboard/settings/users", icon: Users },
   { name: "Roles & Permissions", href: "/dashboard/settings/roles", icon: ShieldCheck },

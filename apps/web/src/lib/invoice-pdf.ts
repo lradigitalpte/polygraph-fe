@@ -1,5 +1,6 @@
 import { formatMoney } from "@/lib/client-account";
 import { toast } from "sonner";
+import type { BankDetails } from "@/lib/bank-accounts";
 
 export function pdfLogoUrl() {
   if (typeof window !== "undefined") {
@@ -67,6 +68,46 @@ export function orgContactHtml(org: PdfOrg): string {
       ${rows ? `<table class="contact">${rows}</table>` : ""}`;
 }
 
+/** Styles for the box rendered by {@link paymentDetailsHtml}. */
+export const PAYMENT_DETAILS_CSS = `
+  .pay-details{border:1px solid #e2e2e2;border-radius:8px;padding:16px 18px;margin-top:24px;break-inside:avoid}
+  .pay-details h4{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#111;font-weight:900;margin-bottom:10px}
+  .pay-details .accounts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 28px}
+  .pay-details table{border-collapse:collapse}
+  .pay-details td{font-size:11px;line-height:1.7;padding:0;vertical-align:top}
+  .pay-details td.k{color:#111;font-weight:700;padding-right:12px;white-space:nowrap}
+  .pay-details td.v{color:#444;word-break:break-all}
+  .pay-details td.mono{font-family:'SFMono-Regular',Menlo,Consolas,monospace;letter-spacing:0.02em}
+  .pay-details .ref{margin-top:12px;font-size:10.5px;color:#666;font-style:italic}`;
+
+/** "Payment details — bank transfer" box listing each account; empty when none are set. */
+export function paymentDetailsHtml(accounts: BankDetails[] | undefined, reference: string): string {
+  if (!accounts?.length) return "";
+  const blocks = accounts
+    .map((a) => {
+      const rows: [string, string | undefined, boolean][] = [
+        ["Account name", a.account_name, false],
+        ["Bank", a.bank_name, false],
+        ["Currency", a.currency, false],
+        ["Account no.", a.account_number, true],
+        ["IBAN", a.iban, true],
+        ["SWIFT / BIC", a.swift_code, true],
+      ];
+      const body = rows
+        .filter(([, v]) => v && v.trim())
+        .map(([k, v, mono]) => `<tr><td class="k">${k}</td><td class="v${mono ? " mono" : ""}">${v}</td></tr>`)
+        .join("");
+      return `<table>${body}</table>`;
+    })
+    .join("");
+  return `
+  <div class="pay-details">
+    <h4>Payment details — bank transfer</h4>
+    <div class="accounts">${blocks}</div>
+    <div class="ref">Please quote <strong>${reference}</strong> as the payment reference.</div>
+  </div>`;
+}
+
 /** Maps organization settings to the org block shown on invoices and quotations. */
 export function pdfOrgFromSettings(
   org:
@@ -99,6 +140,7 @@ export type QuotationPdfData = {
   paidAmount?: number;
   balanceDue?: number;
   org: PdfOrg;
+  bankAccounts?: BankDetails[];
 };
 
 export function buildQuotationPdfHtml(data: QuotationPdfData): string {
@@ -150,6 +192,7 @@ export function buildQuotationPdfHtml(data: QuotationPdfData): string {
   .brand img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:10px}
   .brand .org-name{font-size:17px;font-weight:900;color:#111;letter-spacing:-0.01em}
 ${ORG_CONTACT_CSS}
+${PAYMENT_DETAILS_CSS}
   .header-right{text-align:right}
   .doc-title{font-size:30px;font-weight:900;letter-spacing:-0.02em;color:#111;margin-bottom:12px}
   .meta-table{border-collapse:collapse;margin-left:auto}
@@ -244,6 +287,7 @@ ${ORG_CONTACT_CSS}
       <div class="row total"><span>Total Amount${data.vat && data.vat.amount > 0 ? " (Incl. VAT)" : ""}</span><span>${money(data.total)}</span></div>
     </div>
   </div>
+${paymentDetailsHtml(data.bankAccounts, data.code)}
 
   <div class="footer">Thank you for choosing ${data.org.name}. This invoice is subject to acceptance within its validity period.</div>
 </div>

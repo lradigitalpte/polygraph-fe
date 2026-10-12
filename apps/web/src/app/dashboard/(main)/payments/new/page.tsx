@@ -31,6 +31,8 @@ import { fetchClients, type ClientRecord } from "@/lib/clients";
 import { catalogPriceInCurrency, formatMoney } from "@/lib/client-account";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import { createQuotation } from "@/lib/quotations";
+import { fetchBankAccounts, type BankAccount } from "@/lib/bank-accounts";
+import { BankAccountPicker, resolveBankAccountIds } from "@/components/dashboard/bank-account-picker";
 import { computeQuotationTotal } from "@/lib/quotation-pricing";
 import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings } from "@/lib/settings";
@@ -69,19 +71,24 @@ export default function NewQuotationPage() {
     includeVat: false,
     vatRate: 5,
     extraItems: [] as { description: string; amount: number }[],
+    /** null = follow the currency's default account. */
+    bankAccountIds: null as number[] | null,
   });
+  const [bankAccounts, setBankAccounts] = React.useState<BankAccount[]>([]);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [c, et, ex, org] = await Promise.all([
+        const [c, et, ex, org, banks] = await Promise.all([
           fetchClients(),
           fetchExamTypes(),
           fetchExaminers(),
           fetchOrganizationSettings().catch(() => null),
+          fetchBankAccounts().catch(() => [] as BankAccount[]),
         ]);
         if (cancelled) return;
+        setBankAccounts(banks);
         setClients(c);
         setExamTypes(et);
         setExaminers(ex);
@@ -200,6 +207,7 @@ export default function NewQuotationPage() {
         vat_rate: preview.vatAmount > 0 ? preview.vatRate : 0,
         vat_amount: preview.vatAmount,
         currency: form.currency,
+        bank_account_ids: resolveBankAccountIds(bankAccounts, form.currency, form.bankAccountIds),
       });
       toast.success("Quotation created");
       router.push(`/dashboard/payments/q/${record.id}`);
@@ -427,6 +435,18 @@ export default function NewQuotationPage() {
                 onChange={(e) => setForm((f) => ({ ...f, vatRate: Number(e.target.value) || 0 }))}
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">
+              Bank details on invoice
+            </Label>
+            <BankAccountPicker
+              accounts={bankAccounts}
+              currency={form.currency}
+              value={form.bankAccountIds}
+              onChange={(ids) => setForm((f) => ({ ...f, bankAccountIds: ids }))}
+            />
           </div>
 
           {preview && (
