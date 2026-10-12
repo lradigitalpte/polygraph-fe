@@ -452,6 +452,8 @@ export function formatVerdictLabel(verdict: string, wording: ReportVerdictWordin
   if (verdict === "NDI") {
     return wording === "forensic" ? "NO DECEPTION INDICATED (NDI)" : "TRUTHFUL";
   }
+  if (verdict === "SR") return "SIGNIFICANT RESPONSE (SR)";
+  if (verdict === "NSR") return "NO SIGNIFICANT RESPONSE (NSR)";
   return "INCONCLUSIVE";
 }
 
@@ -462,6 +464,8 @@ export function formatVerdictOptionLabel(verdict: string, wording: ReportVerdict
   if (verdict === "NDI") {
     return wording === "forensic" ? "No Deception Indicated (NDI)" : "Truthful";
   }
+  if (verdict === "SR") return "Significant Response (SR)";
+  if (verdict === "NSR") return "No Significant Response (NSR)";
   return "Inconclusive";
 }
 
@@ -471,7 +475,7 @@ export function verdictConclusionInOpinion(verdict: string, wording: ReportVerdi
 }
 
 const OPINION_VERDICT_TAIL =
-  /Truthful|Not Truthful|Inconclusive|No Deception Indicated \(NDI\)|Deception Indicated \(DI\)|TRUTHFUL|NOT TRUTHFUL|INCONCLUSIVE|\{\{verdict_label\}\}/i;
+  /Not Truthful|Truthful|Inconclusive|No Deception Indicated \(NDI\)|Deception Indicated \(DI\)|No Significant Response \(NSR\)|Significant Response \(SR\)|\{\{verdict_label\}\}/i;
 
 /** Opening bold/italic/underline tags that may sit just before the verdict word. */
 const OPTIONAL_INLINE_TAGS = "(?:<(?:strong|b|em|i|u)>)*";
@@ -529,8 +533,8 @@ export function reportVerdictWordingDescription(wording: ReportVerdictWording): 
 }
 
 export function verdictColorClass(verdict: string): string {
-  if (verdict === "DI") return "text-red-600";
-  if (verdict === "NDI") return "text-emerald-600";
+  if (verdict === "DI" || verdict === "SR") return "text-red-600";
+  if (verdict === "NDI" || verdict === "NSR") return "text-emerald-600";
   return "text-zinc-500";
 }
 

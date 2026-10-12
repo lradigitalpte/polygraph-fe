@@ -937,11 +937,13 @@ export default function ReportBuilderPage() {
                 <SelectContent className="rounded-xl">
                   <SelectItem value="NDI">{formatVerdictOptionLabel("NDI", verdictWording)}</SelectItem>
                   <SelectItem value="DI">{formatVerdictOptionLabel("DI", verdictWording)}</SelectItem>
+                  <SelectItem value="NSR">{formatVerdictOptionLabel("NSR", verdictWording)}</SelectItem>
+                  <SelectItem value="SR">{formatVerdictOptionLabel("SR", verdictWording)}</SelectItem>
                   <SelectItem value="Inconclusive">{formatVerdictOptionLabel("Inconclusive", verdictWording)}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[10px] text-muted-foreground">
-                Changing the verdict updates the Truthful / Not Truthful phrase in Section 3 opinion notes.
+                Changing the verdict updates the result phrase in Section 3 opinion notes.
               </p>
             </div>
 

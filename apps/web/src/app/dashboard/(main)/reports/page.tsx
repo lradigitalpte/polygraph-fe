@@ -378,7 +378,7 @@ export default function ReportsDashboard() {
       </div>
 
       {/* Statistics widgets */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 sm:gap-6">
         {[
           { label: "Total Reports Issued", value: stats?.total_reports ?? 0, icon: FileSignature, color: "bg-primary/10 text-primary" },
           {
@@ -392,6 +392,18 @@ export default function ReportsDashboard() {
             value: stats?.di_count ?? 0,
             icon: AlertTriangle,
             color: "bg-rose-500/10 text-rose-500",
+          },
+          {
+            label: "No Significant Response (NSR)",
+            value: stats?.nsr_count ?? 0,
+            icon: CheckCircle,
+            color: "bg-sky-500/10 text-sky-500",
+          },
+          {
+            label: "Significant Response (SR)",
+            value: stats?.sr_count ?? 0,
+            icon: AlertTriangle,
+            color: "bg-violet-500/10 text-violet-500",
           },
           {
             label: "Inconclusive Findings",
@@ -831,9 +843,9 @@ export default function ReportsDashboard() {
                                     <Badge
                                       className={cn(
                                         "text-[9px] font-black uppercase tracking-[0.1em]",
-                                        share.exam_report.verdict === "NDI"
+                                        (share.exam_report.verdict === "NDI" || share.exam_report.verdict === "NSR")
                                           ? "bg-emerald-500/10 text-emerald-600 border-none"
-                                          : share.exam_report.verdict === "DI"
+                                          : (share.exam_report.verdict === "DI" || share.exam_report.verdict === "SR")
                                             ? "bg-rose-500/10 text-rose-600 border-none"
                                             : "bg-neutral-500/10 text-neutral-600 border-none"
                                       )}
@@ -962,9 +974,9 @@ export default function ReportsDashboard() {
                                 <Badge
                                   className={cn(
                                     "text-[9px] font-black uppercase tracking-[0.1em]",
-                                    share.exam_report.verdict === "NDI"
+                                    (share.exam_report.verdict === "NDI" || share.exam_report.verdict === "NSR")
                                       ? "bg-emerald-500/10 text-emerald-600 border-none"
-                                      : share.exam_report.verdict === "DI"
+                                      : (share.exam_report.verdict === "DI" || share.exam_report.verdict === "SR")
                                         ? "bg-rose-500/10 text-rose-600 border-none"
                                         : "bg-neutral-500/10 text-neutral-600 border-none"
                                   )}

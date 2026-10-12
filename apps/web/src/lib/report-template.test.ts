@@ -11,6 +11,14 @@ describe("syncOpinionPhaseTextWithVerdict", () => {
     expect(syncOpinionPhaseTextWithVerdict(opinion("Not Truthful"), "NDI")).toBe(opinion("Truthful"));
   });
 
+  it("swaps to and from significant response verdicts", () => {
+    expect(syncOpinionPhaseTextWithVerdict(opinion("Truthful"), "SR")).toBe(opinion("Significant Response (SR)"));
+    expect(syncOpinionPhaseTextWithVerdict(opinion("Significant Response (SR)"), "NSR")).toBe(
+      opinion("No Significant Response (NSR)"),
+    );
+    expect(syncOpinionPhaseTextWithVerdict(opinion("No Significant Response (NSR)"), "DI")).toBe(opinion("Not Truthful"));
+  });
+
   it("swaps the verdict in the editor's HTML", () => {
     const html = `<p>${opinion("Truthful")}</p>`;
     expect(syncOpinionPhaseTextWithVerdict(html, "Inconclusive")).toBe(`<p>${opinion("Inconclusive")}</p>`);

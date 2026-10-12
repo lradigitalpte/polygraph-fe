@@ -32,6 +32,8 @@ export type ConsolidatedReportStats = {
   total_reports: number;
   ndi_count: number;
   di_count: number;
+  sr_count: number;
+  nsr_count: number;
   inconclusive_count: number;
 };
 
