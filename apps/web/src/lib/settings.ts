@@ -9,6 +9,8 @@ export type OrganizationSettings = {
   phone?: string;
   address: string;
   website?: string;
+  /** UAE VAT Tax Registration Number, printed on invoices and quotations. */
+  trn?: string;
   logo_data_url?: string;
   currency?: string;
   usd_aed_rate?: number;
@@ -47,6 +49,7 @@ export async function updateOrganizationSettings(input: {
   stripe_card_fee_fixed?: number;
   default_vat_rate?: number;
   website?: string;
+  trn?: string;
   /** Omit to keep the current logo, "" to remove it. */
   logo_data_url?: string;
 }): Promise<OrganizationSettings> {

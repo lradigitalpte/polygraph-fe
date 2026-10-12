@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const [stripeFeeFixed, setStripeFeeFixed] = React.useState("1");
   const [defaultVatRate, setDefaultVatRate] = React.useState("5");
   const [website, setWebsite] = React.useState("");
+  const [trn, setTrn] = React.useState("");
   const [logo, setLogo] = React.useState("");
   const [logoChanged, setLogoChanged] = React.useState(false);
   const logoInputRef = React.useRef<HTMLInputElement>(null);
@@ -69,6 +70,7 @@ export default function SettingsPage() {
         setStripeFeeFixed(String(org.stripe_card_fee_fixed ?? 1));
         setDefaultVatRate(String(org.default_vat_rate ?? 5));
         setWebsite(org.website ?? "");
+        setTrn(org.trn ?? "");
         setLogo(org.logo_data_url ?? "");
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to load settings");
@@ -96,9 +98,11 @@ export default function SettingsPage() {
         stripe_card_fee_fixed: parseFloat(stripeFeeFixed) || 1,
         default_vat_rate: parseFloat(defaultVatRate) || 5,
         website: website.trim(),
+        trn: trn.trim(),
         ...(logoChanged ? { logo_data_url: logo } : {}),
       });
       setWebsite(org.website ?? "");
+      setTrn(org.trn ?? "");
       setLogo(org.logo_data_url ?? "");
       setLogoChanged(false);
       setName(org.name);
@@ -200,6 +204,19 @@ export default function SettingsPage() {
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="org-trn">Tax Registration Number (TRN)</Label>
+                <Input
+                  id="org-trn"
+                  inputMode="numeric"
+                  placeholder="100000000000003"
+                  value={trn}
+                  onChange={(e) => setTrn(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your VAT TRN. Shown under your contact details on every invoice and quotation.
+                </p>
               </div>
               <div className="grid gap-2">
                 <Label>Company Logo</Label>

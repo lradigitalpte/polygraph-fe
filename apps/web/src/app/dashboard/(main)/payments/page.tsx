@@ -54,6 +54,7 @@ import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInv
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
+import { ORG_CONTACT_CSS, orgContactHtml, pdfOrgFromSettings, type PdfOrg } from "@/lib/invoice-pdf";
 import {
   Select,
   SelectContent,
@@ -171,7 +172,7 @@ type QuotationPdfData = {
   discount?: { label: string; amount: number };
   vat?: { rate: number; amount: number };
   total: number;
-  org: { name: string; address?: string; email?: string; phone?: string };
+  org: PdfOrg;
 };
 
 // ---------- helper: build the professional, branded quotation PDF markup ----------
@@ -217,7 +218,7 @@ function buildQuotationPdfHtml(data: QuotationPdfData): string {
   .header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:28px}
   .brand img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:10px}
   .brand .org-name{font-size:17px;font-weight:900;color:#111;letter-spacing:-0.01em}
-  .brand .line{font-size:10.5px;color:#666;line-height:1.6;margin-top:2px;max-width:280px}
+${ORG_CONTACT_CSS}
   .header-right{text-align:right}
   .doc-title{font-size:30px;font-weight:900;letter-spacing:-0.02em;color:#111;margin-bottom:12px}
   .meta-table{border-collapse:collapse;margin-left:auto}
@@ -257,10 +258,7 @@ function buildQuotationPdfHtml(data: QuotationPdfData): string {
   <div class="header">
     <div class="brand">
       <img src="${logoUrl}" alt="${data.org.name}" />
-      <div class="org-name">${data.org.name}</div>
-      ${data.org.address ? `<div class="line">${data.org.address}</div>` : ""}
-      ${data.org.phone ? `<div class="line">Phone: ${data.org.phone}</div>` : ""}
-      ${data.org.email ? `<div class="line">${data.org.email}</div>` : ""}
+      ${orgContactHtml(data.org)}
     </div>
     <div class="header-right">
       <div class="doc-title">Quotation</div>
@@ -329,7 +327,7 @@ function downloadQuotationPDF(
   examiner: string,
   examType: string,
   client: ClientRecord | undefined,
-  org: { name?: string; address?: string; support_email?: string; phone?: string } | null,
+  org: Parameters<typeof pdfOrgFromSettings>[0],
 ) {
   openPrintWindow(
     buildQuotationPdfHtml({
@@ -348,12 +346,7 @@ function downloadQuotationPDF(
       items: inv.items,
       subtotal: inv.totalAmount,
       total: inv.totalAmount,
-      org: {
-        name: org?.name || "Polygraph UAE",
-        address: org?.address,
-        email: org?.support_email,
-        phone: org?.phone,
-      },
+      org: pdfOrgFromSettings(org),
     }),
   );
 }
@@ -789,12 +782,7 @@ export default function PaymentsPage() {
         discount: createdQuotation.discount,
         vat: createdQuotation.vat,
         total: createdQuotation.total,
-        org: {
-          name: orgSettings?.name || "Polygraph UAE",
-          address: orgSettings?.address,
-          email: orgSettings?.support_email,
-          phone: orgSettings?.phone,
-        },
+        org: pdfOrgFromSettings(orgSettings),
       }),
     );
   };

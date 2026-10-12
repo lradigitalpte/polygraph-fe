@@ -33,7 +33,7 @@ import {
 import { deleteInvoice } from "@/lib/billing";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
-import { downloadQuotationPdfFromData } from "@/lib/invoice-pdf";
+import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
 import {
   approveQuotation,
   collectQuotationPayment,
@@ -331,12 +331,7 @@ export default function InvoiceDetailPage() {
       total,
       paidAmount: paid,
       balanceDue: balance,
-      org: {
-        name: orgSettings?.name || "Polygraph UAE",
-        address: orgSettings?.address,
-        email: orgSettings?.support_email,
-        phone: orgSettings?.phone,
-      },
+      org: pdfOrgFromSettings(orgSettings),
     });
   };
 
