@@ -48,21 +48,22 @@ import {
   isAgreementRequestOpen,
 } from "@/lib/agreements";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
-import { collectAppointmentPayment, formatMoney, convertCurrency, catalogPriceInCurrency, ledgerRowMoney } from "@/lib/client-account";
+import {
+  collectAppointmentPayment,
+  formatMoney,
+  convertCurrency,
+  catalogPriceInCurrency,
+  ledgerRowMoney,
+  wholeMoneyAmount,
+} from "@/lib/client-account";
 import type { AccountSummary } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
-import {
-  ORG_CONTACT_CSS,
-  PAYMENT_DETAILS_CSS,
-  orgContactHtml,
-  paymentDetailsHtml,
-  pdfOrgFromSettings,
-  type PdfOrg,
-} from "@/lib/invoice-pdf";
+import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
+import { normalizedQuotationAmounts } from "@/lib/quotation-pricing";
 import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
 import { BankAccountPicker, resolveBankAccountIds } from "@/components/dashboard/bank-account-picker";
 import {
@@ -159,183 +160,8 @@ function openPrintWindow(html: string, popupBlockedMessage = "Allow popups to do
   setTimeout(() => { win.print(); }, 400);
 }
 
-// ---------- shared: DD-MM-YYYY formatter, tolerant of already-formatted date strings ----------
-function formatPdfDate(input: string | Date): { display: string; date: Date | null } {
-  const d = typeof input === "string" ? new Date(input) : input;
-  if (!d || Number.isNaN(d.getTime())) {
-    return { display: typeof input === "string" ? input : "—", date: null };
-  }
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return { display: `${dd}-${mm}-${d.getFullYear()}`, date: d };
-}
-
-type QuotationPdfData = {
-  code: string;
-  issueDate: string;
-  currency: string;
-  client: { name: string; email?: string; phone?: string; address?: string; taxId?: string };
-  examinerName?: string;
-  examTypeName?: string;
-  items: { description: string; amount: number }[];
-  subtotal: number;
-  discount?: { label: string; amount: number };
-  vat?: { rate: number; amount: number };
-  total: number;
-  org: PdfOrg;
-  bankAccounts?: BankDetails[];
-};
-
-// ---------- helper: build the professional, branded quotation PDF markup ----------
-function buildQuotationPdfHtml(data: QuotationPdfData): string {
-  const logoUrl = pdfLogoUrl();
-  const issue = formatPdfDate(data.issueDate);
-  const validUntil = issue.date
-    ? formatPdfDate(new Date(issue.date.getTime() + 30 * 24 * 60 * 60 * 1000)).display
-    : "—";
-  const money = (amt: number) => formatMoney(amt, data.currency);
-  const showBreakdown = Boolean((data.discount && data.discount.amount > 0) || (data.vat && data.vat.amount > 0));
-
-  const rows = data.items
-    .map(
-      (item, idx) => `
-    <tr>
-      <td class="sn">${idx + 1}</td>
-      <td class="desc">${item.description}</td>
-      <td class="num">1</td>
-      <td class="amt">${money(item.amount)}</td>
-      <td class="amt">${money(item.amount)}</td>
-    </tr>`,
-    )
-    .join("");
-
-  const notes = [
-    data.examTypeName ? `Exam Type: ${data.examTypeName}` : null,
-    data.examinerName ? `Examiner: ${data.examinerName}` : null,
-    "This quotation is valid for 30 days from the issue date.",
-  ].filter(Boolean) as string[];
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="format-detection" content="telephone=no,email=no"/>
-<title>${data.code} — Quotation</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  html,body{background:#e9e9ea}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;color:#2a2a2a;padding:24px 0}
-  .page{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:16mm 14mm;box-shadow:0 2px 18px rgba(0,0,0,.18)}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:28px}
-  .brand img{height:52px;width:auto;object-fit:contain;display:block;margin-bottom:10px}
-  .brand .org-name{font-size:17px;font-weight:900;color:#111;letter-spacing:-0.01em}
-${ORG_CONTACT_CSS}
-${PAYMENT_DETAILS_CSS}
-  .header-right{text-align:right}
-  .doc-title{font-size:30px;font-weight:900;letter-spacing:-0.02em;color:#111;margin-bottom:12px}
-  .meta-table{border-collapse:collapse;margin-left:auto}
-  .meta-table td{padding:7px 14px;font-size:10.5px;white-space:nowrap}
-  .meta-table td.label{background:#c96442;color:#fff;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;text-align:left}
-  .meta-table td.value{background:#f6efeb;font-weight:800;color:#111;text-align:right}
-  .addresses{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:30px 0}
-  .box{border:1px solid #e2e2e2;border-radius:8px;padding:16px 18px}
-  .box h4{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#111;font-weight:900;margin-bottom:8px}
-  .box .name{font-weight:800;font-size:13px;margin-bottom:3px}
-  .box .line{font-size:11px;color:#555;line-height:1.6}
-  table.items{width:100%;border-collapse:collapse;margin:8px 0 28px}
-  table.items thead th{background:#c96442;color:#fff;font-size:9.5px;text-transform:uppercase;letter-spacing:0.07em;padding:11px 12px;text-align:left;font-weight:700}
-  table.items thead th.num,table.items thead th.amt{text-align:right}
-  table.items thead th.sn{text-align:center;width:40px}
-  table.items tbody td{padding:11px 12px;font-size:12px;border-bottom:1px solid #f0f0f0}
-  table.items tbody td.sn{text-align:center;color:#888}
-  table.items tbody td.num{text-align:right;color:#555}
-  table.items tbody td.amt{text-align:right;font-weight:700}
-  .bottom{display:grid;grid-template-columns:1fr 300px;gap:24px;align-items:start}
-  .notes ul{list-style:disc;margin-left:16px;font-size:11px;color:#444;line-height:1.8}
-  .totals{border:1px solid #e2e2e2;border-radius:8px;overflow:hidden}
-  .totals .row{display:flex;justify-content:space-between;gap:12px;padding:11px 16px;font-size:12px;border-bottom:1px solid #f0f0f0}
-  .totals .row.discount{color:#c0392b;font-weight:700}
-  .totals .row.total{background:#c96442;color:#fff;font-weight:900;font-size:14.5px;border-bottom:none}
-  .footer{margin-top:56px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:14px;text-align:center}
-  @media print{
-    @page{size:A4;margin:14mm 12mm}
-    html,body{background:#fff}
-    body{padding:0}
-    .page{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none}
-  }
-</style>
-</head>
-<body>
-<div class="page">
-  <div class="header">
-    <div class="brand">
-      <img src="${logoUrl}" alt="${data.org.name}" />
-      ${orgContactHtml(data.org)}
-    </div>
-    <div class="header-right">
-      <div class="doc-title">Quotation</div>
-      <table class="meta-table">
-        <tr><td class="label">Quotation No.</td><td class="value">${data.code}</td></tr>
-        <tr><td class="label">Date</td><td class="value">${issue.display}</td></tr>
-        <tr><td class="label">Amount</td><td class="value">${money(data.total)}</td></tr>
-        <tr><td class="label">Valid until</td><td class="value">${validUntil}</td></tr>
-      </table>
-    </div>
-  </div>
-
-  <div class="addresses">
-    <div class="box">
-      <h4>Quotation To</h4>
-      <div class="name">${data.client.name}</div>
-      ${data.client.address ? `<div class="line">${data.client.address}</div>` : ""}
-      ${data.client.phone ? `<div class="line">Phone: ${data.client.phone}</div>` : ""}
-      ${data.client.email ? `<div class="line">Email: ${data.client.email}</div>` : ""}
-      ${data.client.taxId ? `<div class="line">TRN: ${data.client.taxId}</div>` : ""}
-    </div>
-    <div class="box">
-      <h4>Billing Address</h4>
-      <div class="name">${data.client.name}</div>
-      ${data.client.address ? `<div class="line">${data.client.address}</div>` : ""}
-      ${data.client.phone ? `<div class="line">Phone: ${data.client.phone}</div>` : ""}
-      ${data.client.email ? `<div class="line">Email: ${data.client.email}</div>` : ""}
-    </div>
-  </div>
-
-  <table class="items">
-    <thead>
-      <tr>
-        <th class="sn">S/N</th>
-        <th>Description</th>
-        <th class="num">Qty</th>
-        <th class="amt">Unit Price</th>
-        <th class="amt">Total Price</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
-
-  <div class="bottom">
-    <div class="box notes">
-      <h4>Notes</h4>
-      <ul>${notes.map((n) => `<li>${n}</li>`).join("")}</ul>
-    </div>
-    <div class="totals">
-      ${showBreakdown ? `<div class="row"><span>Net Subtotal</span><span>${money(data.subtotal)}</span></div>` : ""}
-      ${data.discount && data.discount.amount > 0 ? `<div class="row discount"><span>${data.discount.label}</span><span>-${money(data.discount.amount)}</span></div>` : ""}
-      ${data.vat && data.vat.amount > 0 ? `<div class="row"><span>VAT (${data.vat.rate}%)</span><span>${money(data.vat.amount)}</span></div>` : ""}
-      <div class="row total"><span>Total Amount${data.vat && data.vat.amount > 0 ? " (Incl. VAT)" : ""}</span><span>${money(data.total)}</span></div>
-    </div>
-  </div>
-${paymentDetailsHtml(data.bankAccounts, data.code)}
-
-  <div class="footer">Thank you for choosing ${data.org.name}. This quotation is subject to acceptance within its validity period.</div>
-</div>
-</body>
-</html>`;
-}
-
 // ---------- helper: generate + open printable PDF for an existing quotation/invoice row ----------
-function downloadQuotationPDF(
+async function downloadQuotationPDF(
   inv: Invoice,
   examiner: string,
   examType: string,
@@ -343,27 +169,68 @@ function downloadQuotationPDF(
   org: Parameters<typeof pdfOrgFromSettings>[0],
   bankAccounts: BankDetails[] | undefined,
 ) {
-  openPrintWindow(
-    buildQuotationPdfHtml({
-      code: inv.code,
-      issueDate: inv.date,
-      currency: inv.currency || "AED",
-      client: {
-        name: inv.client,
-        email: client?.email || inv.clientEmail,
-        phone: client?.phone,
-        address: client?.address,
-        taxId: client?.tax_id,
+  const currency = (inv.currency || "AED").toUpperCase();
+  let quote = null as Awaited<ReturnType<typeof fetchQuotation>> | null;
+  if (inv.quotationId) {
+    try {
+      quote = await fetchQuotation(inv.quotationId);
+    } catch {
+      quote = null;
+    }
+  }
+  const priced = quote ? normalizedQuotationAmounts(quote) : null;
+  const qty = quote?.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : 1;
+  const lineSubtotal = priced?.subtotal ?? inv.totalAmount;
+  const unit = qty > 0 ? wholeMoneyAmount(lineSubtotal / qty) : lineSubtotal;
+  const noteLines = (quote?.description || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const title = quote?.title || inv.items[0]?.description || "Polygraph services";
+  const issueDate = quote?.created_at || inv.date;
+  const total = priced?.total ?? inv.totalAmount;
+  const billClient = client || quote?.client;
+
+  downloadQuotationPdfFromData({
+    code: inv.code,
+    quotationId: inv.quotationId ?? quote?.id,
+    paymentReference: inv.code,
+    issueDate,
+    currency,
+    client: {
+      name: billClient?.name || inv.client,
+      email: billClient?.email || inv.clientEmail,
+      phone: billClient?.phone,
+      address: billClient?.address,
+      taxId: billClient?.tax_id,
+      contactPerson: billClient?.contact_person,
+    },
+    examinerName: examiner || inv.examinerName || undefined,
+    examTypeName: examType || resolveInvoiceExamType(inv) || undefined,
+    items: [
+      {
+        description: title,
+        quantity: qty,
+        unitPrice: unit,
+        lineTotal: lineSubtotal,
       },
-      examinerName: examiner || inv.examinerName || undefined,
-      examTypeName: examType || resolveInvoiceExamType(inv) || undefined,
-      items: inv.items,
-      subtotal: inv.totalAmount,
-      total: inv.totalAmount,
-      org: pdfOrgFromSettings(org),
-      bankAccounts,
-    }),
-  );
+    ],
+    invoiceNotes: noteLines.length > 0 ? noteLines : undefined,
+    subtotal: priced?.subtotal ?? inv.totalAmount,
+    discount:
+      priced && priced.discountAmount > 0
+        ? { label: "Discount", amount: priced.discountAmount }
+        : undefined,
+    vat:
+      priced && priced.vatAmount > 0
+        ? { rate: priced.vatRate, amount: priced.vatAmount }
+        : undefined,
+    total,
+    paidAmount: inv.paidAmount,
+    balanceDue: inv.balanceDue,
+    org: pdfOrgFromSettings(org),
+    bankAccounts: quote?.bank_accounts ?? bankAccounts,
+  });
 }
 
 function isPaidInFull(status: string): boolean {
@@ -808,29 +675,35 @@ export default function PaymentsPage() {
 
   const handleDownloadCreatedQuotationPdf = () => {
     if (!createdQuotation) return;
-    openPrintWindow(
-      buildQuotationPdfHtml({
-        code: createdQuotation.record.code,
-        issueDate: createdQuotation.record.created_at,
-        currency: createdQuotation.currency,
-        client: {
-          name: createdQuotation.client.name,
-          email: createdQuotation.client.email,
-          phone: createdQuotation.client.phone,
-          address: createdQuotation.client.address,
-          taxId: createdQuotation.client.tax_id,
-        },
-        examinerName: createdQuotation.examiner?.name,
-        examTypeName: createdQuotation.examType.name,
-        items: createdQuotation.items,
-        subtotal: createdQuotation.subtotal,
-        discount: createdQuotation.discount,
-        vat: createdQuotation.vat,
-        total: createdQuotation.total,
-        org: pdfOrgFromSettings(orgSettings),
-        bankAccounts: createdQuotation.record.bank_accounts,
-      }),
-    );
+    downloadQuotationPdfFromData({
+      code: createdQuotation.record.code,
+      quotationId: createdQuotation.record.id,
+      paymentReference: createdQuotation.record.code,
+      issueDate: createdQuotation.record.created_at,
+      currency: createdQuotation.currency,
+      client: {
+        name: createdQuotation.client.name,
+        email: createdQuotation.client.email,
+        phone: createdQuotation.client.phone,
+        address: createdQuotation.client.address,
+        taxId: createdQuotation.client.tax_id,
+        contactPerson: createdQuotation.client.contact_person,
+      },
+      examinerName: createdQuotation.examiner?.name,
+      examTypeName: createdQuotation.examType.name,
+      items: createdQuotation.items.map((item) => ({
+        description: item.description,
+        quantity: 1,
+        unitPrice: item.amount,
+        lineTotal: item.amount,
+      })),
+      subtotal: createdQuotation.subtotal,
+      discount: createdQuotation.discount,
+      vat: createdQuotation.vat,
+      total: createdQuotation.total,
+      org: pdfOrgFromSettings(orgSettings),
+      bankAccounts: createdQuotation.record.bank_accounts,
+    });
   };
 
   const handleRecordPayment = async () => {
@@ -1445,7 +1318,7 @@ export default function PaymentsPage() {
                       variant="outline"
                       className="h-14 rounded-2xl font-black text-[10px] uppercase tracking-widest border-border/50 hover:bg-muted/20"
                       onClick={() =>
-                        downloadQuotationPDF(
+                        void downloadQuotationPDF(
                           selectedInvoice,
                           selectedInvoice.examinerName || "",
                           resolveInvoiceExamType(selectedInvoice),

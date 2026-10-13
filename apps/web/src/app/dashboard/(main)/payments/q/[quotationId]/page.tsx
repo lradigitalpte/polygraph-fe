@@ -32,8 +32,10 @@ import {
   isAgreementRequestOpen,
 } from "@/lib/agreements";
 import { deleteInvoice } from "@/lib/billing";
+import { fetchClient, type ClientRecord } from "@/lib/clients";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
+import { formatInvoiceDisplayNumber } from "@/lib/invoice-number";
 import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
 import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
 import { BankAccountPicker } from "@/components/dashboard/bank-account-picker";
@@ -78,6 +80,10 @@ export default function InvoiceDetailPage() {
   const [editDiscount, setEditDiscount] = React.useState("");
   const [editVatRate, setEditVatRate] = React.useState("");
   const [editIncludeVat, setEditIncludeVat] = React.useState(false);
+  const [editQuantity, setEditQuantity] = React.useState("1");
+  const [editUnitPrice, setEditUnitPrice] = React.useState("");
+  const [editInvoiceNotes, setEditInvoiceNotes] = React.useState("");
+  const [billingClient, setBillingClient] = React.useState<ClientRecord | null>(null);
   const [savingPricing, setSavingPricing] = React.useState(false);
   const [bankAccounts, setBankAccounts] = React.useState<BankAccount[]>([]);
   const [editingBanks, setEditingBanks] = React.useState(false);
@@ -92,12 +98,14 @@ export default function InvoiceDetailPage() {
     if (!Number.isFinite(quotationId) || quotationId <= 0) {
       throw new Error("Invalid quotation id");
     }
-    const [q, org] = await Promise.all([
-      fetchQuotation(quotationId),
+    const q = await fetchQuotation(quotationId);
+    const [org, clientDetail] = await Promise.all([
       fetchOrganizationSettings().catch(() => null),
+      q.client_id ? fetchClient(q.client_id).catch(() => null) : Promise.resolve(null),
     ]);
     setQuote(q);
     setOrgSettings(org);
+    setBillingClient(clientDetail);
     if (org?.pass_stripe_fees_to_customer != null) {
       setPassProcessingFee(org.pass_stripe_fees_to_customer);
     }
@@ -133,7 +141,12 @@ export default function InvoiceDetailPage() {
         }
         if (cancelled) return;
         setEditTitle(q.title || "");
-        setEditSubtotal(String(priced.subtotal));
+        const qty = q.line_quantity && q.line_quantity > 0 ? q.line_quantity : 1;
+        setEditQuantity(String(qty));
+        const lineSubtotal = priced.subtotal;
+        setEditSubtotal(String(lineSubtotal));
+        setEditUnitPrice(String(qty > 0 ? wholeMoneyAmount(lineSubtotal / qty) : lineSubtotal));
+        setEditInvoiceNotes(q.description || "");
         setEditDiscount(String(priced.discountAmount));
         setEditVatRate(String(Number(q.vat_rate || org?.default_vat_rate || 5)));
         setEditIncludeVat(Number(q.vat_amount || 0) > 0 || Number(q.vat_rate || 0) > 0);
@@ -208,8 +221,21 @@ export default function InvoiceDetailPage() {
     return estimateStripeGrossCharge(chargeNet, effectiveFeePercent, effectiveFeeFixed);
   }, [passProcessingFee, chargeNet, effectiveFeePercent, effectiveFeeFixed]);
 
+  const lineSubtotalPreview = React.useMemo(() => {
+    const qty = Math.max(1, parseInt(editQuantity, 10) || 1);
+    const unit = Number(editUnitPrice);
+    if (!Number.isFinite(unit) || unit < 0) return null;
+    return wholeMoneyAmount(qty * unit);
+  }, [editQuantity, editUnitPrice]);
+
+  React.useEffect(() => {
+    if (lineSubtotalPreview != null) {
+      setEditSubtotal(String(lineSubtotalPreview));
+    }
+  }, [lineSubtotalPreview]);
+
   const pricingPreview = React.useMemo(() => {
-    const subtotal = Number(editSubtotal);
+    const subtotal = lineSubtotalPreview ?? Number(editSubtotal);
     if (!Number.isFinite(subtotal) || subtotal < 0) return null;
     return computeQuotationTotal({
       subtotal,
@@ -217,7 +243,7 @@ export default function InvoiceDetailPage() {
       vatRate: Number(editVatRate) || 0,
       applyVat: editIncludeVat,
     });
-  }, [editSubtotal, editDiscount, editVatRate, editIncludeVat]);
+  }, [lineSubtotalPreview, editSubtotal, editDiscount, editVatRate, editIncludeVat]);
 
   const paymentHistory = React.useMemo(() => {
     const rows = [...(quote?.payment_history || [])];
@@ -355,16 +381,38 @@ export default function InvoiceDetailPage() {
 
   const handleDownloadPdf = () => {
     if (!quote) return;
+    const bill = billingClient || quote.client;
+    const qty = Math.max(1, quote.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : parseInt(editQuantity, 10) || 1);
+    const lineSub = displaySubtotal || total;
+    const unit = qty > 0 ? wholeMoneyAmount(lineSub / qty) : lineSub;
+    const noteLines = (quote.description || editInvoiceNotes || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
     downloadQuotationPdfFromData({
       bankAccounts: quote.bank_accounts,
       code: quote.code,
+      quotationId: quote.id,
+      paymentReference: quote.code,
       issueDate: quote.created_at,
       currency,
       client: {
-        name: quote.client?.name || `Client #${quote.client_id}`,
-        email: quote.client?.email,
+        name: bill?.name || quote.client?.name || `Client #${quote.client_id}`,
+        email: bill?.email || quote.client?.email,
+        phone: bill?.phone || quote.client?.phone,
+        address: bill?.address || quote.client?.address,
+        taxId: bill?.tax_id || quote.client?.tax_id,
+        contactPerson: bill?.contact_person || quote.client?.contact_person,
       },
-      items: [{ description: quote.title || "Polygraph services", amount: displaySubtotal || total }],
+      items: [
+        {
+          description: quote.title || "Polygraph services",
+          quantity: qty,
+          unitPrice: unit,
+          lineTotal: lineSub,
+        },
+      ],
+      invoiceNotes: noteLines.length > 0 ? noteLines : undefined,
       subtotal: displaySubtotal || total,
       discount:
         displayDiscount > 0
@@ -406,8 +454,11 @@ export default function InvoiceDetailPage() {
     }
     setSavingPricing(true);
     try {
+      const qty = Math.max(1, parseInt(editQuantity, 10) || 1);
       await updateQuotation(quote.id, {
         title: editTitle.trim() || quote.title,
+        description: editInvoiceNotes.trim(),
+        line_quantity: qty,
         amount: pricingPreview.total,
         subtotal_amount: pricingPreview.subtotal,
         discount_amount: pricingPreview.discountAmount,
@@ -477,7 +528,12 @@ export default function InvoiceDetailPage() {
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">{quote.code}</h1>
+              <h1 className="text-2xl font-bold tracking-tight">
+                {formatInvoiceDisplayNumber(quote.code, quote.id)}
+              </h1>
+              {quote.code && formatInvoiceDisplayNumber(quote.code, quote.id) !== quote.code ? (
+                <span className="text-xs text-muted-foreground font-normal ml-1">({quote.code})</span>
+              ) : null}
               <Badge variant="outline">{quote.status}</Badge>
             </div>
             <p className="text-sm text-muted-foreground">{quote.client?.name || `Client #${quote.client_id}`}</p>
@@ -644,17 +700,54 @@ export default function InvoiceDetailPage() {
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Title</Label>
                   <Input className="h-11 rounded-xl" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Subtotal</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Qty</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="h-11 rounded-xl"
+                      value={editQuantity}
+                      onChange={(e) => setEditQuantity(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Unit price</Label>
                     <Input
                       type="number"
                       min={0}
                       step="0.01"
                       className="h-11 rounded-xl"
-                      value={editSubtotal}
-                      onChange={(e) => setEditSubtotal(e.target.value)}
+                      value={editUnitPrice}
+                      onChange={(e) => setEditUnitPrice(e.target.value)}
                     />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Line subtotal</Label>
+                    <Input
+                      type="number"
+                      readOnly
+                      className="h-11 rounded-xl bg-muted/40"
+                      value={editSubtotal}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-1.5 col-span-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Invoice notes (PDF)
+                    </Label>
+                    <Textarea
+                      rows={3}
+                      className="rounded-xl text-sm"
+                      placeholder={"A 100% payment is required to confirm the booking.\nPartner pricing"}
+                      value={editInvoiceNotes}
+                      onChange={(e) => setEditInvoiceNotes(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      One line per bullet in the Notes box. Billing address and TRN come from the client Account Details page.
+                    </p>
                   </div>
                   <div className="grid gap-1.5">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discount</Label>

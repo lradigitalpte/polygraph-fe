@@ -17,6 +17,7 @@ export type QuotationRecord = {
   appointment_id?: number;
   title: string;
   description?: string;
+  line_quantity?: number;
   amount: number;
   subtotal_amount?: number;
   discount_amount?: number;
@@ -40,6 +41,10 @@ export type QuotationRecord = {
     id: number;
     name: string;
     email?: string;
+    phone?: string;
+    address?: string;
+    tax_id?: string;
+    contact_person?: string;
   };
 };
 
@@ -141,6 +146,8 @@ export async function updateQuotation(
   id: number,
   input: {
     title?: string;
+    description?: string;
+    line_quantity?: number;
     amount?: number;
     subtotal_amount?: number;
     discount_amount?: number;

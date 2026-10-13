@@ -1,4 +1,5 @@
 import { formatMoney } from "@/lib/client-account";
+import { formatInvoiceDisplayNumber } from "@/lib/invoice-number";
 import { toast } from "sonner";
 import type { BankDetails } from "@/lib/bank-accounts";
 
@@ -127,12 +128,21 @@ export function pdfOrgFromSettings(
 
 export type QuotationPdfData = {
   code: string;
+  quotationId?: number;
   issueDate: string;
   currency: string;
-  client: { name: string; email?: string; phone?: string; address?: string; taxId?: string };
+  client: {
+    name: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    taxId?: string;
+    contactPerson?: string;
+  };
   examinerName?: string;
   examTypeName?: string;
-  items: { description: string; amount: number }[];
+  items: { description: string; quantity: number; unitPrice: number; lineTotal: number }[];
+  invoiceNotes?: string[];
   subtotal: number;
   discount?: { label: string; amount: number };
   vat?: { rate: number; amount: number };
@@ -141,10 +151,14 @@ export type QuotationPdfData = {
   balanceDue?: number;
   org: PdfOrg;
   bankAccounts?: BankDetails[];
+  /** Full code for bank reference (may include legacy INV- prefix). */
+  paymentReference?: string;
 };
 
 export function buildQuotationPdfHtml(data: QuotationPdfData): string {
   const logoUrl = pdfLogoUrl();
+  const invoiceNo = formatInvoiceDisplayNumber(data.code, data.quotationId);
+  const paymentRef = (data.paymentReference || data.code || invoiceNo).trim();
   const issue = formatPdfDate(data.issueDate);
   const validUntil = issue.date
     ? formatPdfDate(new Date(issue.date.getTime() + 30 * 24 * 60 * 60 * 1000)).display
@@ -160,29 +174,29 @@ export function buildQuotationPdfHtml(data: QuotationPdfData): string {
     <tr>
       <td class="sn">${idx + 1}</td>
       <td class="desc">${item.description}</td>
-      <td class="num">1</td>
-      <td class="amt">${money(item.amount)}</td>
-      <td class="amt">${money(item.amount)}</td>
+      <td class="num">${item.quantity}</td>
+      <td class="amt">${money(item.unitPrice)}</td>
+      <td class="amt">${money(item.lineTotal)}</td>
     </tr>`,
     )
     .join("");
 
-  const notes = [
-    data.examTypeName ? `Exam Type: ${data.examTypeName}` : null,
-    data.examinerName ? `Examiner: ${data.examinerName}` : null,
-    "This quotation is valid for 30 days from the issue date.",
-  ].filter(Boolean) as string[];
-
-  const paid = Number(data.paidAmount || 0);
-  const balance =
-    data.balanceDue != null ? Number(data.balanceDue) : Math.max(0, data.total - paid);
+  const notes =
+    data.invoiceNotes && data.invoiceNotes.length > 0
+      ? data.invoiceNotes
+      : ([
+          data.examTypeName ? `Exam Type: ${data.examTypeName}` : null,
+          data.examinerName ? `Examiner: ${data.examinerName}` : null,
+          "A 100% payment is required to confirm the booking.",
+          "This quotation is valid for 30 days from the issue date.",
+        ].filter(Boolean) as string[]);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="format-detection" content="telephone=no,email=no"/>
-<title>${data.code} — Quotation</title>
+<title>${invoiceNo} — Invoice</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{background:#e9e9ea}
@@ -237,7 +251,7 @@ ${PAYMENT_DETAILS_CSS}
     <div class="header-right">
       <div class="doc-title">Invoice</div>
       <table class="meta-table">
-        <tr><td class="label">Invoice No.</td><td class="value">${data.code}</td></tr>
+        <tr><td class="label">Invoice No.</td><td class="value">${invoiceNo}</td></tr>
         <tr><td class="label">Date</td><td class="value">${issue.display}</td></tr>
         <tr><td class="label">Amount</td><td class="value">${money(data.total)}</td></tr>
         <tr><td class="label">Valid until</td><td class="value">${validUntil}</td></tr>
@@ -247,18 +261,16 @@ ${PAYMENT_DETAILS_CSS}
 
   <div class="addresses">
     <div class="box">
-      <h4>Bill To</h4>
+      <h4>Invoice to</h4>
       <div class="name">${data.client.name}</div>
-      ${data.client.address ? `<div class="line">${data.client.address}</div>` : ""}
-      ${data.client.phone ? `<div class="line">Phone: ${data.client.phone}</div>` : ""}
-      ${data.client.email ? `<div class="line">Email: ${data.client.email}</div>` : ""}
-      ${data.client.taxId ? `<div class="line">TRN: ${data.client.taxId}</div>` : ""}
+      ${data.client.contactPerson ? `<div class="line">${data.client.contactPerson}</div>` : ""}
+      ${data.client.email ? `<div class="line">${data.client.email}</div>` : ""}
+      ${data.client.phone ? `<div class="line">${data.client.phone}</div>` : ""}
     </div>
     <div class="box">
-      <h4>Payment summary</h4>
-      <div class="line">Total: ${money(data.total)}</div>
-      <div class="line">Paid: ${money(paid)}</div>
-      <div class="line"><strong>Balance due: ${money(balance)}</strong></div>
+      <h4>Billing address</h4>
+      ${data.client.address ? `<div class="line">${data.client.address}</div>` : `<div class="line">—</div>`}
+      ${data.client.taxId ? `<div class="line"><strong>TRN:</strong> ${data.client.taxId}</div>` : ""}
     </div>
   </div>
 
@@ -287,7 +299,7 @@ ${PAYMENT_DETAILS_CSS}
       <div class="row total"><span>Total Amount${data.vat && data.vat.amount > 0 ? " (Incl. VAT)" : ""}</span><span>${money(data.total)}</span></div>
     </div>
   </div>
-${paymentDetailsHtml(data.bankAccounts, data.code)}
+${paymentDetailsHtml(data.bankAccounts, paymentRef)}
 
   <div class="footer">Thank you for choosing ${data.org.name}. This invoice is subject to acceptance within its validity period.</div>
 </div>
