@@ -37,6 +37,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { fetchClients, type ClientRecord } from "@/lib/clients";
 import { isOrganizationClient } from "@/lib/client-types";
+import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 import {
   createAppointment,
   fetchExaminerAvailability,
@@ -105,6 +106,8 @@ function BookAppointmentPageContent() {
   const [isDateBlocked, setIsDateBlocked] = React.useState(false);
   const [isLoadingAvailability, setIsLoadingAvailability] = React.useState(false);
   const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
+  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  const [usePrepaidSlot, setUsePrepaidSlot] = React.useState(true);
 
   const orgCurrency = orgSettings?.currency || "AED";
 
@@ -284,12 +287,32 @@ function BookAppointmentPageContent() {
   }, [deferredClientSearch]);
 
   const isOrgBooking = isOrganizationClient(selectedClientRecord);
+  const willUsePrepaidSlot =
+    isOrgBooking && usePrepaidSlot && (prepaidSummary?.available ?? 0) > 0 && !convertQuotationId;
 
   React.useEffect(() => {
     if (isOrgBooking) {
       setUseClientAsSubject(false);
     }
   }, [isOrgBooking]);
+
+  React.useEffect(() => {
+    if (!isOrgBooking || !formData.clientId) {
+      setPrepaidSummary(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchPrepaidSlotSummary(Number(formData.clientId))
+      .then((summary) => {
+        if (!cancelled) setPrepaidSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setPrepaidSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOrgBooking, formData.clientId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -641,6 +664,7 @@ function BookAppointmentPageContent() {
           payment_mode: formData.paymentType,
           notes: formData.reason,
           status: "pending",
+          use_prepaid_slot: willUsePrepaidSlot,
         });
 
         // Attach any questions picked during booking. A failure here must not
@@ -657,9 +681,11 @@ function BookAppointmentPageContent() {
           }
         }
         toast.success(isBackdatedBooking ? "Backdated appointment logged" : "Appointment booked", {
-          description: isBackdatedBooking
-            ? `Logged for ${formData.date} @ ${formData.time} (Dubai). Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`
-            : `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
+          description: willUsePrepaidSlot
+            ? `Used 1 prepaid examination slot (${Math.max(0, (prepaidSummary?.available ?? 1) - 1)} remaining). Session invoice marked paid from bulk advance.`
+            : isBackdatedBooking
+              ? `Logged for ${formData.date} @ ${formData.time} (Dubai). Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`
+              : `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
         });
       }
       // Return to the originating page (e.g. pending appointments) when provided, so the
@@ -1261,6 +1287,24 @@ function BookAppointmentPageContent() {
                       <CardDescription>Capture payment mode and the case context that will be handed to the examiner.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4 p-4 sm:space-y-6 sm:p-6">
+                      {isOrgBooking && (prepaidSummary?.available ?? 0) > 0 ? (
+                        <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                          <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                            {prepaidSummary?.available} prepaid examination
+                            {(prepaidSummary?.available ?? 0) === 1 ? "" : "s"} available
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id="use-prepaid-slot"
+                              checked={usePrepaidSlot}
+                              onCheckedChange={(checked) => setUsePrepaidSlot(checked === true)}
+                            />
+                            <Label htmlFor="use-prepaid-slot" className="text-sm font-normal cursor-pointer">
+                              Use 1 prepaid slot for this booking (invoice shows advance applied)
+                            </Label>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="space-y-2">
                         <Label>Payment Method</Label>
                         <Select value={formData.paymentType} onValueChange={(value) => handleInputChange("paymentType", value as string)}>

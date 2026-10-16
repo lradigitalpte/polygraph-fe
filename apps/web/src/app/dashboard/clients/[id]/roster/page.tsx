@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
+import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 import { formatOrganizationAccountLabel, isOrganizationClient } from "@/lib/client-types";
 import { formatClinicDateLabel } from "@/lib/clinic-time";
 import {
@@ -276,6 +277,7 @@ export default function ExamineeRosterPage() {
       : client.name
     : "this account";
   const [entries, setEntries] = React.useState<ExamineeRosterEntry[]>([]);
+  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [bookingFilter, setBookingFilter] = React.useState<BookingFilter>("all");
@@ -318,6 +320,16 @@ export default function ExamineeRosterPage() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    if (!Number.isFinite(clientId) || !client || !isOrganizationClient(client)) {
+      setPrepaidSummary(null);
+      return;
+    }
+    void fetchPrepaidSlotSummary(clientId)
+      .then(setPrepaidSummary)
+      .catch(() => setPrepaidSummary(null));
+  }, [clientId, client]);
 
   React.useEffect(() => {
     setCurrentPage(1);
@@ -596,6 +608,21 @@ export default function ExamineeRosterPage() {
           </Button>
         </div>
       </div>
+
+      {prepaidSummary && prepaidSummary.available > 0 ? (
+        <Card className="border-emerald-500/30 bg-emerald-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-emerald-900 dark:text-emerald-200">
+              {prepaidSummary.available} prepaid examination{prepaidSummary.available === 1 ? "" : "s"} available
+            </CardTitle>
+            <CardDescription>
+              Use <strong>Book session</strong> on a row below. On the booking wizard payment step, leave{" "}
+              <strong>Use 1 prepaid slot</strong> checked — the session invoice is marked paid from invoice 009279-style
+              bulk advance ({prepaidSummary.consumed} already used).
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
 
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader className="pb-3">

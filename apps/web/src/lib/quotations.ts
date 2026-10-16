@@ -35,6 +35,7 @@ export type QuotationRecord = {
   stripe_payment_intent_id?: string;
   stripe_payment_link_url?: string;
   payment_history?: QuotationPaymentEntry[];
+  prepaid_slots_minted?: boolean;
   /** Bank transfer details printed on the invoice (resolved by the API). */
   bank_accounts?: BankDetails[];
   client?: {
@@ -76,6 +77,7 @@ export async function createQuotation(input: {
   appointment_id?: number;
   title: string;
   description?: string;
+  line_quantity?: number;
   amount: number;
   subtotal_amount?: number;
   discount_amount?: number;
@@ -164,6 +166,21 @@ export async function updateQuotation(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to update quotation (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function mintPrepaidSlotsForQuotation(
+  id: number,
+  input?: { line_quantity?: number },
+): Promise<{ available: number; consumed: number; total: number }> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/mint-prepaid-slots`, {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to create examination slots (${response.status})`);
   }
   return response.json();
 }

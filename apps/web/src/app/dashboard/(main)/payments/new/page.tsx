@@ -73,6 +73,7 @@ export default function NewQuotationPage() {
     extraItems: [] as { description: string; amount: number }[],
     /** null = follow the currency's default account. */
     bankAccountIds: null as number[] | null,
+    lineQuantity: 1,
   });
   const [bankAccounts, setBankAccounts] = React.useState<BankAccount[]>([]);
 
@@ -138,9 +139,14 @@ export default function NewQuotationPage() {
 
   const preview = React.useMemo(() => {
     if (!form.examType) return null;
-    const basePrice = catalogPriceInCurrency(form.examType.price, form.currency, orgSettings);
+    const qty = Math.max(1, Math.floor(form.lineQuantity) || 1);
+    const unitPrice = catalogPriceInCurrency(form.examType.price, form.currency, orgSettings);
+    const basePrice = unitPrice * qty;
     const lineItems = [
-      { description: form.examType.name, amount: basePrice },
+      {
+        description: qty > 1 ? `${form.examType.name} × ${qty}` : form.examType.name,
+        amount: basePrice,
+      },
       ...form.extraItems.filter((item) => item.description.trim() && item.amount > 0),
     ];
     const subtotal = lineItems.reduce((acc, item) => acc + item.amount, 0);
@@ -197,10 +203,12 @@ export default function NewQuotationPage() {
 
     setCreating(true);
     try {
+      const qty = Math.max(1, Math.floor(form.lineQuantity) || 1);
       const record = await createQuotation({
         client_id: form.client.id,
         title,
         description,
+        line_quantity: qty,
         amount: preview.total,
         subtotal_amount: preview.subtotal,
         discount_amount: preview.discountAmount,
@@ -331,6 +339,28 @@ export default function NewQuotationPage() {
                 )}
               </div>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground">
+              Quantity (examinations)
+            </Label>
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              className="h-12 rounded-xl max-w-[10rem]"
+              value={form.lineQuantity}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  lineQuantity: Math.max(1, parseInt(e.target.value, 10) || 1),
+                }))
+              }
+            />
+            <p className="text-[10px] text-muted-foreground">
+              For corporate bulk prepay: set quantity before payment; each unit becomes a redeemable slot.
+            </p>
           </div>
 
           <div className="space-y-2 relative">

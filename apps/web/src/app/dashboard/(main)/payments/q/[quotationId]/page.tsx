@@ -43,11 +43,13 @@ import {
   approveQuotation,
   collectQuotationPayment,
   fetchQuotation,
+  mintPrepaidSlotsForQuotation,
   sendQuotationEmail,
   syncQuotationStripePayment,
   updateQuotation,
   type QuotationRecord,
 } from "@/lib/quotations";
+import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 import { computeQuotationTotal, normalizedQuotationAmounts } from "@/lib/quotation-pricing";
 import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
@@ -89,6 +91,9 @@ export default function InvoiceDetailPage() {
   const [editingBanks, setEditingBanks] = React.useState(false);
   const [bankSelection, setBankSelection] = React.useState<number[]>([]);
   const [savingBanks, setSavingBanks] = React.useState(false);
+  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  const [mintSlotQuantity, setMintSlotQuantity] = React.useState("");
+  const [mintingSlots, setMintingSlots] = React.useState(false);
 
   React.useEffect(() => {
     void fetchBankAccounts().then(setBankAccounts).catch(() => setBankAccounts([]));
@@ -106,6 +111,13 @@ export default function InvoiceDetailPage() {
     setQuote(q);
     setOrgSettings(org);
     setBillingClient(clientDetail);
+    const qty = q.line_quantity && q.line_quantity > 0 ? q.line_quantity : 1;
+    setMintSlotQuantity(String(qty));
+    if (q.client_id) {
+      void fetchPrepaidSlotSummary(q.client_id)
+        .then(setPrepaidSummary)
+        .catch(() => setPrepaidSummary(null));
+    }
     if (org?.pass_stripe_fees_to_customer != null) {
       setPassProcessingFee(org.pass_stripe_fees_to_customer);
     }
@@ -488,6 +500,22 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const handleMintPrepaidSlots = async () => {
+    if (!quote) return;
+    const qty = Math.max(1, parseInt(mintSlotQuantity, 10) || 1);
+    setMintingSlots(true);
+    try {
+      const summary = await mintPrepaidSlotsForQuotation(quote.id, { line_quantity: qty });
+      setPrepaidSummary(summary);
+      await reload();
+      toast.success(`Examination slots ready — ${summary.available} available for this client`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create examination slots");
+    } finally {
+      setMintingSlots(false);
+    }
+  };
+
   const handleRecordPayment = async () => {
     if (!quote) return;
     const amount = Number(paymentAmount);
@@ -591,6 +619,19 @@ export default function InvoiceDetailPage() {
                 <span>Balance due</span>
                 <span>{formatMoney(balance, currency)}</span>
               </div>
+              {!quote.appointment_id ? (
+                <div className="flex justify-between text-sm pt-1">
+                  <span className="text-muted-foreground">Examinations on invoice (qty)</span>
+                  <span className="font-semibold">{quote.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : 1}</span>
+                </div>
+              ) : null}
+              {prepaidSummary && prepaidSummary.total > 0 ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                  <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+                    Prepaid slots for client: {prepaidSummary.available} available ({prepaidSummary.consumed} used)
+                  </p>
+                </div>
+              ) : null}
               {feePreview && feePreview.fee > 0 ? (
                 <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-1.5 text-sm">
                   <div className="flex justify-between">
@@ -871,13 +912,56 @@ export default function InvoiceDetailPage() {
               <CardTitle className="text-lg">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {quote.status === "Completed" &&
+              !quote.appointment_id &&
+              balance <= 0 &&
+              can("appointment:manage") ? (
+                <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                  <p className="text-sm font-semibold">Prepaid examination slots</p>
+                  <p className="text-xs text-muted-foreground">
+                    Set how many exams this paid invoice covers, then create slots. Book each examinee from the client
+                    roster — payment step uses one slot automatically.
+                  </p>
+                  <div className="grid gap-1.5">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Number of examinations
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="h-11 rounded-xl"
+                      value={mintSlotQuantity}
+                      onChange={(e) => setMintSlotQuantity(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    className="w-full rounded-xl"
+                    onClick={() => void handleMintPrepaidSlots()}
+                    disabled={mintingSlots}
+                  >
+                    {mintingSlots ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                    )}
+                    Create / update examination slots
+                  </Button>
+                </div>
+              ) : null}
               {!["Approved", "Completed"].includes(quote.status) && (
                 <Button variant="outline" className="w-full rounded-xl" onClick={() => void handleApprove()} disabled={approving}>
                   {approving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                   Approve quotation
                 </Button>
               )}
-              {can("appointment:create") && (
+              {can("appointment:create") &&
+                !quote.prepaid_slots_minted &&
+                !(
+                  (quote.line_quantity ?? 1) > 1 &&
+                  quote.status === "Completed" &&
+                  !quote.appointment_id
+                ) && (
                 <Button
                   variant="secondary"
                   className="w-full rounded-xl"

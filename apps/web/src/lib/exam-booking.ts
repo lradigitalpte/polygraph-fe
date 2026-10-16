@@ -51,6 +51,8 @@ export type CreateAppointmentInput = {
   payment_mode: string;
   notes: string;
   status?: string;
+  /** When true (default), corporate bookings use a prepaid slot if available. */
+  use_prepaid_slot?: boolean;
 };
 
 export type AppointmentRecord = {

@@ -420,8 +420,11 @@ export default function PaymentsPage() {
     void fetchBankAccounts().then(setBankAccounts).catch(() => setBankAccounts([]));
   }, []);
 
+  const [selectedQuoteDetail, setSelectedQuoteDetail] = React.useState<QuotationRecord | null>(null);
+
   React.useEffect(() => {
     setSelectedBankDetails(undefined);
+    setSelectedQuoteDetail(null);
     const quoteId = selectedInvoice?.quotationId;
     const currency = (selectedInvoice?.currency || orgCurrency).toUpperCase();
     if (!quoteId) {
@@ -431,12 +434,29 @@ export default function PaymentsPage() {
     }
     let cancelled = false;
     void fetchQuotation(quoteId)
-      .then((q) => !cancelled && setSelectedBankDetails(q.bank_accounts ?? []))
+      .then((q) => {
+        if (cancelled) return;
+        setSelectedBankDetails(q.bank_accounts ?? []);
+        setSelectedQuoteDetail(q);
+      })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [selectedInvoice?.quotationId, selectedInvoice?.currency, orgCurrency, bankAccounts]);
+
+  const canConvertQuoteToBooking = (() => {
+    if (!selectedQuoteDetail) return true;
+    if (selectedQuoteDetail.prepaid_slots_minted) return false;
+    if (
+      (selectedQuoteDetail.line_quantity ?? 1) > 1 &&
+      selectedQuoteDetail.status === "Completed" &&
+      !selectedQuoteDetail.appointment_id
+    ) {
+      return false;
+    }
+    return true;
+  })();
 
   const VAT_RATE = 5;
 
@@ -1230,7 +1250,9 @@ export default function PaymentsPage() {
                   >
                     Record Payment Entry
                   </Button>
-                  {selectedInvoice.source === "quote" && can("appointment:create") && (
+                  {selectedInvoice.source === "quote" &&
+                    can("appointment:create") &&
+                    canConvertQuoteToBooking && (
                     <Button
                       variant="secondary"
                       className="w-full h-12 rounded-2xl font-black text-xs uppercase tracking-widest gap-2"

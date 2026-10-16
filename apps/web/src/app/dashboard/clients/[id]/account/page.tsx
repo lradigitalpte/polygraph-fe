@@ -55,6 +55,7 @@ import {
   type AccountSummary,
 } from "@/lib/client-account";
 import { fetchBillingLedger, ledgerEntryCollectTarget } from "@/lib/billing";
+import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 import { collectQuotationPayment, sendQuotationEmail } from "@/lib/quotations";
 import { fetchOrganizationSettings } from "@/lib/settings";
 import { formatClinicDateLabel } from "@/lib/clinic-time";
@@ -97,6 +98,7 @@ export default function ClientAccountPage() {
 
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
   const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);
+  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
   const orgCurrency = orgSettings?.currency || "AED";
@@ -168,9 +170,13 @@ export default function ClientAccountPage() {
     if (!Number.isFinite(clientId)) return;
     setLoading(true);
     try {
-      const data = await fetchBillingLedger(clientId);
+      const [data, prepaid] = await Promise.all([
+        fetchBillingLedger(clientId),
+        fetchPrepaidSlotSummary(clientId).catch(() => null),
+      ]);
       setLedgerSummary(data.summary);
       setEntries(data.entries);
+      setPrepaidSummary(prepaid);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load account");
     } finally {
@@ -279,6 +285,24 @@ export default function ClientAccountPage() {
         </div>
       ) : (
         <>
+          {prepaidSummary && prepaidSummary.total > 0 ? (
+            <Card className="border-emerald-500/20 bg-emerald-500/5">
+              <CardHeader className="pb-2">
+                <CardDescription>Prepaid examinations</CardDescription>
+                <CardTitle className="text-lg">
+                  {prepaidSummary.available} available
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    ({prepaidSummary.consumed} used of {prepaidSummary.total})
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Book exams from the calendar to consume prepaid slots; each session invoice reflects
+                the bulk advance.
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-3">
             <Card>
               <CardHeader className="pb-2">
