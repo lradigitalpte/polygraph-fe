@@ -49,7 +49,11 @@ import {
   updateQuotation,
   type QuotationRecord,
 } from "@/lib/quotations";
-import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
+import {
+  fetchPrepaidSlotSummary,
+  fetchPrepaidSlots,
+  type PrepaidSlotSummary,
+} from "@/lib/prepaid-slots";
 import { computeQuotationTotal, normalizedQuotationAmounts } from "@/lib/quotation-pricing";
 import { estimateStripeGrossCharge } from "@/lib/stripe-fees";
 import { fetchOrganizationSettings, type OrganizationSettings } from "@/lib/settings";
@@ -92,6 +96,7 @@ export default function InvoiceDetailPage() {
   const [bankSelection, setBankSelection] = React.useState<number[]>([]);
   const [savingBanks, setSavingBanks] = React.useState(false);
   const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  const [invoicePrepaidStats, setInvoicePrepaidStats] = React.useState<PrepaidSlotSummary | null>(null);
   const [mintSlotQuantity, setMintSlotQuantity] = React.useState("");
   const [mintAlreadyUsed, setMintAlreadyUsed] = React.useState("0");
   const [mintingSlots, setMintingSlots] = React.useState(false);
@@ -115,9 +120,27 @@ export default function InvoiceDetailPage() {
     const qty = q.line_quantity && q.line_quantity > 0 ? q.line_quantity : 1;
     setMintSlotQuantity(String(qty));
     if (q.client_id) {
-      void fetchPrepaidSlotSummary(q.client_id)
-        .then(setPrepaidSummary)
-        .catch(() => setPrepaidSummary(null));
+      void Promise.all([
+        fetchPrepaidSlotSummary(q.client_id).catch(() => null),
+        fetchPrepaidSlots(q.client_id).catch(() => []),
+      ]).then(([summary, slots]) => {
+        setPrepaidSummary(summary);
+        const mine = slots.filter((s) => s.source_quotation_id === q.id);
+        if (mine.length === 0) {
+          setInvoicePrepaidStats(null);
+          return;
+        }
+        let available = 0;
+        let consumed = 0;
+        for (const s of mine) {
+          if (s.status === "consumed") consumed++;
+          else if (s.status === "available") available++;
+        }
+        setInvoicePrepaidStats({ available, consumed, total: mine.length });
+      });
+    } else {
+      setPrepaidSummary(null);
+      setInvoicePrepaidStats(null);
     }
     if (org?.pass_stripe_fees_to_customer != null) {
       setPassProcessingFee(org.pass_stripe_fees_to_customer);
@@ -558,6 +581,9 @@ export default function InvoiceDetailPage() {
     );
   }
 
+  const prepaidSlotsLocked =
+    quote.prepaid_slots_minted || (invoicePrepaidStats?.total ?? 0) > 0;
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-20 px-4 sm:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -927,58 +953,77 @@ export default function InvoiceDetailPage() {
               !quote.appointment_id &&
               balance <= 0 &&
               can("appointment:manage") ? (
-                <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div
+                  className={`space-y-2 rounded-xl border p-4 ${
+                    prepaidSlotsLocked
+                      ? "border-border/50 bg-muted/20"
+                      : "border-emerald-500/30 bg-emerald-500/5"
+                  }`}
+                >
                   <p className="text-sm font-semibold">Prepaid examination slots</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        Total on invoice
-                      </Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={1}
-                        className="h-11 rounded-xl"
-                        value={mintSlotQuantity}
-                        onChange={(e) => setMintSlotQuantity(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        Already used
-                      </Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={1}
-                        className="h-11 rounded-xl"
-                        value={mintAlreadyUsed}
-                        onChange={(e) => setMintAlreadyUsed(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  {mintSlotQuantity && mintAlreadyUsed ? (
-                    <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                      Will leave{" "}
-                      {Math.max(
-                        0,
-                        (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0),
-                      )}{" "}
-                      slots available to book.
-                    </p>
-                  ) : null}
-                  <Button
-                    className="w-full rounded-xl"
-                    onClick={() => void handleMintPrepaidSlots()}
-                    disabled={mintingSlots}
-                  >
-                    {mintingSlots ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                    )}
-                    Create / update examination slots
-                  </Button>
+                  {prepaidSlotsLocked ? (
+                    <>
+                      <p className="text-xs text-muted-foreground">Slots created for this invoice</p>
+                      <p className="text-sm font-medium">
+                        {invoicePrepaidStats?.available ?? "—"} available ·{" "}
+                        {invoicePrepaidStats?.consumed ?? "—"} used ·{" "}
+                        {invoicePrepaidStats?.total ?? quote.line_quantity ?? 1} total
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                            Total on invoice
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            step={1}
+                            className="h-11 rounded-xl"
+                            value={mintSlotQuantity}
+                            onChange={(e) => setMintSlotQuantity(e.target.value)}
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                            Already used
+                          </Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            className="h-11 rounded-xl"
+                            value={mintAlreadyUsed}
+                            onChange={(e) => setMintAlreadyUsed(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      {mintSlotQuantity && mintAlreadyUsed ? (
+                        <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                          Will leave{" "}
+                          {Math.max(
+                            0,
+                            (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0),
+                          )}{" "}
+                          slots available to book.
+                        </p>
+                      ) : null}
+                      <Button
+                        className="w-full rounded-xl"
+                        onClick={() => void handleMintPrepaidSlots()}
+                        disabled={mintingSlots}
+                      >
+                        {mintingSlots ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                        )}
+                        Create examination slots
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : null}
               {!["Approved", "Completed"].includes(quote.status) && (

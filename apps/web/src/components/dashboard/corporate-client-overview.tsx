@@ -9,8 +9,8 @@ import {
   ChevronRight,
   Clock,
   Loader2,
+  Ticket,
   Users,
-  Wallet,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-s
 import { fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
 import { formatOrganizationAccountLabel } from "@/lib/client-types";
 import { formatSubjectCode, formatSubjectName } from "@/lib/subjects";
+import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 
 function toRelativeTime(iso?: string): string {
   if (!iso) return "Unknown";
@@ -35,20 +36,31 @@ export function CorporateClientOverview() {
   const { client, appointments, loading } = useClientDetail();
   const [roster, setRoster] = React.useState<ExamineeRosterEntry[]>([]);
   const [rosterLoading, setRosterLoading] = React.useState(true);
+  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  const [prepaidLoading, setPrepaidLoading] = React.useState(true);
 
   React.useEffect(() => {
     if (!client) return;
     let cancelled = false;
     setRosterLoading(true);
-    fetchClientExaminees(client.id)
-      .then((data) => {
-        if (!cancelled) setRoster(data);
+    setPrepaidLoading(true);
+    void Promise.all([
+      fetchClientExaminees(client.id),
+      fetchPrepaidSlotSummary(client.id).catch(() => null),
+    ])
+      .then(([data, prepaid]) => {
+        if (cancelled) return;
+        setRoster(data);
+        setPrepaidSummary(prepaid);
       })
       .catch((err) => {
         if (!cancelled) toast.error(err instanceof Error ? err.message : "Failed to load roster");
       })
       .finally(() => {
-        if (!cancelled) setRosterLoading(false);
+        if (!cancelled) {
+          setRosterLoading(false);
+          setPrepaidLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -136,22 +148,37 @@ export function CorporateClientOverview() {
             <p className="text-xs text-muted-foreground">All examinees combined</p>
           </CardContent>
         </Card>
-        <Card className="border-primary/20 bg-primary/5">
+        <Card
+          className={
+            prepaidSummary && prepaidSummary.available > 0
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : "border-border/50"
+          }
+        >
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-primary" />
-              Billing
+            <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+              <Ticket className="h-4 w-4" />
+              Prepaid slots
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              render={<Link href={`/dashboard/clients/${client.id}/account`} />}
-            >
-              Open account
-            </Button>
+            {prepaidLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            ) : prepaidSummary && prepaidSummary.total > 0 ? (
+              <>
+                <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+                  {prepaidSummary.available}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  available · {prepaidSummary.consumed} used of {prepaidSummary.total}
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-muted-foreground">—</div>
+                <p className="text-xs text-muted-foreground">No prepaid examinations</p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

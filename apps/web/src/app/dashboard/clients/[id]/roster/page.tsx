@@ -616,9 +616,7 @@ export default function ExamineeRosterPage() {
               {prepaidSummary.available} prepaid examination{prepaidSummary.available === 1 ? "" : "s"} available
             </CardTitle>
             <CardDescription>
-              Use <strong>Book session</strong> on a row below. On the booking wizard payment step, leave{" "}
-              <strong>Use 1 prepaid slot</strong> checked — the session invoice is marked paid from invoice 009279-style
-              bulk advance ({prepaidSummary.consumed} already used).
+              {prepaidSummary.consumed} used of {prepaidSummary.total} on bulk invoice
             </CardDescription>
           </CardHeader>
         </Card>
