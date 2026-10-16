@@ -93,6 +93,7 @@ export default function InvoiceDetailPage() {
   const [savingBanks, setSavingBanks] = React.useState(false);
   const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
   const [mintSlotQuantity, setMintSlotQuantity] = React.useState("");
+  const [mintAlreadyUsed, setMintAlreadyUsed] = React.useState("0");
   const [mintingSlots, setMintingSlots] = React.useState(false);
 
   React.useEffect(() => {
@@ -503,12 +504,22 @@ export default function InvoiceDetailPage() {
   const handleMintPrepaidSlots = async () => {
     if (!quote) return;
     const qty = Math.max(1, parseInt(mintSlotQuantity, 10) || 1);
+    const alreadyUsed = Math.max(0, parseInt(mintAlreadyUsed, 10) || 0);
+    if (alreadyUsed > qty) {
+      toast.error("Already used cannot be greater than total examinations on the invoice");
+      return;
+    }
     setMintingSlots(true);
     try {
-      const summary = await mintPrepaidSlotsForQuotation(quote.id, { line_quantity: qty });
+      const summary = await mintPrepaidSlotsForQuotation(quote.id, {
+        line_quantity: qty,
+        already_consumed: alreadyUsed,
+      });
       setPrepaidSummary(summary);
       await reload();
-      toast.success(`Examination slots ready — ${summary.available} available for this client`);
+      toast.success(
+        `Examination slots ready — ${summary.available} available, ${summary.consumed} marked used for this client`,
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to create examination slots");
     } finally {
@@ -919,22 +930,48 @@ export default function InvoiceDetailPage() {
                 <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
                   <p className="text-sm font-semibold">Prepaid examination slots</p>
                   <p className="text-xs text-muted-foreground">
-                    Set how many exams this paid invoice covers, then create slots. Book each examinee from the client
-                    roster — payment step uses one slot automatically.
+                    Total examinations = what they paid for on this invoice (e.g. 31). Already used = exams done before
+                    slots existed (e.g. 5) — you get 26 bookable slots. Book from the client roster; payment step uses
+                    one slot per booking.
                   </p>
-                  <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                      Number of examinations
-                    </Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      className="h-11 rounded-xl"
-                      value={mintSlotQuantity}
-                      onChange={(e) => setMintSlotQuantity(e.target.value)}
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        Total on invoice
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        className="h-11 rounded-xl"
+                        value={mintSlotQuantity}
+                        onChange={(e) => setMintSlotQuantity(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                        Already used
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        className="h-11 rounded-xl"
+                        value={mintAlreadyUsed}
+                        onChange={(e) => setMintAlreadyUsed(e.target.value)}
+                      />
+                    </div>
                   </div>
+                  {mintSlotQuantity && mintAlreadyUsed ? (
+                    <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                      Will leave{" "}
+                      {Math.max(
+                        0,
+                        (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0),
+                      )}{" "}
+                      slots available to book.
+                    </p>
+                  ) : null}
                   <Button
                     className="w-full rounded-xl"
                     onClick={() => void handleMintPrepaidSlots()}

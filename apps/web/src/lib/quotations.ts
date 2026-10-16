@@ -172,7 +172,7 @@ export async function updateQuotation(
 
 export async function mintPrepaidSlotsForQuotation(
   id: number,
-  input?: { line_quantity?: number },
+  input?: { line_quantity?: number; already_consumed?: number },
 ): Promise<{ available: number; consumed: number; total: number }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/mint-prepaid-slots`, {
     method: "POST",
