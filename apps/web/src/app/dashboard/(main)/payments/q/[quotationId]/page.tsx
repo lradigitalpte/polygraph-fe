@@ -929,11 +929,6 @@ export default function InvoiceDetailPage() {
               can("appointment:manage") ? (
                 <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
                   <p className="text-sm font-semibold">Prepaid examination slots</p>
-                  <p className="text-xs text-muted-foreground">
-                    Total examinations = what they paid for on this invoice (e.g. 31). Already used = exams done before
-                    slots existed (e.g. 5) — you get 26 bookable slots. Book from the client roster; payment step uses
-                    one slot per booking.
-                  </p>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
