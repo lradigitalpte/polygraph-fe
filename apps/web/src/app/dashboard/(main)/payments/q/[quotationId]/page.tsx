@@ -621,10 +621,7 @@ export default function InvoiceDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border-border/50 relative overflow-hidden">
-            {fullyPaid ? (
-              <InvoicePaidStamp size="lg" className="absolute top-6 right-4 z-10 hidden sm:block" />
-            ) : null}
+          <Card className="border-border/50">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <DollarSign className="h-5 w-5 text-primary" />
