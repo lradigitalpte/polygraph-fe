@@ -36,6 +36,7 @@ import { fetchClient, type ClientRecord } from "@/lib/clients";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { formatInvoiceDisplayNumber } from "@/lib/invoice-number";
+import { InvoicePaidStamp, isInvoiceFullyPaid } from "@/components/dashboard/invoice-paid-stamp";
 import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
 import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
 import { BankAccountPicker } from "@/components/dashboard/bank-account-picker";
@@ -583,6 +584,7 @@ export default function InvoiceDetailPage() {
 
   const prepaidSlotsLocked =
     quote.prepaid_slots_minted || (invoicePrepaidStats?.total ?? 0) > 0;
+  const fullyPaid = isInvoiceFullyPaid(total, paid);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-20 px-4 sm:px-0">
@@ -600,6 +602,7 @@ export default function InvoiceDetailPage() {
                 <span className="text-xs text-muted-foreground font-normal ml-1">({quote.code})</span>
               ) : null}
               <Badge variant="outline">{quote.status}</Badge>
+              {fullyPaid ? <InvoicePaidStamp size="sm" className="opacity-50" /> : null}
             </div>
             <p className="text-sm text-muted-foreground">{quote.client?.name || `Client #${quote.client_id}`}</p>
           </div>
@@ -618,7 +621,10 @@ export default function InvoiceDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border-border/50">
+          <Card className="border-border/50 relative overflow-hidden">
+            {fullyPaid ? (
+              <InvoicePaidStamp size="lg" className="absolute top-6 right-4 z-10 hidden sm:block" />
+            ) : null}
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <DollarSign className="h-5 w-5 text-primary" />

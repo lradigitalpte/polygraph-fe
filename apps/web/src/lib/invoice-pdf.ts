@@ -1,4 +1,9 @@
 import { formatMoney } from "@/lib/client-account";
+
+export function isInvoiceFullyPaid(total: number, paid: number): boolean {
+  if (total <= 0) return false;
+  return paid >= total - 0.009;
+}
 import { formatInvoiceDisplayNumber } from "@/lib/invoice-number";
 import { toast } from "sonner";
 import type { BankDetails } from "@/lib/bank-accounts";
@@ -167,6 +172,7 @@ export function buildQuotationPdfHtml(data: QuotationPdfData): string {
   const showBreakdown = Boolean(
     (data.discount && data.discount.amount > 0) || (data.vat && data.vat.amount > 0),
   );
+  const showPaidStamp = isInvoiceFullyPaid(data.total, data.paidAmount ?? 0);
 
   const rows = data.items
     .map(
@@ -233,11 +239,14 @@ ${PAYMENT_DETAILS_CSS}
   .totals .row.discount{color:#c0392b;font-weight:700}
   .totals .row.total{background:#c96442;color:#fff;font-weight:900;font-size:14.5px;border-bottom:none}
   .footer{margin-top:56px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:14px;text-align:center}
+  .page{position:relative;overflow:hidden}
+  .paid-stamp{position:absolute;top:46%;left:50%;transform:translate(-50%,-50%) rotate(-16deg);border:3px solid #16a34a;color:#16a34a;font-size:56px;font-weight:900;letter-spacing:0.2em;padding:10px 36px;border-radius:10px;opacity:0.34;pointer-events:none;z-index:5;text-transform:uppercase;font-family:Helvetica,Arial,sans-serif}
   @media print{
     @page{size:A4;margin:14mm 12mm}
     html,body{background:#fff}
     body{padding:0}
     .page{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none}
+    .paid-stamp{opacity:0.38;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
 </style>
 </head>
@@ -301,6 +310,7 @@ ${PAYMENT_DETAILS_CSS}
   </div>
 ${paymentDetailsHtml(data.bankAccounts, paymentRef)}
 
+  ${showPaidStamp ? `<div class="paid-stamp" aria-hidden="true">Paid</div>` : ""}
   <div class="footer">Thank you for choosing ${data.org.name}. This invoice is subject to acceptance within its validity period.</div>
 </div>
 </body>

@@ -62,7 +62,8 @@ import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInv
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
-import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
+import { InvoicePaidStamp } from "@/components/dashboard/invoice-paid-stamp";
+import { downloadQuotationPdfFromData, isInvoiceFullyPaid, pdfOrgFromSettings } from "@/lib/invoice-pdf";
 import { normalizedQuotationAmounts } from "@/lib/quotation-pricing";
 import { fetchBankAccounts, type BankAccount, type BankDetails } from "@/lib/bank-accounts";
 import { BankAccountPicker, resolveBankAccountIds } from "@/components/dashboard/bank-account-picker";
@@ -1157,6 +1158,12 @@ export default function PaymentsPage() {
                 <div className="absolute inset-0 opacity-10 z-0 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:20px_20px]" />
                 
                 <div className="relative z-20 space-y-4">
+                  {isInvoiceFullyPaid(selectedInvoice.totalAmount, selectedInvoice.paidAmount) ? (
+                    <InvoicePaidStamp
+                      size="md"
+                      className="absolute top-6 right-8 opacity-60 text-emerald-400 border-emerald-400"
+                    />
+                  ) : null}
                   <Badge className="bg-primary/20 text-primary border-primary/30 text-[10px] font-black uppercase tracking-widest px-4 py-1.5 backdrop-blur-xl">
                     {selectedInvoice.status}
                   </Badge>
