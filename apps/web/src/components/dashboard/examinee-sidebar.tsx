@@ -39,7 +39,7 @@ export function ExamineeSidebar() {
   ];
 
   return (
-    <div className="flex h-full w-64 flex-col bg-card border-r border-border">
+    <div className="flex h-full min-h-0 w-64 flex-col bg-card border-r border-border">
       <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
         <Link
           href={`/dashboard/clients/${clientId}/roster`}
@@ -50,25 +50,26 @@ export function ExamineeSidebar() {
         </Link>
       </div>
 
-      <div className="px-6 py-6 border-b border-border/50">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 truncate">
-          {client?.name ?? "Account"}
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-lg bg-primary/15 text-primary flex items-center justify-center font-bold text-sm">
-            {initials}
-          </div>
-          <div className="overflow-hidden min-w-0">
-            <h2 className="text-sm font-bold truncate">{displayName}</h2>
-            <p className="text-[10px] text-primary uppercase font-bold tracking-widest">
-              {subject ? formatSubjectCode(subject.id) : "Examinee"}
-            </p>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="px-6 py-6 border-b border-border/50">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 truncate">
+            {client?.name ?? "Account"}
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="h-11 w-11 rounded-lg bg-primary/15 text-primary flex items-center justify-center font-bold text-sm">
+              {initials}
+            </div>
+            <div className="overflow-hidden min-w-0">
+              <h2 className="text-sm font-bold truncate">{displayName}</h2>
+              <p className="text-[10px] text-primary uppercase font-bold tracking-widest">
+                {subject ? formatSubjectCode(subject.id) : "Examinee"}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
-        {navigation.map((item) => {
+        <nav className="space-y-1 px-3 py-4">
+          {navigation.map((item) => {
           const isOverview = item.href === base;
           const isActive = isOverview
             ? pathname === item.href
@@ -89,9 +90,10 @@ export function ExamineeSidebar() {
             </Link>
           );
         })}
-      </nav>
+        </nav>
+      </div>
 
-      <div className="p-4 border-t border-border">
+      <div className="shrink-0 p-4 border-t border-border">
         <ButtonLink
           href={`/dashboard/calendar/book?clientId=${clientId}&subjectId=${subjectId}`}
         />

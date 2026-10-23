@@ -17,19 +17,19 @@ export default function MainDashboardLayout({
     <div className="flex h-screen overflow-hidden bg-muted/20">
       <IdleTimeout />
       {/* Sidebar for desktop */}
-      <div className="hidden lg:flex lg:flex-col lg:fixed lg:inset-y-0 lg:z-50">
+      <div className="hidden lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:fixed lg:inset-y-0 lg:z-50">
         <Sidebar />
       </div>
 
       {/* Main content area */}
       <div 
         className={cn(
-          "flex flex-1 flex-col w-full transition-all duration-300 ease-in-out",
+          "flex min-h-0 flex-1 flex-col w-full transition-all duration-300 ease-in-out",
           isSidebarCollapsed ? "lg:pl-20" : "lg:pl-64"
         )}
       >
         <TopNav />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>

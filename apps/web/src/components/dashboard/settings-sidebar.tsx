@@ -72,7 +72,7 @@ export function SettingsSidebar() {
   });
 
   return (
-    <div className="flex h-full w-64 flex-col bg-background border-r border-border">
+    <div className="flex h-full min-h-0 w-64 flex-col bg-background border-r border-border">
       {/* Settings Header */}
       <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
         <Link href="/dashboard" className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
@@ -81,14 +81,15 @@ export function SettingsSidebar() {
         </Link>
       </div>
 
-      <div className="px-6 py-8">
-        <h2 className="text-xl font-bold tracking-tight text-foreground">Admin Center</h2>
-        <p className="text-xs text-muted-foreground mt-1">Manage organization users, roles, and security logs.</p>
-      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="px-6 py-8">
+          <h2 className="text-xl font-bold tracking-tight text-foreground">Admin Center</h2>
+          <p className="text-xs text-muted-foreground mt-1">Manage organization users, roles, and security logs.</p>
+        </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 pb-6">
-        {visibleNav.map((item) => {
+        {/* Navigation */}
+        <nav className="space-y-1 px-3 pb-6">
+          {visibleNav.map((item) => {
           const isActive = isSettingsNavActive(pathname ?? "", item.href, "exact" in item ? item.exact : undefined);
           return (
             <Link
@@ -112,10 +113,11 @@ export function SettingsSidebar() {
             </Link>
           );
         })}
-      </nav>
+        </nav>
+      </div>
 
       {/* Quick Action in Sidebar */}
-      <div className="p-4 border-t border-border">
+      <div className="shrink-0 p-4 border-t border-border">
         <Link 
           href="/dashboard/settings/users/new"
           className="flex w-full items-center justify-center gap-2 rounded-md bg-muted px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 border border-border"

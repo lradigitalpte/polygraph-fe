@@ -106,7 +106,7 @@ export function Sidebar() {
     <motion.div 
       initial={false}
       animate={{ width: isSidebarCollapsed ? 80 : 256 }}
-      className="flex h-full flex-col bg-card border-r border-border transition-all duration-300 ease-in-out relative"
+      className="flex h-full min-h-0 flex-col bg-card border-r border-border transition-all duration-300 ease-in-out relative"
     >
       {/* Logo Area */}
       <div
@@ -133,7 +133,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-6 overflow-y-auto">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-6">
         {/* While the role is still resolving, show placeholders instead of the wrong nav. */}
         {loading && !user ? (
           Array.from({ length: 6 }).map((_, i) => (
@@ -205,7 +205,7 @@ export function Sidebar() {
       </nav>
 
       {/* Footer / Toggle & Sign Out */}
-      <div className="p-3 border-t border-border space-y-1">
+      <div className="shrink-0 p-3 border-t border-border space-y-1">
         <button
           onClick={toggleSidebar}
           className={cn(

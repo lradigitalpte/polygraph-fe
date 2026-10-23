@@ -72,7 +72,7 @@ export function ClientSidebar() {
     : `/dashboard/calendar/book?clientId=${id}`;
 
   return (
-    <div className="flex h-full w-64 flex-col bg-card border-r border-border">
+    <div className="flex h-full min-h-0 w-64 flex-col bg-card border-r border-border">
       <div className="flex h-16 shrink-0 items-center px-6 border-b border-border">
         <Link
           href="/dashboard/clients"
@@ -83,34 +83,35 @@ export function ClientSidebar() {
         </Link>
       </div>
 
-      <div className="px-6 py-8">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="h-12 w-12 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20">
-            {initials}
-          </div>
-          <div className="overflow-hidden">
-            <h2 className="text-sm font-bold tracking-tight text-foreground truncate">
-              {displayName}
-            </h2>
-            <p className="text-[10px] text-primary uppercase font-bold tracking-widest">
-              {client ? formatClientCode(client.id) : "Active Record"}
-            </p>
-            {isOrg && (
-              <>
-                {orgSubtitle && (
-                  <p className="text-[10px] text-foreground/80 truncate mt-0.5">{orgSubtitle}</p>
-                )}
-                <p className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">
-                  Organization account
-                </p>
-              </>
-            )}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="px-6 py-8">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="h-12 w-12 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20">
+              {initials}
+            </div>
+            <div className="overflow-hidden">
+              <h2 className="text-sm font-bold tracking-tight text-foreground truncate">
+                {displayName}
+              </h2>
+              <p className="text-[10px] text-primary uppercase font-bold tracking-widest">
+                {client ? formatClientCode(client.id) : "Active Record"}
+              </p>
+              {isOrg && (
+                <>
+                  {orgSubtitle && (
+                    <p className="text-[10px] text-foreground/80 truncate mt-0.5">{orgSubtitle}</p>
+                  )}
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider mt-0.5">
+                    Organization account
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      <nav className="flex-1 space-y-1 px-3 pb-6">
-        {navigation.map((item) => {
+        <nav className="space-y-1 px-3 pb-6">
+          {navigation.map((item) => {
           const isOverview = item.href === `/dashboard/clients/${id}`;
           const isActive = isOverview
             ? pathname === item.href
@@ -137,9 +138,10 @@ export function ClientSidebar() {
             </Link>
           );
         })}
-      </nav>
+        </nav>
+      </div>
 
-      <div className="p-4 border-t border-border">
+      <div className="shrink-0 p-4 border-t border-border">
         <Link
           href={bookHref as `/dashboard/calendar/book`}
           className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-bold text-primary-foreground transition-all hover:bg-primary/90 shadow-md shadow-primary/20 active:scale-[0.98]"

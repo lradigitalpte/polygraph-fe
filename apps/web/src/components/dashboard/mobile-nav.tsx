@@ -41,8 +41,8 @@ export function MobileNav() {
         <Menu className="h-5 w-5" />
         <span className="sr-only">Toggle navigation menu</span>
       </SheetTrigger>
-      <SheetContent side="left" className="p-0 w-72">
-        <div className="h-full border-none">
+      <SheetContent side="left" className="flex h-full max-h-[100dvh] flex-col overflow-hidden p-0 w-72">
+        <div className="min-h-0 flex-1 border-none">
           <SidebarContent />
         </div>
       </SheetContent>
