@@ -55,8 +55,13 @@ import {
   type AccountSummary,
 } from "@/lib/client-account";
 import { fetchBillingLedger, ledgerEntryCollectTarget } from "@/lib/billing";
-import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
-import { collectQuotationPayment, sendQuotationEmail } from "@/lib/quotations";
+import {
+  applyPrepaidSlotToAppointment,
+  fetchPrepaidSlots,
+  fetchPrepaidSlotSummary,
+  type PrepaidSlotSummary,
+} from "@/lib/prepaid-slots";
+import { collectQuotationPayment, revokeQuotationSlot, sendQuotationEmail } from "@/lib/quotations";
 import { fetchOrganizationSettings } from "@/lib/settings";
 import { formatClinicDateLabel } from "@/lib/clinic-time";
 
@@ -99,6 +104,11 @@ export default function ClientAccountPage() {
   const [entries, setEntries] = React.useState<AccountLedgerEntry[]>([]);
   const [ledgerSummary, setLedgerSummary] = React.useState<AccountSummary | null>(null);
   const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  // Per bulk invoice: unused / total slots, for the Revoke slot button on quote rows.
+  const [slotsByQuote, setSlotsByQuote] = React.useState<
+    Record<number, { available: number; total: number }>
+  >({});
+  const [revokeTarget, setRevokeTarget] = React.useState<AccountLedgerEntry | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [orgSettings, setOrgSettings] = React.useState<any>({ currency: "AED" });
   const orgCurrency = orgSettings?.currency || "AED";
@@ -170,10 +180,18 @@ export default function ClientAccountPage() {
     if (!Number.isFinite(clientId)) return;
     setLoading(true);
     try {
-      const [data, prepaid] = await Promise.all([
+      const [data, prepaid, slots] = await Promise.all([
         fetchBillingLedger(clientId),
         fetchPrepaidSlotSummary(clientId).catch(() => null),
+        fetchPrepaidSlots(clientId).catch(() => []),
       ]);
+      const byQuote: Record<number, { available: number; total: number }> = {};
+      for (const slot of slots) {
+        const row = (byQuote[slot.source_quotation_id] ??= { available: 0, total: 0 });
+        if (slot.status === "available" || slot.status === "consumed") row.total += 1;
+        if (slot.status === "available") row.available += 1;
+      }
+      setSlotsByQuote(byQuote);
       setLedgerSummary(data.summary);
       setEntries(data.entries);
       setPrepaidSummary(prepaid);
@@ -228,6 +246,38 @@ export default function ClientAccountPage() {
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to record payment");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const [slotTarget, setSlotTarget] = React.useState<AccountLedgerEntry | null>(null);
+
+  const handleApplySlot = async () => {
+    if (!slotTarget?.appointment_id) return;
+    setBusy(true);
+    try {
+      await applyPrepaidSlotToAppointment(slotTarget.appointment_id);
+      toast.success(`${slotTarget.code} is now covered by the bulk invoice`);
+      setSlotTarget(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to apply prepaid slot");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRevokeSlot = async () => {
+    if (!revokeTarget?.quotation_id) return;
+    setBusy(true);
+    try {
+      await revokeQuotationSlot(revokeTarget.quotation_id);
+      toast.success(`1 slot revoked from ${revokeTarget.code}; invoice repriced`);
+      setRevokeTarget(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to revoke slot");
     } finally {
       setBusy(false);
     }
@@ -288,7 +338,7 @@ export default function ClientAccountPage() {
           {prepaidSummary && prepaidSummary.total > 0 ? (
             <Card className="border-emerald-500/20 bg-emerald-500/5">
               <CardHeader className="pb-2">
-                <CardDescription>Prepaid examinations</CardDescription>
+                <CardDescription>Examination slots (bulk invoices)</CardDescription>
                 <CardTitle className="text-lg">
                   {prepaidSummary.available} available
                   <span className="text-sm font-normal text-muted-foreground ml-2">
@@ -296,9 +346,18 @@ export default function ClientAccountPage() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">
-                Book exams from the calendar to consume prepaid slots; each session invoice reflects
-                the bulk advance.
+              <CardContent className="text-sm text-muted-foreground space-y-1">
+                <p>
+                  Book exams from the calendar to use a slot. Slot exams have no invoice of their
+                  own; they are billed on the bulk invoice and show paid once it is paid.
+                </p>
+                {(prepaidSummary.awaiting_payment ?? 0) > 0 ? (
+                  <p className="text-amber-600 dark:text-amber-400">
+                    {prepaidSummary.awaiting_payment} slot
+                    {prepaidSummary.awaiting_payment === 1 ? "" : "s"} on unpaid bulk invoices,
+                    awaiting payment.
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
@@ -401,6 +460,33 @@ export default function ClientAccountPage() {
                                 Open
                               </Button>
                             )}
+                            {entry.appointment_id &&
+                              !entry.covered_by &&
+                              entry.source !== "quote" &&
+                              (prepaidSummary?.available ?? 0) > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Bill this exam on the bulk invoice instead of its own invoice"
+                                  onClick={() => setSlotTarget(entry)}
+                                >
+                                  Use slot
+                                </Button>
+                              )}
+                            {entry.source === "quote" &&
+                              entry.quotation_id &&
+                              (slotsByQuote[entry.quotation_id]?.available ?? 0) > 0 &&
+                              (slotsByQuote[entry.quotation_id]?.total ?? 0) > 1 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  title="Correction: remove 1 unused slot and reprice this invoice"
+                                  onClick={() => setRevokeTarget(entry)}
+                                >
+                                  Revoke slot
+                                </Button>
+                              )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -592,6 +678,54 @@ export default function ClientAccountPage() {
             <Button onClick={handleSendReminder} disabled={busy}>
               {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={slotTarget !== null} onOpenChange={(open) => !open && setSlotTarget(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Bill {slotTarget?.code} on the bulk invoice?</DialogTitle>
+            <DialogDescription>
+              This exam will use 1 of the {prepaidSummary?.available ?? 0} free slot
+              {(prepaidSummary?.available ?? 0) === 1 ? "" : "s"}. Its own invoice
+              {slotTarget?.code ? ` (${slotTarget.code})` : ""} will be removed, and the exam
+              will show paid once the bulk invoice is paid. Use this when the exam was booked
+              separately by mistake.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSlotTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleApplySlot} disabled={busy}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Use slot
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={revokeTarget !== null} onOpenChange={(open) => !open && setRevokeTarget(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Revoke 1 slot from {revokeTarget?.code}?</DialogTitle>
+            <DialogDescription>
+              {(() => {
+                const s = revokeTarget?.quotation_id ? slotsByQuote[revokeTarget.quotation_id] : undefined;
+                const next = (s?.total ?? 1) - 1;
+                return `The invoice drops to ${next} examination${next === 1 ? "" : "s"} (${(s?.available ?? 1) - 1} unused left) and its total is repriced at the same unit price. If more was already paid than the new total, refund the difference first.`;
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeTarget(null)}>
+              Keep
+            </Button>
+            <Button variant="destructive" onClick={handleRevokeSlot} disabled={busy}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Revoke slot
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -28,6 +28,8 @@ export type AccountLedgerEntry = {
   currency?: string;
   examiner_name?: string;
   stripe_payment_link_url?: string;
+  /** Bulk invoice code when this exam used a prepaid slot (amounts are then 0). */
+  covered_by?: string;
 };
 
 export type ClientAccountResponse = {

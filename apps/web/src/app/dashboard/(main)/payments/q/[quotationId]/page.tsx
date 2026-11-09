@@ -45,6 +45,7 @@ import {
   collectQuotationPayment,
   fetchQuotation,
   mintPrepaidSlotsForQuotation,
+  revokeQuotationSlot,
   sendQuotationEmail,
   syncQuotationStripePayment,
   updateQuotation,
@@ -551,6 +552,24 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const [confirmRevoke, setConfirmRevoke] = React.useState(false);
+  const [revokingSlot, setRevokingSlot] = React.useState(false);
+
+  const handleRevokeSlot = async () => {
+    if (!quote) return;
+    setRevokingSlot(true);
+    try {
+      await revokeQuotationSlot(quote.id);
+      setConfirmRevoke(false);
+      await reload();
+      toast.success("1 slot revoked; invoice repriced for one examination less");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to revoke slot");
+    } finally {
+      setRevokingSlot(false);
+    }
+  };
+
   const handleRecordPayment = async () => {
     if (!quote) return;
     const amount = Number(paymentAmount);
@@ -952,9 +971,8 @@ export default function InvoiceDetailPage() {
               <CardTitle className="text-lg">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {quote.status === "Completed" &&
+              {(prepaidSlotsLocked || (quote.status === "Completed" && balance <= 0)) &&
               !quote.appointment_id &&
-              balance <= 0 &&
               can("appointment:manage") ? (
                 <div
                   className={`space-y-2 rounded-xl border p-4 ${
@@ -972,6 +990,55 @@ export default function InvoiceDetailPage() {
                         {invoicePrepaidStats?.consumed ?? "—"} used ·{" "}
                         {invoicePrepaidStats?.total ?? quote.line_quantity ?? 1} total
                       </p>
+                      {balance > 0 ? (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">
+                          Slots can be booked now. Booked exams show unpaid (or partial) until
+                          this invoice is fully paid.
+                        </p>
+                      ) : null}
+                      {(invoicePrepaidStats?.available ?? 0) > 0 &&
+                      (invoicePrepaidStats?.total ?? 0) > 1 ? (
+                        confirmRevoke ? (
+                          <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                            <p className="text-xs">
+                              Remove 1 unused slot? The invoice drops to{" "}
+                              {(invoicePrepaidStats?.total ?? 1) - 1} examination
+                              {(invoicePrepaidStats?.total ?? 1) - 1 === 1 ? "" : "s"} and its total is
+                              repriced at the same unit price.
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => setConfirmRevoke(false)}
+                                disabled={revokingSlot}
+                              >
+                                Keep
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="flex-1"
+                                onClick={() => void handleRevokeSlot()}
+                                disabled={revokingSlot}
+                              >
+                                {revokingSlot && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                                Revoke slot
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full rounded-xl"
+                            onClick={() => setConfirmRevoke(true)}
+                          >
+                            Revoke 1 unused slot (correction)
+                          </Button>
+                        )
+                      ) : null}
                     </>
                   ) : (
                     <>

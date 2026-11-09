@@ -4,7 +4,20 @@ export type PrepaidSlotSummary = {
   available: number;
   consumed: number;
   total: number;
+  /** Slots (used or not) whose bulk invoice is not fully paid yet. */
+  awaiting_payment?: number;
 };
+
+/** Move an existing booking onto the client's next free bulk-invoice slot. Its own session invoice is removed. */
+export async function applyPrepaidSlotToAppointment(appointmentId: number): Promise<void> {
+  const response = await authenticatedFetch(`/api/appointments/${appointmentId}/apply-prepaid-slot`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to apply prepaid slot (${response.status})`);
+  }
+}
 
 export type PrepaidSlotRecord = {
   id: number;

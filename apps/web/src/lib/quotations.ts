@@ -185,6 +185,17 @@ export async function mintPrepaidSlotsForQuotation(
   return response.json();
 }
 
+/** Correction: remove one unused slot from a bulk invoice; the invoice is repriced for one exam less. */
+export async function revokeQuotationSlot(id: number): Promise<void> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/revoke-slot`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to revoke slot (${response.status})`);
+  }
+}
+
 export async function approveQuotation(id: number): Promise<void> {
   const response = await authenticatedFetch(`/api/quotations/${id}/approve`, {
     method: "PATCH",

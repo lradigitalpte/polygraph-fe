@@ -682,7 +682,7 @@ function BookAppointmentPageContent() {
         }
         toast.success(isBackdatedBooking ? "Backdated appointment logged" : "Appointment booked", {
           description: willUsePrepaidSlot
-            ? `Used 1 prepaid examination slot (${Math.max(0, (prepaidSummary?.available ?? 1) - 1)} remaining). Session invoice marked paid from bulk advance.`
+            ? `Used 1 prepaid examination slot (${Math.max(0, (prepaidSummary?.available ?? 1) - 1)} remaining). Billed on the bulk invoice, no separate invoice created.`
             : isBackdatedBooking
               ? `Logged for ${formData.date} @ ${formData.time} (Dubai). Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`
               : `Invoice for ${formatMoney(orgExamPrice, orgCurrency)} added to Financial Hub.`,
@@ -1300,9 +1300,14 @@ function BookAppointmentPageContent() {
                               onCheckedChange={(checked) => setUsePrepaidSlot(checked === true)}
                             />
                             <Label htmlFor="use-prepaid-slot" className="text-sm font-normal cursor-pointer">
-                              Use 1 prepaid slot for this booking (invoice shows advance applied)
+                              Use 1 slot for this booking (billed on the bulk invoice, no separate invoice)
                             </Label>
                           </div>
+                          {(prepaidSummary?.awaiting_payment ?? 0) > 0 ? (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              The bulk invoice is not fully paid yet; this exam shows unpaid until it is.
+                            </p>
+                          ) : null}
                         </div>
                       ) : null}
                       <div className="space-y-2">
