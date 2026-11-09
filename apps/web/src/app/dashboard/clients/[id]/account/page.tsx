@@ -56,11 +56,14 @@ import {
 } from "@/lib/client-account";
 import { fetchBillingLedger, ledgerEntryCollectTarget } from "@/lib/billing";
 import {
+  adjustClientSlotCount,
   applyPrepaidSlotToAppointment,
+  setCancellationCountsAsUsed,
   fetchPrepaidSlots,
   fetchPrepaidSlotSummary,
   type PrepaidSlotSummary,
 } from "@/lib/prepaid-slots";
+import { Checkbox } from "@/components/ui/checkbox";
 import { collectQuotationPayment, revokeQuotationSlot, sendQuotationEmail } from "@/lib/quotations";
 import { fetchOrganizationSettings } from "@/lib/settings";
 import { formatClinicDateLabel } from "@/lib/clinic-time";
@@ -268,6 +271,40 @@ export default function ClientAccountPage() {
     }
   };
 
+  const [slotFix, setSlotFix] = React.useState<"mark_used" | "restore" | null>(null);
+
+  const handleSlotFix = async () => {
+    if (!slotFix) return;
+    setBusy(true);
+    try {
+      await adjustClientSlotCount(clientId, slotFix);
+      toast.success(slotFix === "mark_used" ? "1 slot marked as used" : "1 slot restored");
+      setSlotFix(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to correct slots");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancellationRule = async (value: boolean) => {
+    setBusy(true);
+    try {
+      const summary = await setCancellationCountsAsUsed(clientId, value);
+      setPrepaidSummary(summary);
+      toast.success(
+        value
+          ? "Cancelled exams now keep their slot for this client"
+          : "Cancelled exams now return their slot for this client",
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save cancellation rule");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRevokeSlot = async () => {
     if (!revokeTarget?.quotation_id) return;
     setBusy(true);
@@ -358,6 +395,38 @@ export default function ClientAccountPage() {
                     awaiting payment.
                   </p>
                 ) : null}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || prepaidSummary.available <= 0}
+                    onClick={() => setSlotFix("mark_used")}
+                  >
+                    Mark 1 slot as used
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || prepaidSummary.consumed <= 0}
+                    onClick={() => setSlotFix("restore")}
+                  >
+                    Restore 1 slot
+                  </Button>
+                </div>
+                <label className="flex items-start gap-2 pt-1 text-foreground cursor-pointer">
+                  <Checkbox
+                    checked={prepaidSummary.cancellation_counts_as_used === true}
+                    disabled={busy}
+                    onCheckedChange={(checked) => void handleCancellationRule(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-sm">
+                    Cancelled exams count as used for this client (per agreement)
+                    <span className="block text-xs text-muted-foreground">
+                      Off: cancelling an exam gives its slot back. Only affects this client.
+                    </span>
+                  </span>
+                </label>
               </CardContent>
             </Card>
           ) : null}
@@ -702,6 +771,30 @@ export default function ClientAccountPage() {
             <Button onClick={handleApplySlot} disabled={busy}>
               {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Use slot
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={slotFix !== null} onOpenChange={(open) => !open && setSlotFix(null)}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {slotFix === "mark_used" ? "Mark 1 slot as used?" : "Restore 1 slot?"}
+            </DialogTitle>
+            <DialogDescription>
+              {slotFix === "mark_used"
+                ? `Free slots go from ${prepaidSummary?.available ?? 0} to ${Math.max(0, (prepaidSummary?.available ?? 0) - 1)}. Use this when an exam used a slot but was not linked to it. No invoice or payment changes.`
+                : `Gives back 1 slot that was marked used by hand, or held by a cancelled exam (waiving that cancellation). Free slots go from ${prepaidSummary?.available ?? 0} to ${(prepaidSummary?.available ?? 0) + 1}. No invoice or payment changes.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSlotFix(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSlotFix} disabled={busy}>
+              {busy && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Confirm
             </Button>
           </DialogFooter>
         </DialogContent>

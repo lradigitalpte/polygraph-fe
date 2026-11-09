@@ -6,7 +6,40 @@ export type PrepaidSlotSummary = {
   total: number;
   /** Slots (used or not) whose bulk invoice is not fully paid yet. */
   awaiting_payment?: number;
+  /** Client agreement: a cancelled exam keeps its slot (counts as used). */
+  cancellation_counts_as_used?: boolean;
 };
+
+/** Count-only correction, no money changes. mark_used: free → used. restore: hand-marked or cancelled-exam slot → free. */
+export async function adjustClientSlotCount(
+  clientId: number,
+  action: "mark_used" | "restore",
+): Promise<PrepaidSlotSummary> {
+  const response = await authenticatedFetch(`/api/clients/${clientId}/prepaid-slots/adjust`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to correct slots (${response.status})`);
+  }
+  return response.json();
+}
+
+export async function setCancellationCountsAsUsed(
+  clientId: number,
+  value: boolean,
+): Promise<PrepaidSlotSummary> {
+  const response = await authenticatedFetch(`/api/clients/${clientId}/cancellation-policy`, {
+    method: "PATCH",
+    body: JSON.stringify({ cancellation_counts_as_used: value }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to save cancellation rule (${response.status})`);
+  }
+  return response.json();
+}
 
 /** Move an existing booking onto the client's next free bulk-invoice slot. Its own session invoice is removed. */
 export async function applyPrepaidSlotToAppointment(appointmentId: number): Promise<void> {
