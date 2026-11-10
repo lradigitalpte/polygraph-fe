@@ -46,6 +46,7 @@ export type QuotationRecord = {
     address?: string;
     tax_id?: string;
     contact_person?: string;
+    client_type?: string;
   };
 };
 

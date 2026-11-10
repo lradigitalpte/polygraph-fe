@@ -26,6 +26,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchClientAgreementRequests,
@@ -603,27 +604,42 @@ export default function InvoiceDetailPage() {
 
   const prepaidSlotsLocked =
     quote.prepaid_slots_minted || (invoicePrepaidStats?.total ?? 0) > 0;
+  // Corporate bulk invoices can get their slots before payment.
+  const isCorporateQuote = ["corporate", "law firm"].includes(
+    (quote.client?.client_type ?? "").trim().toLowerCase(),
+  );
   const fullyPaid = isInvoiceFullyPaid(total, paid);
+
+  const fieldLabel = "text-[10px] font-black uppercase tracking-widest text-muted-foreground";
+  const showSlots = (prepaidSlotsLocked || isCorporateQuote || (quote.status === "Completed" && balance <= 0)) &&
+    !quote.appointment_id &&
+    can("appointment:manage");
+  const canEditPricing = quote.status !== "Completed" && can("appointment:manage");
+  const examCount = quote.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : 1;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-20 px-4 sm:px-0">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" render={<Link href="/dashboard/payments" />} className="rounded-full">
+        <div className="flex items-center gap-4 min-w-0">
+          <Button variant="ghost" size="icon" render={<Link href="/dashboard/payments" />} className="rounded-full shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <div className="flex items-center gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight">
                 {formatInvoiceDisplayNumber(quote.code, quote.id)}
               </h1>
               {quote.code && formatInvoiceDisplayNumber(quote.code, quote.id) !== quote.code ? (
-                <span className="text-xs text-muted-foreground font-normal ml-1">({quote.code})</span>
+                <span className="text-xs text-muted-foreground font-normal">({quote.code})</span>
               ) : null}
               <Badge variant="outline">{quote.status}</Badge>
               {fullyPaid ? <InvoicePaidStamp size="sm" className="opacity-50" /> : null}
             </div>
-            <p className="text-sm text-muted-foreground">{quote.client?.name || `Client #${quote.client_id}`}</p>
+            <p className="text-sm text-muted-foreground truncate">
+              {quote.client?.name || `Client #${quote.client_id}`}
+              {quote.sent_at ? ` · Emailed ${new Date(quote.sent_at).toLocaleDateString()}` : ""}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -638,249 +654,390 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-primary" />
-                Amounts
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {displaySubtotal > 0 ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span>{formatMoney(displaySubtotal, currency)}</span>
-                </div>
-              ) : null}
-              {displayDiscount > 0 ? (
-                <div className="flex justify-between text-sm text-rose-600">
-                  <span className="text-muted-foreground">Discount</span>
-                  <span className="font-semibold">-{formatMoney(displayDiscount, currency)}</span>
-                </div>
-              ) : null}
-              {displayVat > 0 ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">VAT ({displayVatRate}%)</span>
-                  <span>{formatMoney(displayVat, currency)}</span>
-                </div>
-              ) : null}
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-bold">{formatMoney(total, currency)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Paid</span>
-                <span className="font-bold">{formatMoney(paid, currency)}</span>
-              </div>
-              <div className="flex justify-between text-base font-black border-t border-border/40 pt-3">
-                <span>Balance due</span>
-                <span>{formatMoney(balance, currency)}</span>
-              </div>
-              {!quote.appointment_id ? (
-                <div className="flex justify-between text-sm pt-1">
-                  <span className="text-muted-foreground">Examinations on invoice (qty)</span>
-                  <span className="font-semibold">{quote.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : 1}</span>
-                </div>
-              ) : null}
-              {prepaidSummary && prepaidSummary.total > 0 ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-                  <p className="font-semibold text-emerald-800 dark:text-emerald-300">
-                    Prepaid slots for client: {prepaidSummary.available} available ({prepaidSummary.consumed} used)
-                  </p>
-                </div>
-              ) : null}
-              {feePreview && feePreview.fee > 0 ? (
-                <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Processing fee (est.)</span>
-                    <span>{formatMoney(feePreview.fee, currency)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold">
-                    <span>Customer pays by card</span>
-                    <span>{formatMoney(feePreview.gross, currency)}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Client sees {formatMoney(feePreview.gross, currency)} on checkout and in the email (service
-                    breakdown stays on the PDF only).
-                  </p>
-                </div>
-              ) : null}
-              {quote.stripe_payment_link_url ? (
-                <div className="rounded-xl border border-border/40 bg-muted/10 p-3 space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Online payment link</p>
-                  <p className="text-xs break-all">{quote.stripe_payment_link_url}</p>
-                </div>
-              ) : null}
-              {quote.sent_at ? (
-                <p className="text-xs text-emerald-600 font-semibold">Last emailed: {new Date(quote.sent_at).toLocaleString()}</p>
-              ) : null}
-            </CardContent>
-          </Card>
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <p className={fieldLabel}>Total</p>
+            <p className="mt-1 text-lg font-bold tabular-nums">{formatMoney(total, currency)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <p className={fieldLabel}>Paid</p>
+            <p className="mt-1 text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {formatMoney(paid, currency)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className={balance > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-border/50"}>
+          <CardContent className="p-4">
+            <p className={fieldLabel}>Balance due</p>
+            <p className="mt-1 text-lg font-black tabular-nums">{formatMoney(balance, currency)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="p-4">
+            <p className={fieldLabel}>{quote.appointment_id ? "Linked booking" : "Examinations"}</p>
+            <p className="mt-1 text-lg font-bold tabular-nums">
+              {quote.appointment_id ? "1 session" : examCount}
+            </p>
+            {!quote.appointment_id && prepaidSlotsLocked && invoicePrepaidStats ? (
+              <p className="text-xs text-muted-foreground">
+                {invoicePrepaidStats.available} free · {invoicePrepaidStats.consumed} used
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
 
-          <Card className="border-border/50">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Landmark className="h-5 w-5 text-primary" />
-                    Bank transfer details
-                  </CardTitle>
-                  <CardDescription>Printed on the invoice PDF and in the invoice email.</CardDescription>
-                </div>
-                {can("appointment:manage") && !editingBanks ? (
-                  <Button variant="outline" size="sm" className="rounded-xl" onClick={startEditingBanks}>
-                    Change
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {editingBanks ? (
-                <>
-                  <BankAccountPicker
-                    accounts={bankAccounts}
-                    currency={currency}
-                    value={bankSelection}
-                    onChange={setBankSelection}
-                  />
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          {canEditPricing ? <TabsTrigger value="pricing">Edit pricing</TabsTrigger> : null}
+          <TabsTrigger value="email">Send email</TabsTrigger>
+          <TabsTrigger value="history">
+            Payment history{paymentHistory.length > 0 ? ` (${paymentHistory.length})` : ""}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Overview: what you do most — record payment, slots, next steps */}
+        <TabsContent value="overview" className="outline-none">
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className="lg:col-span-3 space-y-6">
+              <Card className="border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Record payment</CardTitle>
+                  <CardDescription>Bank transfer, cash, or any payment received outside the pay link.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
                   <div className="flex gap-2">
-                    <Button className="rounded-xl" onClick={() => void handleSaveBanks()} disabled={savingBanks}>
-                      {savingBanks ? "Saving…" : "Save"}
-                    </Button>
-                    <Button variant="outline" className="rounded-xl" onClick={() => setEditingBanks(false)}>
-                      Cancel
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="h-11 rounded-xl"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                    />
+                    <Button className="rounded-xl" onClick={() => void handleRecordPayment()} disabled={recording || balance <= 0}>
+                      {recording ? <Loader2 className="h-4 w-4 animate-spin" /> : "Record"}
                     </Button>
                   </div>
-                </>
-              ) : quote.bank_accounts?.length ? (
-                quote.bank_accounts.map((d, idx) => (
-                  <dl key={idx} className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 rounded-xl border border-border/40 bg-muted/10 p-3 text-sm">
-                    <dt className="text-muted-foreground">Bank</dt>
-                    <dd className="font-semibold">
-                      {d.bank_name} · {d.currency}
-                    </dd>
-                    <dt className="text-muted-foreground">Account name</dt>
-                    <dd className="break-words">{d.account_name}</dd>
-                    {d.account_number ? (
-                      <>
-                        <dt className="text-muted-foreground">Account no.</dt>
-                        <dd className="font-mono">{d.account_number}</dd>
-                      </>
-                    ) : null}
-                    {d.iban ? (
-                      <>
-                        <dt className="text-muted-foreground">IBAN</dt>
-                        <dd className="font-mono break-all">{d.iban}</dd>
-                      </>
-                    ) : null}
-                    {d.swift_code ? (
-                      <>
-                        <dt className="text-muted-foreground">SWIFT / BIC</dt>
-                        <dd className="font-mono">{d.swift_code}</dd>
-                      </>
-                    ) : null}
-                  </dl>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">None — this invoice shows card payment only.</p>
-              )}
-            </CardContent>
-          </Card>
+                  {quote.stripe_checkout_session_id && balance > 0 ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-xl"
+                      onClick={() => void handleSyncStripe()}
+                      disabled={syncingStripe}
+                    >
+                      {syncingStripe ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                      )}
+                      Client paid online? Sync card payment
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
 
-          {quote.status !== "Completed" && can("appointment:manage") ? (
-            <Card className="border-border/50">
+              {showSlots ? (
+                <Card className={prepaidSlotsLocked ? "border-border/50" : "border-emerald-500/30 bg-emerald-500/5"}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Examination slots</CardTitle>
+                    <CardDescription>
+                      {prepaidSlotsLocked
+                        ? "Staff book exams from the calendar against these slots."
+                        : "This invoice has no slots yet. Create them so exams can be booked against it."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {prepaidSlotsLocked ? (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          {[
+                            { label: "Free", value: invoicePrepaidStats?.available },
+                            { label: "Used", value: invoicePrepaidStats?.consumed },
+                            { label: "Total", value: invoicePrepaidStats?.total ?? examCount },
+                          ].map((s) => (
+                            <div key={s.label} className="rounded-xl bg-muted/30 py-2">
+                              <p className="text-lg font-bold tabular-nums">{s.value ?? "—"}</p>
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {balance > 0 ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Not fully paid yet: booked exams show unpaid (or partial) until it is.
+                          </p>
+                        ) : null}
+                        {(invoicePrepaidStats?.available ?? 0) > 0 && (invoicePrepaidStats?.total ?? 0) > 1 ? (
+                          confirmRevoke ? (
+                            <div className="space-y-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                              <p className="text-xs">
+                                Remove 1 unused slot? The invoice drops to {(invoicePrepaidStats?.total ?? 1) - 1}{" "}
+                                examination{(invoicePrepaidStats?.total ?? 1) - 1 === 1 ? "" : "s"} and is repriced at
+                                the same unit price.
+                              </p>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" className="flex-1" onClick={() => setConfirmRevoke(false)} disabled={revokingSlot}>
+                                  Keep
+                                </Button>
+                                <Button size="sm" variant="destructive" className="flex-1" onClick={() => void handleRevokeSlot()} disabled={revokingSlot}>
+                                  {revokingSlot && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                                  Revoke slot
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setConfirmRevoke(true)}>
+                              Revoke 1 unused slot
+                            </Button>
+                          )
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="grid gap-1.5">
+                            <Label className={fieldLabel}>Examinations</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              step={1}
+                              className="h-11 rounded-xl"
+                              value={mintSlotQuantity}
+                              onChange={(e) => setMintSlotQuantity(e.target.value)}
+                            />
+                          </div>
+                          <div className="grid gap-1.5">
+                            <Label className={fieldLabel}>Already done</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1}
+                              className="h-11 rounded-xl"
+                              value={mintAlreadyUsed}
+                              onChange={(e) => setMintAlreadyUsed(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <Button className="w-full rounded-xl" onClick={() => void handleMintPrepaidSlots()} disabled={mintingSlots}>
+                          {mintingSlots ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                          Create{" "}
+                          {Math.max(0, (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0))} free
+                          slots
+                        </Button>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {(!["Approved", "Completed"].includes(quote.status) ||
+                (can("appointment:create") &&
+                  !quote.prepaid_slots_minted &&
+                  !((quote.line_quantity ?? 1) > 1 && quote.status === "Completed" && !quote.appointment_id))) ? (
+                <div className="flex flex-wrap gap-2">
+                  {!["Approved", "Completed"].includes(quote.status) && (
+                    <Button variant="outline" className="rounded-xl" onClick={() => void handleApprove()} disabled={approving}>
+                      {approving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                      Approve quotation
+                    </Button>
+                  )}
+                  {can("appointment:create") &&
+                    !quote.prepaid_slots_minted &&
+                    !((quote.line_quantity ?? 1) > 1 && quote.status === "Completed" && !quote.appointment_id) && (
+                      <Button
+                        variant="secondary"
+                        className="rounded-xl"
+                        onClick={() => router.push(`/dashboard/calendar/book?clientId=${quote.client_id}&quotationId=${quote.id}`)}
+                      >
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Convert to booking
+                      </Button>
+                    )}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="lg:col-span-2 space-y-6">
+              <Card className="border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    Breakdown
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {displaySubtotal > 0 ? (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="tabular-nums">{formatMoney(displaySubtotal, currency)}</span>
+                    </div>
+                  ) : null}
+                  {displayDiscount > 0 ? (
+                    <div className="flex justify-between text-rose-600">
+                      <span>Discount</span>
+                      <span className="tabular-nums">-{formatMoney(displayDiscount, currency)}</span>
+                    </div>
+                  ) : null}
+                  {displayVat > 0 ? (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">VAT ({displayVatRate}%)</span>
+                      <span className="tabular-nums">{formatMoney(displayVat, currency)}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
+                    <span>Total</span>
+                    <span className="tabular-nums">{formatMoney(total, currency)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/50">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Landmark className="h-4 w-4 text-primary" />
+                      Bank details
+                    </CardTitle>
+                    {can("appointment:manage") && !editingBanks ? (
+                      <Button variant="ghost" size="sm" className="h-7 rounded-lg" onClick={startEditingBanks}>
+                        Change
+                      </Button>
+                    ) : null}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {editingBanks ? (
+                    <>
+                      <BankAccountPicker accounts={bankAccounts} currency={currency} value={bankSelection} onChange={setBankSelection} />
+                      <div className="flex gap-2">
+                        <Button className="rounded-xl" onClick={() => void handleSaveBanks()} disabled={savingBanks}>
+                          {savingBanks ? "Saving…" : "Save"}
+                        </Button>
+                        <Button variant="outline" className="rounded-xl" onClick={() => setEditingBanks(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </>
+                  ) : quote.bank_accounts?.length ? (
+                    quote.bank_accounts.map((d, idx) => (
+                      <dl key={idx} className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        <dt className="text-muted-foreground">Bank</dt>
+                        <dd className="font-semibold">
+                          {d.bank_name} · {d.currency}
+                        </dd>
+                        <dt className="text-muted-foreground">Name</dt>
+                        <dd className="wrap-break-word">{d.account_name}</dd>
+                        {d.account_number ? (
+                          <>
+                            <dt className="text-muted-foreground">Acc. no.</dt>
+                            <dd className="font-mono">{d.account_number}</dd>
+                          </>
+                        ) : null}
+                        {d.iban ? (
+                          <>
+                            <dt className="text-muted-foreground">IBAN</dt>
+                            <dd className="font-mono break-all">{d.iban}</dd>
+                          </>
+                        ) : null}
+                        {d.swift_code ? (
+                          <>
+                            <dt className="text-muted-foreground">SWIFT</dt>
+                            <dd className="font-mono">{d.swift_code}</dd>
+                          </>
+                        ) : null}
+                      </dl>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">None. This invoice shows card payment only.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {can("payment:manage") && (
+                <DeleteConfirmDialog
+                  title={`Delete ${quote.code}`}
+                  description="This permanently removes this invoice from billing. The linked appointment (if any) is kept."
+                  confirmLabel="Confirmation"
+                  triggerLabel="Delete Invoice"
+                  onConfirm={async () => {
+                    await deleteInvoice({ quotationId: quote.id, appointmentId: quote.appointment_id });
+                    toast.success("Invoice deleted");
+                    router.push("/dashboard/payments");
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Edit pricing */}
+        {canEditPricing ? (
+          <TabsContent value="pricing" className="outline-none">
+            <Card className="border-border/50 max-w-2xl">
               <CardHeader>
-                <CardTitle className="text-lg">Edit quotation pricing</CardTitle>
-                <CardDescription>Adjust line totals, VAT, and invoice total before sending.</CardDescription>
+                <CardTitle className="text-base">Edit pricing</CardTitle>
+                <CardDescription>Adjust lines, discount and VAT before sending.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 <div className="grid gap-1.5">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Title</Label>
+                  <Label className={fieldLabel}>Title</Label>
                   <Input className="h-11 rounded-xl" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Qty</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      className="h-11 rounded-xl"
-                      value={editQuantity}
-                      onChange={(e) => setEditQuantity(e.target.value)}
-                    />
+                    <Label className={fieldLabel}>Qty</Label>
+                    <Input type="number" min={1} step={1} className="h-11 rounded-xl" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Unit price</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="h-11 rounded-xl"
-                      value={editUnitPrice}
-                      onChange={(e) => setEditUnitPrice(e.target.value)}
-                    />
+                    <Label className={fieldLabel}>Unit price</Label>
+                    <Input type="number" min={0} step="0.01" className="h-11 rounded-xl" value={editUnitPrice} onChange={(e) => setEditUnitPrice(e.target.value)} />
                   </div>
                   <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Line subtotal</Label>
-                    <Input
-                      type="number"
-                      readOnly
-                      className="h-11 rounded-xl bg-muted/40"
-                      value={editSubtotal}
-                    />
+                    <Label className={fieldLabel}>Subtotal</Label>
+                    <Input type="number" readOnly className="h-11 rounded-xl bg-muted/40" value={editSubtotal} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-1.5 col-span-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                      Invoice notes (PDF)
-                    </Label>
-                    <Textarea
-                      rows={3}
-                      className="rounded-xl text-sm"
-                      placeholder={"A 100% payment is required to confirm the booking.\nPartner pricing"}
-                      value={editInvoiceNotes}
-                      onChange={(e) => setEditInvoiceNotes(e.target.value)}
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      One line per bullet in the Notes box. Billing address and TRN come from the client Account Details page.
-                    </p>
-                  </div>
+                <div className="grid grid-cols-2 gap-3 items-end">
                   <div className="grid gap-1.5">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Discount</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="h-11 rounded-xl"
-                      value={editDiscount}
-                      onChange={(e) => setEditDiscount(e.target.value)}
-                    />
+                    <Label className={fieldLabel}>Discount</Label>
+                    <Input type="number" min={0} step="0.01" className="h-11 rounded-xl" value={editDiscount} onChange={(e) => setEditDiscount(e.target.value)} />
                   </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm font-semibold">
-                    <Checkbox checked={editIncludeVat} onCheckedChange={(c) => setEditIncludeVat(Boolean(c))} />
-                    Include VAT
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground">Rate (%)</Label>
+                  <div className="flex items-center gap-3 h-11">
+                    <label className="flex items-center gap-2 text-sm font-semibold">
+                      <Checkbox checked={editIncludeVat} onCheckedChange={(c) => setEditIncludeVat(Boolean(c))} />
+                      VAT
+                    </label>
                     <Input
                       type="number"
                       min={0}
                       step="0.01"
-                      className="h-10 w-24 rounded-xl"
+                      className="h-10 w-20 rounded-xl"
                       disabled={!editIncludeVat}
                       value={editVatRate}
                       onChange={(e) => setEditVatRate(e.target.value)}
                     />
+                    <span className="text-sm text-muted-foreground">%</span>
                   </div>
                 </div>
+                <div className="grid gap-1.5">
+                  <Label className={fieldLabel}>Invoice notes (PDF)</Label>
+                  <Textarea
+                    rows={3}
+                    className="rounded-xl text-sm"
+                    placeholder={"A 100% payment is required to confirm the booking.\nPartner pricing"}
+                    value={editInvoiceNotes}
+                    onChange={(e) => setEditInvoiceNotes(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">One bullet per line. Billing address and TRN come from the client&apos;s Account Details.</p>
+                </div>
                 {pricingPreview ? (
-                  <div className="rounded-xl border border-border/40 bg-muted/10 p-3 text-sm space-y-1">
+                  <div className="rounded-xl bg-muted/30 p-3 text-sm space-y-1">
                     {pricingPreview.discountAmount > 0 ? (
                       <div className="flex justify-between text-rose-600">
                         <span>Discount</span>
@@ -894,7 +1051,7 @@ export default function InvoiceDetailPage() {
                       </div>
                     ) : null}
                     <div className="flex justify-between font-bold">
-                      <span>Invoice total</span>
+                      <span>New invoice total</span>
                       <span>{formatMoney(pricingPreview.total, currency)}</span>
                     </div>
                   </div>
@@ -905,374 +1062,91 @@ export default function InvoiceDetailPage() {
                 </Button>
               </CardContent>
             </Card>
-          ) : null}
+          </TabsContent>
+        ) : null}
 
+        {/* Send email */}
+        <TabsContent value="email" className="outline-none">
           <Card className="border-border/50">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                Payment history
+              <CardTitle className="text-base flex items-center gap-2">
+                <Mail className="h-4 w-4 text-primary" />
+                Send invoice email
               </CardTitle>
-              <CardDescription>Each line shows what was applied to this invoice and when.</CardDescription>
+              <CardDescription>Sends the PDF and a secure pay link for the amount below.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {paymentHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {paid > 0
-                    ? "No per-payment timestamps yet (older payments). New card and manual payments will appear here."
-                    : "No payments recorded yet."}
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {paymentHistory.map((entry, idx) => {
-                    const when = new Date(entry.paid_at);
-                    const label = entry.method === "stripe" ? "Card online" : "Manual";
-                    const customerPaid =
-                      entry.total_charged && entry.total_charged > 0
-                        ? entry.total_charged
-                        : entry.amount + (entry.processing_fee || 0);
-                    return (
-                      <li
-                        key={`${entry.paid_at}-${idx}`}
-                        className="rounded-xl border border-border/40 bg-muted/10 p-3 text-sm space-y-1"
-                      >
-                        <div className="flex justify-between gap-2 font-semibold">
-                          <span>{when.toLocaleString()}</span>
-                          <span>{label}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Applied to invoice</span>
-                          <span className="text-foreground font-medium">{formatMoney(entry.amount, currency)}</span>
-                        </div>
-                        {entry.processing_fee != null && entry.processing_fee > 0 ? (
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Processing fee</span>
-                            <span>{formatMoney(entry.processing_fee, currency)}</span>
-                          </div>
-                        ) : null}
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Customer paid</span>
-                          <span>{formatMoney(customerPaid, currency)}</span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              <div className="flex justify-between border-t border-border/40 pt-3 text-sm font-bold">
-                <span>Balance remaining</span>
-                <span>{formatMoney(balance, currency)}</span>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle className="text-lg">Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(prepaidSlotsLocked || (quote.status === "Completed" && balance <= 0)) &&
-              !quote.appointment_id &&
-              can("appointment:manage") ? (
-                <div
-                  className={`space-y-2 rounded-xl border p-4 ${
-                    prepaidSlotsLocked
-                      ? "border-border/50 bg-muted/20"
-                      : "border-emerald-500/30 bg-emerald-500/5"
-                  }`}
-                >
-                  <p className="text-sm font-semibold">Prepaid examination slots</p>
-                  {prepaidSlotsLocked ? (
-                    <>
-                      <p className="text-xs text-muted-foreground">Slots created for this invoice</p>
-                      <p className="text-sm font-medium">
-                        {invoicePrepaidStats?.available ?? "—"} available ·{" "}
-                        {invoicePrepaidStats?.consumed ?? "—"} used ·{" "}
-                        {invoicePrepaidStats?.total ?? quote.line_quantity ?? 1} total
-                      </p>
-                      {balance > 0 ? (
-                        <p className="text-xs text-amber-700 dark:text-amber-400">
-                          Slots can be booked now. Booked exams show unpaid (or partial) until
-                          this invoice is fully paid.
-                        </p>
-                      ) : null}
-                      {(invoicePrepaidStats?.available ?? 0) > 0 &&
-                      (invoicePrepaidStats?.total ?? 0) > 1 ? (
-                        confirmRevoke ? (
-                          <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-                            <p className="text-xs">
-                              Remove 1 unused slot? The invoice drops to{" "}
-                              {(invoicePrepaidStats?.total ?? 1) - 1} examination
-                              {(invoicePrepaidStats?.total ?? 1) - 1 === 1 ? "" : "s"} and its total is
-                              repriced at the same unit price.
-                            </p>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="flex-1"
-                                onClick={() => setConfirmRevoke(false)}
-                                disabled={revokingSlot}
-                              >
-                                Keep
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="flex-1"
-                                onClick={() => void handleRevokeSlot()}
-                                disabled={revokingSlot}
-                              >
-                                {revokingSlot && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                                Revoke slot
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full rounded-xl"
-                            onClick={() => setConfirmRevoke(true)}
-                          >
-                            Revoke 1 unused slot (correction)
-                          </Button>
-                        )
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="grid gap-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                            Total on invoice
-                          </Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            step={1}
-                            className="h-11 rounded-xl"
-                            value={mintSlotQuantity}
-                            onChange={(e) => setMintSlotQuantity(e.target.value)}
-                          />
-                        </div>
-                        <div className="grid gap-1.5">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                            Already used
-                          </Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            className="h-11 rounded-xl"
-                            value={mintAlreadyUsed}
-                            onChange={(e) => setMintAlreadyUsed(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      {mintSlotQuantity && mintAlreadyUsed ? (
-                        <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                          Will leave{" "}
-                          {Math.max(
-                            0,
-                            (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0),
-                          )}{" "}
-                          slots available to book.
-                        </p>
-                      ) : null}
-                      <Button
-                        className="w-full rounded-xl"
-                        onClick={() => void handleMintPrepaidSlots()}
-                        disabled={mintingSlots}
-                      >
-                        {mintingSlots ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 mr-2" />
-                        )}
-                        Create examination slots
-                      </Button>
-                    </>
-                  )}
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label className={fieldLabel}>To</Label>
+                  <Input type="email" className="h-11 rounded-xl" value={toEmail} onChange={(e) => setToEmail(e.target.value)} />
                 </div>
-              ) : null}
-              {!["Approved", "Completed"].includes(quote.status) && (
-                <Button variant="outline" className="w-full rounded-xl" onClick={() => void handleApprove()} disabled={approving}>
-                  {approving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                  Approve quotation
-                </Button>
-              )}
-              {can("appointment:create") &&
-                !quote.prepaid_slots_minted &&
-                !(
-                  (quote.line_quantity ?? 1) > 1 &&
-                  quote.status === "Completed" &&
-                  !quote.appointment_id
-                ) && (
-                <Button
-                  variant="secondary"
-                  className="w-full rounded-xl"
-                  onClick={() =>
-                    router.push(
-                      `/dashboard/calendar/book?clientId=${quote.client_id}&quotationId=${quote.id}`,
-                    )
-                  }
-                >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Convert to booking
-                </Button>
-              )}
-              {quote.stripe_checkout_session_id && balance > 0 ? (
-                <Button
-                  variant="outline"
-                  className="w-full rounded-xl"
-                  onClick={() => void handleSyncStripe()}
-                  disabled={syncingStripe}
-                >
-                  {syncingStripe ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                  )}
-                  Sync online payment
-                </Button>
-              ) : null}
-              <div className="space-y-2 pt-2 border-t border-border/40">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Record payment</Label>
-                <div className="flex gap-2">
+                <div className="grid gap-1.5">
+                  <Label className={fieldLabel}>Subject</Label>
+                  <Input className="h-11 rounded-xl" value={subject} onChange={(e) => setSubject(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label className={fieldLabel}>Amount to request</Label>
                   <Input
                     type="number"
                     min={0}
                     step="0.01"
                     className="h-11 rounded-xl"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                  />
-                  <Button className="rounded-xl" onClick={() => void handleRecordPayment()} disabled={recording || balance <= 0}>
-                    {recording ? <Loader2 className="h-4 w-4 animate-spin" /> : "Record"}
-                  </Button>
-                </div>
-              </div>
-              {can("payment:manage") && (
-                <div className="pt-2">
-                  <DeleteConfirmDialog
-                    title={`Delete ${quote.code}`}
-                    description="This permanently removes this invoice from billing. The linked appointment (if any) is kept."
-                    confirmLabel="Confirmation"
-                    triggerLabel="Delete Invoice"
-                    onConfirm={async () => {
-                      await deleteInvoice({
-                        quotationId: quote.id,
-                        appointmentId: quote.appointment_id,
-                      });
-                      toast.success("Invoice deleted");
-                      router.push("/dashboard/payments");
+                    value={chargeAmount}
+                    onChange={(e) => {
+                      setChargeAmount(e.target.value);
+                      rebuildBody(e.target.value);
                     }}
                   />
+                  <p className="text-xs text-muted-foreground">A deposit (e.g. 30%) or the full balance.</p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-3">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Mail className="h-5 w-5 text-primary" />
-                Send invoice email
-              </CardTitle>
-              <CardDescription>
-                Includes the invoice PDF and a secure payment link for the charge amount below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">To</Label>
-                <Input type="email" className="h-11 rounded-xl" value={toEmail} onChange={(e) => setToEmail(e.target.value)} />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Subject</Label>
-                <Input className="h-11 rounded-xl" value={subject} onChange={(e) => setSubject(e.target.value)} />
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Payment amount (applied to invoice)
-                </Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className="h-11 rounded-xl"
-                  value={chargeAmount}
-                  onChange={(e) => {
-                    setChargeAmount(e.target.value);
-                    rebuildBody(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter a deposit (e.g. 100) or the full balance. Message updates automatically.
-                </p>
                 {balance > 0 ? (
-                  <label className="flex items-start gap-3 rounded-xl border border-border/40 p-3 mt-2">
-                    <Checkbox
-                      checked={passProcessingFee}
-                      onCheckedChange={(checked) => {
-                        setPassProcessingFee(Boolean(checked));
-                      }}
-                      className="mt-0.5"
-                    />
-                    <div className="space-y-1 text-xs">
-                      <div className="font-semibold text-sm">Add processing fee for customer</div>
-                      <p className="text-muted-foreground">
-                        Customer pays invoice/deposit plus processing fee. You still receive{" "}
-                        {formatMoney(chargeNet, currency)} toward the invoice.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 pt-2">
-                        <div>
-                          <Label className="text-[10px] uppercase text-muted-foreground">Fee % (optional)</Label>
+                  <div className="rounded-xl border border-border/40 p-3 space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+                      <Checkbox checked={passProcessingFee} onCheckedChange={(checked) => setPassProcessingFee(Boolean(checked))} />
+                      Customer pays card fee
+                    </label>
+                    {passProcessingFee ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
                           <Input
                             type="number"
                             min={0}
                             step="0.1"
-                            placeholder={String(orgSettings?.stripe_card_fee_percent ?? 2.9)}
-                            className="h-9 rounded-lg mt-1"
+                            aria-label="Fee percent"
+                            placeholder={`${orgSettings?.stripe_card_fee_percent ?? 2.9} %`}
+                            className="h-9 rounded-lg"
                             value={feePercentOverride}
                             onChange={(e) => setFeePercentOverride(e.target.value)}
                           />
-                        </div>
-                        <div>
-                          <Label className="text-[10px] uppercase text-muted-foreground">Fixed fee ({currency})</Label>
                           <Input
                             type="number"
                             min={0}
                             step="0.01"
-                            placeholder={String(orgSettings?.stripe_card_fee_fixed ?? 1)}
-                            className="h-9 rounded-lg mt-1"
+                            aria-label="Fixed fee"
+                            placeholder={`${orgSettings?.stripe_card_fee_fixed ?? 1} ${currency}`}
+                            className="h-9 rounded-lg"
                             value={feeFixedOverride}
                             onChange={(e) => setFeeFixedOverride(e.target.value)}
                           />
                         </div>
-                      </div>
-                      {feePreview && feePreview.fee > 0 ? (
-                        <div className="rounded-lg bg-muted/30 p-2 mt-2 space-y-1 text-foreground font-medium">
-                          <div className="flex justify-between">
-                            <span>Processing fee</span>
-                            <span>{formatMoney(feePreview.fee, currency)}</span>
-                          </div>
-                          <div className="flex justify-between text-base font-black">
-                            <span>Customer pays total</span>
-                            <span>{formatMoney(feePreview.gross, currency)}</span>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </label>
+                        {feePreview && feePreview.fee > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Fee {formatMoney(feePreview.fee, currency)} · customer pays{" "}
+                            <span className="font-bold text-foreground">{formatMoney(feePreview.gross, currency)}</span> · you
+                            receive {formatMoney(chargeNet, currency)}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <div className="grid gap-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Message</Label>
-                <Textarea className="min-h-[280px] rounded-xl" value={body} onChange={(e) => setBody(e.target.value)} />
+                <Label className={fieldLabel}>Message</Label>
+                <Textarea className="min-h-70 rounded-xl" value={body} onChange={(e) => setBody(e.target.value)} />
               </div>
               <Button className="w-full h-12 rounded-2xl font-black" onClick={() => void handleSend()} disabled={sending || !toEmail.trim()}>
                 {sending ? (
@@ -1289,8 +1163,58 @@ export default function InvoiceDetailPage() {
               </Button>
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </TabsContent>
+
+        {/* Payment history */}
+        <TabsContent value="history" className="outline-none">
+          <Card className="border-border/50 max-w-2xl">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Clock className="h-4 w-4 text-primary" />
+                Payment history
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {paymentHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {paid > 0
+                    ? "No per-payment timestamps yet (older payments). New card and manual payments will appear here."
+                    : "No payments recorded yet."}
+                </p>
+              ) : (
+                <ul className="divide-y divide-border/40">
+                  {paymentHistory.map((entry, idx) => {
+                    const when = new Date(entry.paid_at);
+                    const label = entry.method === "stripe" ? "Card online" : "Manual";
+                    const customerPaid =
+                      entry.total_charged && entry.total_charged > 0
+                        ? entry.total_charged
+                        : entry.amount + (entry.processing_fee || 0);
+                    return (
+                      <li key={`${entry.paid_at}-${idx}`} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                        <div>
+                          <p className="font-medium">{when.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {label}
+                            {entry.processing_fee && entry.processing_fee > 0
+                              ? ` · customer paid ${formatMoney(customerPaid, currency)} incl. fee`
+                              : ""}
+                          </p>
+                        </div>
+                        <span className="font-semibold tabular-nums">{formatMoney(entry.amount, currency)}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <div className="flex justify-between border-t border-border/40 pt-3 text-sm font-bold">
+                <span>Balance remaining</span>
+                <span>{formatMoney(balance, currency)}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
