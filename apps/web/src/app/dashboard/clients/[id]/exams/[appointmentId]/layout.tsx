@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useParams } from "next/navigation";
-import { FileText, ListChecks } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ArrowLeft, FileText, ListChecks } from "lucide-react";
 import type { Route } from "next";
 
 import { cn } from "@/lib/utils";
+import { useSessionRoute } from "@/components/dashboard/session-route";
 
 export default function SessionLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams();
   const pathname = usePathname() ?? "";
-  const base = `/dashboard/clients/${params.id}/exams/${params.appointmentId}`;
+  const { base, back, backLabel } = useSessionRoute();
 
   const tabs = [
     { name: "Documentation", href: base, icon: FileText, exact: true },
@@ -18,29 +18,38 @@ export default function SessionLayout({ children }: { children: React.ReactNode 
   ];
 
   return (
-    <div className="space-y-6">
-      <nav className="flex gap-2 border-b border-border">
-        {tabs.map((tab) => {
-          const isActive = tab.exact
-            ? pathname === tab.href || pathname === `${tab.href}/`
-            : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
-          return (
-            <Link
-              key={tab.name}
-              href={tab.href as Route}
-              className={cn(
-                "flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors -mb-px",
-                isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <tab.icon className="h-4 w-4" />
-              {tab.name}
-            </Link>
-          );
-        })}
-      </nav>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <nav aria-label="Session sections" className="flex gap-1 rounded-full bg-[#E9E6DD] p-1 dark:bg-muted">
+          {tabs.map((tab) => {
+            const isActive = tab.exact
+              ? pathname === tab.href || pathname === `${tab.href}/`
+              : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
+            return (
+              <Link
+                key={tab.name}
+                href={tab.href as Route}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex h-9 items-center gap-2 rounded-full px-4 text-sm transition-colors",
+                  isActive
+                    ? "bg-white font-semibold text-foreground shadow-[0_1px_2px_rgba(40,36,20,0.08)] dark:bg-card"
+                    : "text-[#3D3929] hover:text-foreground dark:text-muted-foreground",
+                )}
+              >
+                <tab.icon aria-hidden="true" className="size-4" />
+                {tab.name}
+              </Link>
+            );
+          })}
+        </nav>
+        <Link
+          href={back as Route}
+          className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden="true" className="size-3.5" /> {backLabel}
+        </Link>
+      </div>
       {children}
     </div>
   );

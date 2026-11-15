@@ -104,6 +104,8 @@ export type AgreementRequest = {
   recipient_name: string;
   status: AgreementRequestStatus;
   sent_at: string;
+  /** When the link was last emailed. Missing = created to copy/share by hand, never emailed. */
+  emailed_at?: string;
   viewed_at?: string;
   signed_at?: string;
   declined_at?: string;
@@ -130,6 +132,8 @@ export type SendAgreementsInput = {
   template_ids: number[];
   recipient_email?: string;
   recipient_name?: string;
+  /** Create the signing link without emailing it (to copy, or to put in the invoice email). */
+  skip_email?: boolean;
 };
 
 export type SendAgreementsResult = {

@@ -74,6 +74,8 @@ export type AppointmentRecord = {
   notes: string;
   exam_id?: number;
   exam_type_id?: number | null;
+  /** Set when the booking draws on a bulk (prepaid) invoice, which owns its fee. */
+  prepaid_slot_id?: number | null;
   client?: {
     id: number;
     name: string;
@@ -337,16 +339,18 @@ export async function updateAppointment(
     exam_fee: number;
     examiner_id: number;
     status: string;
+    exam_type_id: number | null;
   }>
-): Promise<void> {
+): Promise<AppointmentRecord> {
   const response = await authenticatedFetch(`/api/appointments/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
+  const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to update appointment (${response.status})`);
   }
+  return payload as AppointmentRecord;
 }
 
 export async function deleteAppointment(id: number): Promise<void> {

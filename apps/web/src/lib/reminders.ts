@@ -252,7 +252,7 @@ export async function loadRemindersData() {
 export function paymentReminderTemplate(item: PaymentReminderItem) {
   return {
     subject: `Payment reminder — ${item.id}`,
-    body: `Hello ${item.client},\n\nThis is a reminder regarding your scheduled polygraph session (${item.id} — ${item.title}).\n\nBalance due: ${item.amount}\n\nPlease contact us to arrange payment before your appointment.\n\nThank you,\nPolygraph Forensic System`,
+    body: `Hello ${item.client},\n\nThis is a friendly reminder about the balance on ${item.title} (${item.id}).\n\nBalance due: ${item.amount}\n\nPlease contact us to arrange payment.\n\nThank you,\nPolygraph Forensic System`,
   };
 }
 

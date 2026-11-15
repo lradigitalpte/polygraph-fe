@@ -1,176 +1,115 @@
 "use client";
 
 import * as React from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Plus,
-  Search,
-  Calendar as CalendarIcon,
-  Clock,
-  User,
-  Filter,
-  MoreVertical,
-  CheckCircle2,
-  AlertCircle,
-  Users,
-  FileText,
-  Info,
-  ShieldCheck,
-  Zap,
-  FileWarning
-} from "lucide-react";
-import { BookingAgreementNotice } from "@/components/agreements/booking-agreement-notice";
-import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import {
-  fetchBookingAgreementStatuses,
-  needsAgreementWarning,
-  type BookingAgreementStatus,
-} from "@/lib/agreements";
-import { cn } from "@/lib/utils";
-import { motion, AnimatePresence } from "motion/react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription
-} from "@/components/ui/sheet";
 import Link from "next/link";
 import { toast } from "sonner";
-import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
-import { resolveAppointmentParties } from "@/lib/appointment-display";
 import {
-  clinicDateKey,
-  clinicDayOfMonth,
-  clinicTodayDateString,
-  clinicWeekdayShort,
-  formatClinicClock,
-  formatClinicGridDate,
-  isSameClinicDay,
-} from "@/lib/clinic-time";
-import { fetchExaminers, type UserRecord } from "@/lib/users";
+  ArrowUpRight,
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FileText,
+  FileWarning,
+  Plus,
+  UserRound,
+} from "lucide-react";
+
+import { BookingAgreementNotice } from "@/components/agreements/booking-agreement-notice";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { GlowPanel, StatusPill } from "@/components/dashboard/ui-kit";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { fetchBookingAgreementStatuses, needsAgreementWarning, type BookingAgreementStatus } from "@/lib/agreements";
+import { resolveAppointmentParties } from "@/lib/appointment-display";
+import { clinicDateKey, clinicNowMinutes, clinicTodayDateString, formatClinicClock, formatClinicGridDate, isSameClinicDay, clinicWeekdayShort } from "@/lib/clinic-time";
+import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import { fetchExamByAppointment, type ExamPhaseRecord } from "@/lib/exam-documentation";
+import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { cn } from "@/lib/utils";
 
-const timeSlots = [
-  "08:00", "09:00", "10:00", "11:00", "12:00",
-  "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"
-];
+/* ------------------------------------------------------------------ */
+/* Types & constants                                                   */
+/* ------------------------------------------------------------------ */
 
-type CalendarDay = {
-  name: string;
-  date: string;
-  dateObj: Date;
-};
+type View = "month" | "week" | "day";
+type Status = "Pending" | "Confirmed" | "Completed" | "Cancelled";
 
-type CalendarExaminer = {
-  id: string;
-  name: string;
-  specialty: string;
-  color: string;
-};
-
-type CalendarAppointment = {
+type CalendarDay = { name: string; date: string; dateObj: Date };
+type Examiner = { id: string; name: string; initials: string; color: string };
+type Session = {
   id: number;
   clientId: number;
   subjectId?: number;
-  /** Examinee or client name shown on the grid. */
   client: string;
-  /** Billing organization when the session is under a corporate account. */
   accountName?: string;
   examinerId: string;
   time: string;
-  duration: string;
+  startMin: number;
+  durationMin: number;
   type: string;
-  status: string;
+  status: Status;
   paymentStatus: string;
-  examFee: number;
-  dayNum: number;
-  dayName: string;
-  color: string;
-  dot: string;
   reason: string;
   scheduledAt: Date;
 };
 
-const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-purple-600", "bg-amber-600", "bg-rose-600", "bg-cyan-600"];
+const HOUR_PX = 64;
+const EXAMINER_COLORS = ["bg-[#C96442]", "bg-[#7C6BD6]", "bg-[#3F7A37]", "bg-[#B8862F]", "bg-[#30302E]", "bg-[#4F7FA8]"];
+
+const BLOCK_STYLE: Record<Status, string> = {
+  Confirmed: "bg-[#E7F1E4] text-[#1F3D1B] ring-[#3F7A37]/25 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-700/40",
+  Pending: "bg-[#EFEBFE] text-[#2A2160] ring-[#7C6BD6]/30 dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-700/40",
+  Completed: "bg-[#ECE9E0] text-[#3D3929] ring-black/5 dark:bg-muted dark:text-foreground dark:ring-white/10",
+  Cancelled:
+    "bg-[repeating-linear-gradient(135deg,#F7F6F1_0_6px,#EEEBE2_6px_12px)] text-[#8E8B82] ring-black/5 dark:bg-[repeating-linear-gradient(135deg,#262624_0_6px,#2e2e2b_6px_12px)] dark:text-muted-foreground",
+};
+const STATUS_DOT: Record<Status, string> = {
+  Confirmed: "bg-[#3F7A37]",
+  Pending: "bg-[#7C6BD6]",
+  Completed: "bg-[#8E8B82]",
+  Cancelled: "bg-[#B5B2A8]",
+};
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function CalendarPage() {
-  const [view, setView] = React.useState<"month" | "week" | "day">("week");
+  const [view, setView] = React.useState<View>("week");
   const [cursorDate, setCursorDate] = React.useState<Date>(() => startOfDay(new Date()));
-  const [selectedExaminers, setSelectedExaminers] = React.useState<string[]>([]);
-  const [selectedAppointment, setSelectedAppointment] = React.useState<CalendarAppointment | null>(null);
-  const [timelinePhases, setTimelinePhases] = React.useState<ExamPhaseRecord[]>([]);
-  const [timelineLoading, setTimelineLoading] = React.useState(false);
+  const [examiners, setExaminers] = React.useState<Examiner[]>([]);
+  const [sessions, setSessions] = React.useState<Session[]>([]);
+  const [hiddenExaminers, setHiddenExaminers] = React.useState<Set<string>>(new Set());
+  const [loading, setLoading] = React.useState(true);
+  const [selected, setSelected] = React.useState<Session | null>(null);
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  const [examiners, setExaminers] = React.useState<CalendarExaminer[]>([]);
-  const [appointments, setAppointments] = React.useState<CalendarAppointment[]>([]);
+  const [phases, setPhases] = React.useState<ExamPhaseRecord[]>([]);
+  const [phasesLoading, setPhasesLoading] = React.useState(false);
   const [agreementStatuses, setAgreementStatuses] = React.useState<Record<number, BookingAgreementStatus>>({});
+  const [nowMin, setNowMin] = React.useState(() => clinicNowMinutes());
   const { can, loading: userLoading } = useCurrentUser();
   const canViewAgreements = !userLoading && can("agreement:view");
-  // Load the real session timeline (exam phases) for the selected appointment.
-  React.useEffect(() => {
-    const appointmentId = selectedAppointment?.id;
-    if (!appointmentId) {
-      setTimelinePhases([]);
-      return;
-    }
-    let cancelled = false;
-    setTimelineLoading(true);
-    void (async () => {
-      try {
-        const exam = await fetchExamByAppointment(Number(appointmentId));
-        if (!cancelled) setTimelinePhases(exam?.phases ?? []);
-      } catch {
-        if (!cancelled) setTimelinePhases([]);
-      } finally {
-        if (!cancelled) setTimelineLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAppointment?.id]);
 
-  const weekDays = React.useMemo(() => buildWeekDays(cursorDate), [cursorDate]);
-  const dayViewDay = React.useMemo(() => {
-    return {
-      name: cursorDate.toLocaleDateString(undefined, { weekday: "short" }),
-      date: cursorDate.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-      dateObj: cursorDate,
-    };
-  }, [cursorDate]);
-  const monthCells = React.useMemo(() => buildMonthCells(cursorDate), [cursorDate]);
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNowMin(clinicNowMinutes()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
-
-    async function loadCalendarData() {
+    (async () => {
       try {
-        const [examinerRows, appointmentRows] = await Promise.all([
-          fetchExaminers(),
-          fetchAppointments(),
-        ]);
-        if (cancelled) {
-          return;
-        }
-
-        const mappedExaminers = mapExaminers(examinerRows);
-        const mappedAppointments = mapAppointments(appointmentRows);
-
-        setExaminers(mappedExaminers);
-        setAppointments(mappedAppointments);
-        setSelectedExaminers(mappedExaminers.map((item) => item.id));
+        const [examinerRows, appointmentRows] = await Promise.all([fetchExaminers(), fetchAppointments()]);
+        if (cancelled) return;
+        setExaminers(mapExaminers(examinerRows));
+        setSessions(mapSessions(appointmentRows));
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to load calendar data");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
-
-    void loadCalendarData();
-
+    })();
     return () => {
       cancelled = true;
     };
@@ -178,691 +117,657 @@ export default function CalendarPage() {
 
   // Agreement warnings are advisory: a failed lookup just hides the markers.
   React.useEffect(() => {
-    if (!canViewAgreements || appointments.length === 0) return;
+    if (!canViewAgreements || sessions.length === 0) return;
     let cancelled = false;
-    fetchBookingAgreementStatuses(appointments.map((app) => app.id))
-      .then((map) => {
-        if (!cancelled) setAgreementStatuses(map);
-      })
+    fetchBookingAgreementStatuses(sessions.map((s) => s.id))
+      .then((map) => !cancelled && setAgreementStatuses(map))
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [appointments, canViewAgreements]);
+  }, [sessions, canViewAgreements]);
 
-  const hasAgreementWarning = (app: CalendarAppointment) =>
-    needsAgreementWarning(agreementStatuses[app.id], { status: app.status, scheduled_at: app.scheduledAt });
+  React.useEffect(() => {
+    if (!selected) {
+      setPhases([]);
+      return;
+    }
+    let cancelled = false;
+    setPhasesLoading(true);
+    fetchExamByAppointment(selected.id)
+      .then((exam) => !cancelled && setPhases(exam?.phases ?? []))
+      .catch(() => !cancelled && setPhases([]))
+      .finally(() => !cancelled && setPhasesLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
-  const toggleExaminer = (id: string) => {
-    setSelectedExaminers(prev =>
-      prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]
-    );
-  };
+  const hasAgreementWarning = (s: Session) => needsAgreementWarning(agreementStatuses[s.id], { status: s.status, scheduled_at: s.scheduledAt });
 
-  const filteredAppointments = React.useMemo(() =>
-    appointments.filter(app => selectedExaminers.includes(app.examinerId)),
-    [appointments, selectedExaminers]
+  const weekDays = React.useMemo(() => buildWeekDays(cursorDate), [cursorDate]);
+  const monthCells = React.useMemo(() => buildMonthCells(cursorDate), [cursorDate]);
+  const visibleDays: CalendarDay[] =
+    view === "week" ? weekDays : [{ name: clinicWeekdayShort(cursorDate), date: formatClinicGridDate(cursorDate), dateObj: cursorDate }];
+
+  const visible = React.useMemo(() => sessions.filter((s) => !hiddenExaminers.has(s.examinerId)), [sessions, hiddenExaminers]);
+
+  /** Sessions inside the period on screen (the month view counts its own month only). */
+  const inPeriod = React.useCallback(
+    (s: Session) => {
+      if (view === "month") return s.scheduledAt.getMonth() === cursorDate.getMonth() && s.scheduledAt.getFullYear() === cursorDate.getFullYear();
+      return visibleDays.some((d) => isSameClinicDay(s.scheduledAt, d.dateObj));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, cursorDate, weekDays],
   );
 
-  const appointmentsToday = React.useMemo(() => {
+  const stats = React.useMemo(() => {
     const todayKey = clinicTodayDateString();
-    return filteredAppointments.filter((item) => clinicDateKey(item.scheduledAt) === todayKey).length;
-  }, [filteredAppointments]);
+    const live = visible.filter((s) => s.status !== "Cancelled");
+    return {
+      today: live.filter((s) => clinicDateKey(s.scheduledAt) === todayKey).length,
+      period: live.filter(inPeriod).length,
+      pending: live.filter((s) => s.status === "Pending" && inPeriod(s)).length,
+    };
+  }, [visible, inPeriod]);
 
-  const capacity = React.useMemo(() => {
-    if (examiners.length === 0) {
-      return 0;
-    }
-    return Math.min(100, Math.round((appointmentsToday / (examiners.length * 4)) * 100));
-  }, [appointmentsToday, examiners.length]);
+  const perExaminer = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of sessions) if (s.status !== "Cancelled" && inPeriod(s)) counts.set(s.examinerId, (counts.get(s.examinerId) ?? 0) + 1);
+    return counts;
+  }, [sessions, inPeriod]);
 
-  const visiblePeriodLabel = React.useMemo(() => {
-    if (view === "month") {
-      return cursorDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    }
+  const periodLabel = React.useMemo(() => {
+    if (view === "month") return cursorDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
     if (view === "week") {
-      const start = weekDays[0]?.dateObj;
-      const end = weekDays[6]?.dateObj;
-      if (!start || !end) {
-        return "";
-      }
-      const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-      if (sameMonth) {
-        return `${start.toLocaleDateString(undefined, { month: "short" })} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
-      }
-      return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+      const start = weekDays[0].dateObj;
+      const end = weekDays[6].dateObj;
+      const sameMonth = start.getMonth() === end.getMonth();
+      return sameMonth
+        ? `${start.getDate()} – ${end.getDate()} ${end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`
+        : `${start.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – ${end.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
     }
-    return cursorDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  }, [cursorDate, view, weekDays]);
+    return cursorDate.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  }, [view, cursorDate, weekDays]);
+
+  const isCurrentPeriod = (() => {
+    const today = startOfDay(new Date());
+    if (view === "day") return cursorDate.getTime() === today.getTime();
+    if (view === "week") return weekDays.some((d) => isSameClinicDay(d.dateObj, today));
+    return cursorDate.getMonth() === today.getMonth() && cursorDate.getFullYear() === today.getFullYear();
+  })();
+
+  const openSession = (s: Session) => {
+    setSelected(s);
+    setIsSheetOpen(true);
+  };
+  const openDay = (date: Date) => {
+    setCursorDate(startOfDay(date));
+    setView("day");
+  };
+  const examinerById = (id: string) => examiners.find((e) => e.id === id);
+  const allShown = hiddenExaminers.size === 0;
+
+  /* ---------------- time grid geometry ---------------- */
+
+  const gridSessions = visible.filter((s) => visibleDays.some((d) => isSameClinicDay(s.scheduledAt, d.dateObj)));
+  let startHour = 8;
+  let endHour = 18;
+  for (const s of gridSessions) {
+    startHour = Math.min(startHour, Math.floor(s.startMin / 60));
+    endHour = Math.max(endHour, Math.ceil((s.startMin + s.durationMin) / 60));
+  }
+  endHour = Math.min(24, endHour);
+  const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
+  const todayIndex = visibleDays.findIndex((d) => isSameClinicDay(d.dateObj, new Date()));
+  const nowTop = ((nowMin - startHour * 60) / 60) * HOUR_PX;
+  const showNow = todayIndex >= 0 && nowMin >= startHour * 60 && nowMin <= endHour * 60;
+  const gridCols = view === "week" ? "grid-cols-[64px_repeat(7,minmax(0,1fr))]" : "grid-cols-[64px_minmax(0,1fr)]";
 
   return (
-    <div className="space-y-6 max-w-[1800px] mx-auto pb-10 w-full">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-card/30 p-6 rounded-3xl border border-border/50 backdrop-blur-md shadow-sm shrink-0">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2">
-            <CalendarIcon className="h-8 w-8 text-primary" />
-            Polygraph Scheduler
-          </h1>
-          <div className="flex items-center gap-4 text-xs font-bold text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-              {appointmentsToday} Appointments Today
-            </span>
-            <span className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-              {capacity}% Capacity
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-background/60 p-1">
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setCursorDate((prev) => shiftDateByView(prev, view, -1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-[220px] text-center text-xs font-bold text-foreground">{visiblePeriodLabel}</div>
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setCursorDate((prev) => shiftDateByView(prev, view, 1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              className="ml-1 h-8 px-3 text-[10px] font-black uppercase tracking-widest"
-              onClick={() => {
-                setCursorDate(startOfDay(new Date()));
-                setView("day");
-              }}
-            >
-              Today
-            </Button>
-          </div>
-          <div className="flex border border-border/50 rounded-xl bg-background/50 p-1 shadow-inner">
-            {(["month", "week", "day"] as const).map((v) => (
-              <Button
-                key={v}
-                variant={view === v ? "default" : "ghost"}
-                size="sm"
-                className={cn(
-                  "rounded-lg h-9 px-4 font-bold text-xs capitalize transition-all",
-                  view === v && "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
-                )}
-                onClick={() => setView(v)}
-              >
-                {v}
-              </Button>
-            ))}
-          </div>
-          <Button
-            className="h-10 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-extrabold shadow-lg shadow-primary/30 transition-all gap-2"
-            render={<Link href="/dashboard/calendar/book" />}
-          >
-            <Plus className="h-4 w-4" />
-            Book New
-          </Button>
-        </div>
-      </div>
-
-      <div className="bg-card/40 backdrop-blur-xl border border-border/50 rounded-[32px] p-4 shadow-2xl overflow-hidden shrink-0">
-        <div className="flex items-center w-full">
-          <div className="flex items-center gap-3 shrink-0 pr-8 border-r border-border/50 mr-6">
-            <div className="w-12 h-12 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/20">
-              <Users className="h-6 w-6" />
+    <div className="mx-auto max-w-[1600px] space-y-4 pb-10">
+      {/* Header */}
+      <GlowPanel tone="terracotta" orb="74%" lineTop={0} className="px-5 pt-6 pb-5 sm:px-7">
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div className="flex flex-col gap-2">
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">
+                <CalendarIcon aria-hidden="true" className="size-4" />
+                Calendar
+              </span>
+              <h1 className="text-3xl leading-tight font-normal tracking-[-0.03em] sm:text-[38px]">{periodLabel}</h1>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-[#C9C6BC]">
+                <span>
+                  <span className="font-mono text-[#FAF9F5] tabular-nums">{loading ? "–" : stats.today}</span> today
+                </span>
+                <span>
+                  <span className="font-mono text-[#FAF9F5] tabular-nums">{loading ? "–" : stats.period}</span> {view === "day" ? "this day" : `this ${view}`}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span aria-hidden="true" className="size-1.5 rounded-full bg-chart-2" />
+                  <span className="font-mono text-[#FAF9F5] tabular-nums">{loading ? "–" : stats.pending}</span> awaiting confirmation
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground leading-none mb-1">Experts</span>
-              <span className="text-sm font-black text-foreground whitespace-nowrap">Clinical Team</span>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-x-auto no-scrollbar scroll-smooth py-2 px-1">
-            <div className="flex items-center gap-4 min-w-max">
-              <Button
-                variant="outline"
-                className={cn(
-                  "h-14 px-8 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shrink-0 border-2",
-                  selectedExaminers.length === examiners.length
-                    ? "bg-primary border-primary text-primary-foreground shadow-xl shadow-primary/20"
-                    : "bg-card border-border/50 text-muted-foreground hover:bg-muted/50"
-                )}
-                onClick={() => setSelectedExaminers(examiners.map(e => e.id))}
-              >
-                All Experts
-              </Button>
-
-              <div className="h-10 w-px bg-border/50 shrink-0 mx-2" />
-
-              {examiners.map((ex) => (
-                <button
-                  key={ex.id}
-                  onClick={() => toggleExaminer(ex.id)}
-                  className={cn(
-                    "flex items-center gap-4 pl-3 pr-6 h-14 rounded-2xl border-2 transition-all shrink-0 group relative overflow-hidden w-[240px]",
-                    selectedExaminers.includes(ex.id)
-                      ? "border-primary/40 bg-primary/[0.04] shadow-xl ring-2 ring-primary/5"
-                      : "border-border/30 bg-card/50 opacity-60 hover:opacity-100 hover:border-border/60 shadow-sm"
-                  )}
-                >
-                  <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-xs text-white font-black shadow-lg transition-transform group-hover:scale-110 shrink-0", ex.color)}>
-                    {ex.name.split(" ").map(n => n[0]).join("")}
-                  </div>
-                  <div className="flex flex-col items-start overflow-hidden text-left min-w-0">
-                    <span className={cn("text-[13px] font-black whitespace-nowrap truncate w-full", selectedExaminers.includes(ex.id) ? "text-primary" : "text-foreground")}>
-                      {ex.name}
-                    </span>
-                    <span className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest truncate w-full">
-                      {ex.specialty}
-                    </span>
-                  </div>
-                  {selectedExaminers.includes(ex.id) && (
-                    <div className="absolute top-2 right-2">
-                      <div className="bg-primary rounded-full p-0.5 shadow-sm">
-                        <CheckCircle2 className="h-3 w-3 text-white" />
-                      </div>
-                    </div>
-                  )}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-full bg-white/[0.07] p-1 ring-1 ring-white/15">
+                <button type="button" aria-label={`Previous ${view}`} onClick={() => setCursorDate((d) => shiftDate(d, view, -1))} className="flex size-9 items-center justify-center rounded-full text-[#FAF9F5] hover:bg-white/10">
+                  <ChevronLeft aria-hidden="true" className="size-4" />
                 </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <Card className="border-border/50 shadow-2xl bg-card/30 backdrop-blur-xl rounded-3xl overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar p-6">
-          {view === "month" && (
-            <div className="grid grid-cols-7 gap-4 min-w-[1100px]">
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                <div key={day} className="text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 pb-4">
-                  {day}
-                </div>
-              ))}
-              {monthCells.map((cell) => {
-                const isToday = isSameClinicDay(cell.dateObj, new Date());
-                const isCurrentMonth = cell.dateObj.getMonth() === cursorDate.getMonth();
-                const dayAppointments = filteredAppointments.filter((app) =>
-                  isSameClinicDay(app.scheduledAt, cell.dateObj),
-                );
-                return (
-                  <div
-                    key={cell.dateObj.toISOString()}
-                    onClick={() => {
-                      if (!isCurrentMonth) {
-                        return;
-                      }
-                      setCursorDate(startOfDay(cell.dateObj));
-                      setView("day");
-                    }}
+                <button
+                  type="button"
+                  onClick={() => setCursorDate(startOfDay(new Date()))}
+                  disabled={isCurrentPeriod}
+                  className="h-9 rounded-full px-4 text-sm font-medium text-[#FAF9F5] hover:bg-white/10 disabled:opacity-40"
+                >
+                  Today
+                </button>
+                <button type="button" aria-label={`Next ${view}`} onClick={() => setCursorDate((d) => shiftDate(d, view, 1))} className="flex size-9 items-center justify-center rounded-full text-[#FAF9F5] hover:bg-white/10">
+                  <ChevronRight aria-hidden="true" className="size-4" />
+                </button>
+              </div>
+              <div role="group" aria-label="Calendar view" className="flex gap-1 rounded-full bg-white/[0.07] p-1 ring-1 ring-white/15">
+                {(["day", "week", "month"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={view === v}
+                    onClick={() => setView(v)}
                     className={cn(
-                      "min-h-[140px] rounded-2xl p-3 border transition-all flex flex-col gap-2 relative",
-                      isToday ? "bg-primary/[0.03] border-primary/40 ring-1 ring-primary/10 shadow-[inset_0_0_20px_rgba(var(--primary),0.02)]" : "bg-muted/5 border-border/30 hover:border-border/60",
-                      !isCurrentMonth ? "opacity-30 grayscale border-dashed" : "cursor-pointer"
+                      "h-9 rounded-full px-4 text-sm capitalize transition-colors",
+                      view === v ? "bg-[#FAF9F5] font-semibold text-[#1A1915]" : "text-[#C9C6BC] hover:text-[#FAF9F5]",
                     )}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className={cn(
-                        "text-xs font-black",
-                        isToday ? "text-primary bg-primary/10 w-6 h-6 rounded-lg flex items-center justify-center" : "text-muted-foreground"
-                      )}>
-                        {cell.dateObj.getDate()}
-                      </span>
-                      {isToday && (
-                        <div className="flex items-center gap-1">
-                           <span className="text-[8px] font-black text-primary uppercase">Today</span>
-                           <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
-                        </div>
-                      )}
-                    </div>
+                    {v}
+                  </button>
+                ))}
+              </div>
+              <Link href="/dashboard/calendar/book" className="flex h-11 items-center gap-2 rounded-full bg-primary pr-5 pl-2.5 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-primary/90">
+                <span className="flex size-6 items-center justify-center rounded-full bg-[#1A1915]/10">
+                  <Plus aria-hidden="true" className="size-3.5" strokeWidth={3} />
+                </span>
+                Book exam
+              </Link>
+            </div>
+          </div>
+        </div>
+      </GlowPanel>
 
-                    <div className="space-y-1.5 overflow-hidden flex-1">
-                      {dayAppointments
-                        .map(app => (
-                          <motion.button
-                            layoutId={`app-${app.id}`}
-                            key={app.id}
-                            onClick={() => {
-                              setSelectedAppointment(app);
-                              setIsSheetOpen(true);
-                            }}
-                            className={cn(
-                              "w-full text-left p-2.5 rounded-xl text-[10px] font-bold border transition-all group relative overflow-hidden",
-                              app.color,
-                              "border-transparent hover:border-current/30 shadow-sm hover:shadow-md hover:-translate-y-0.5"
-                            )}
-                          >
-                            <div className="relative z-10 flex flex-col gap-1">
-                              <div className="flex items-center justify-between">
-                                <span className="truncate pr-1 tracking-tight">{app.client}</span>
-                                <div className="flex items-center gap-1">
-                                  <div className={cn(
-                                    "w-1.5 h-1.5 rounded-full",
-                                    app.paymentStatus?.toLowerCase() === "paid"
-                                      ? "bg-emerald-500"
-                                      : app.paymentStatus?.toLowerCase() === "partial"
-                                        ? "bg-amber-500"
-                                        : "bg-rose-500"
-                                  )} />
-                                  {hasAgreementWarning(app) && (
-                                    <FileWarning className="h-3 w-3 text-amber-600" aria-label="Agreements not signed" />
-                                  )}
-                                  <span className="opacity-60 text-[8px] font-black">{app.time}</span>
-                                </div>
-                              </div>
-                              {app.accountName && (
-                                <span className="truncate text-[8px] opacity-60">{app.accountName}</span>
-                              )}
-                            </div>
-                            <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </motion.button>
-                        ))}
-                    </div>
+      {/* Examiner filter */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+        <button
+          type="button"
+          aria-pressed={allShown}
+          onClick={() => setHiddenExaminers(new Set())}
+          className={cn(
+            "flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm transition-colors",
+            allShown ? "bg-[#30302E] font-semibold text-[#FAF9F5] dark:bg-foreground dark:text-background" : "bg-white text-foreground ring-1 ring-border/60 hover:bg-[#FAF9F5] dark:bg-card",
+          )}
+        >
+          All examiners
+        </button>
+        {examiners.map((ex) => {
+          const shown = !hiddenExaminers.has(ex.id);
+          return (
+            <button
+              key={ex.id}
+              type="button"
+              aria-pressed={shown}
+              onClick={() =>
+                setHiddenExaminers((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(ex.id)) next.delete(ex.id);
+                  else next.add(ex.id);
+                  return next;
+                })
+              }
+              className={cn(
+                "flex h-11 shrink-0 items-center gap-2.5 rounded-full py-1 pr-4 pl-1 text-sm transition-all",
+                shown ? "bg-white ring-1 ring-border/60 dark:bg-card" : "bg-transparent text-muted-foreground opacity-60 ring-1 ring-dashed ring-border hover:opacity-100",
+              )}
+            >
+              <span className={cn("flex size-9 items-center justify-center rounded-full text-xs font-semibold text-white", shown ? ex.color : "bg-[#B5B2A8]")}>{ex.initials}</span>
+              <span className="whitespace-nowrap">{ex.name}</span>
+              <span className="rounded-full bg-[#F3F1EA] px-1.5 text-[11px] font-semibold tabular-nums dark:bg-muted">{perExaminer.get(ex.id) ?? 0}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Calendar */}
+      <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+        {view === "month" ? (
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[880px] grid-cols-7">
+              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+                <div key={d} className="border-b border-border/50 px-3 py-3 text-[13px] text-muted-foreground">
+                  {d}
+                </div>
+              ))}
+              {monthCells.map(({ dateObj }) => {
+                const inMonth = dateObj.getMonth() === cursorDate.getMonth();
+                const isToday = isSameClinicDay(dateObj, new Date());
+                const daySessions = visible
+                  .filter((s) => isSameClinicDay(s.scheduledAt, dateObj))
+                  .sort((a, b) => a.startMin - b.startMin);
+                const shown = daySessions.slice(0, 3);
+                return (
+                  <div key={dateObj.toISOString()} className={cn("flex min-h-[128px] flex-col gap-1.5 border-r border-b border-border/40 p-2 nth-[7n]:border-r-0", !inMonth && "bg-[#FAF9F5] dark:bg-muted/20")}>
+                    <button
+                      type="button"
+                      onClick={() => openDay(dateObj)}
+                      aria-label={`Open ${dateObj.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`}
+                      className={cn(
+                        "flex size-7 items-center justify-center self-start rounded-full text-[13px] tabular-nums transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted",
+                        isToday ? "bg-primary font-semibold text-[#1A1915] hover:bg-primary" : inMonth ? "text-foreground" : "text-muted-foreground/60",
+                      )}
+                    >
+                      {dateObj.getDate()}
+                    </button>
+                    {shown.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => openSession(s)}
+                        className={cn("flex items-center gap-1.5 rounded-lg px-2 py-1 text-left text-xs ring-1 transition-transform hover:-translate-y-px", BLOCK_STYLE[s.status], s.status === "Cancelled" && "line-through")}
+                      >
+                        <span className="font-mono tabular-nums opacity-70">{s.time}</span>
+                        <span className="truncate font-medium">{s.client}</span>
+                        {hasAgreementWarning(s) ? <FileWarning aria-label="Agreements not signed" className="size-3 shrink-0 text-[#B8862F]" /> : null}
+                      </button>
+                    ))}
+                    {daySessions.length > shown.length ? (
+                      <button type="button" onClick={() => openDay(dateObj)} className="self-start rounded-md px-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                        +{daySessions.length - shown.length} more
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
             </div>
-          )}
-
-          {(view === "week" || view === "day") && (
-            <div className="flex-1 flex flex-col min-h-[600px] border border-border/50 rounded-2xl overflow-hidden bg-muted/5">
-              {/** Use real dates for week/day headers and date matching */}
-              {(() => {
-                const visibleDays = view === "week" ? weekDays : [dayViewDay];
-                return (
-                  <>
-              <div className={cn(
-                "grid border-b border-border/50 bg-card/80 backdrop-blur-md shrink-0 sticky top-0 z-20",
-                view === "week" ? "grid-cols-[80px_repeat(7,1fr)]" : "grid-cols-[80px_1fr]"
-              )}>
-                <div className="h-14 flex items-center justify-center border-r border-border/50">
-                  <Clock className="h-4 w-4 text-muted-foreground/30" />
-                </div>
-                {visibleDays.map((day) => (
-                  <div
-                    key={day.name}
-                    className={cn(
-                      "h-14 flex flex-col items-center justify-center border-r border-border/50 last:border-r-0 px-2",
-                      isSameClinicDay(day.dateObj, new Date()) && "bg-primary/[0.05]"
-                    )}
-                  >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">{day.name}</span>
-                    <span className={cn(
-                      "text-sm font-black",
-                      isSameClinicDay(day.dateObj, new Date()) ? "text-primary" : "text-foreground"
-                    )}>{day.date.split(" ")[1]}</span>
-                  </div>
-                ))}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className={view === "week" ? "min-w-[920px]" : ""}>
+              {/* Day headers */}
+              <div className={cn("sticky top-0 z-20 grid border-b border-border/50 bg-white dark:bg-card", gridCols)}>
+                <div />
+                {visibleDays.map((day) => {
+                  const isToday = isSameClinicDay(day.dateObj, new Date());
+                  const count = visible.filter((s) => s.status !== "Cancelled" && isSameClinicDay(s.scheduledAt, day.dateObj)).length;
+                  return (
+                    <button
+                      key={day.dateObj.toISOString()}
+                      type="button"
+                      onClick={() => view === "week" && openDay(day.dateObj)}
+                      className={cn("flex items-center gap-2.5 border-l border-border/40 px-3 py-3 text-left", view === "week" && "hover:bg-[#FAF9F5] dark:hover:bg-muted/30")}
+                    >
+                      <span className={cn("flex size-9 items-center justify-center rounded-full text-base tabular-nums", isToday ? "bg-primary font-semibold text-[#1A1915]" : "bg-[#F3F1EA] dark:bg-muted")}>
+                        {day.dateObj.getDate()}
+                      </span>
+                      <span className="flex flex-col">
+                        <span className={cn("text-[13px]", isToday ? "font-semibold" : "text-muted-foreground")}>{day.name}</span>
+                        <span className="text-xs text-muted-foreground">{count ? `${count} session${count === 1 ? "" : "s"}` : "Free"}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="flex-1 overflow-y-auto relative custom-scrollbar bg-background/30">
-                {timeSlots.map((time) => (
-                  <div key={time} className={cn(
-                    "grid",
-                    view === "week" ? "grid-cols-[80px_repeat(7,1fr)]" : "grid-cols-[80px_1fr]"
-                  )}>
-                    <div className="h-24 flex items-start justify-center pt-3 text-[10px] font-black text-muted-foreground/30 border-r border-border/50 bg-muted/10">
-                      {time}
+              {/* Time grid */}
+              <div className={cn("relative grid", gridCols)}>
+                <div>
+                  {hours.map((h) => (
+                    <div key={h} className="relative border-b border-transparent" style={{ height: HOUR_PX }}>
+                      <span className="absolute -top-2 right-3 font-mono text-[11px] text-muted-foreground">{h === startHour ? "" : `${String(h).padStart(2, "0")}:00`}</span>
                     </div>
-                    {(view === "week" ? [0, 1, 2, 3, 4, 5, 6] : [0]).map((i) => (
-                      <div
-                        key={i}
-                        className="h-24 border-r border-border/50 last:border-r-0 border-b border-border/10 relative"
-                      />
-                    ))}
-                  </div>
-                ))}
-
-                <div className="absolute inset-0 pointer-events-none">
-                  <div className={cn(
-                    "grid h-full",
-                    view === "week" ? "grid-cols-[80px_repeat(7,1fr)]" : "grid-cols-[80px_1fr]"
-                  )}>
-                    <div />
-
-                    {visibleDays.map((day) => (
-                      <div key={day.dateObj.toISOString()} className="relative h-full">
-                        {filteredAppointments
-                          .filter((app) => isSameClinicDay(app.scheduledAt, day.dateObj))
-                          .map(app => {
-                            const startHour = parseInt(app.time.split(":")[0]);
-                            const startMin = parseInt(app.time.split(":")[1] || "0");
-                            const topPos = (startHour - 8) * 96 + (startMin / 60) * 96;
-                            const height = app.duration.includes("h") ? parseFloat(app.duration) * 96 : 96;
-                            const expert = examiners.find(ex => ex.id === app.examinerId);
-
-                            return (
-                              <motion.div
-                                key={app.id}
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                onClick={() => {
-                                  setSelectedAppointment(app);
-                                  setIsSheetOpen(true);
-                                }}
-                                className={cn(
-                                  "absolute inset-x-1.5 p-2.5 rounded-xl border shadow-xl pointer-events-auto cursor-pointer transition-all hover:scale-[1.02] hover:z-30 group backdrop-blur-xl border-white/20",
-                                  app.color,
-                                  "hover:ring-8 hover:ring-primary/5"
-                                )}
-                                style={{
-                                  top: `${topPos + 4}px`,
-                                  height: `${height - 8}px`,
-                                  zIndex: 10
-                                }}
-                              >
-                                <div className="flex flex-col h-full overflow-hidden">
-                                  <div className="flex items-center justify-between mb-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] font-black opacity-60">{app.time}</span>
-                                    <div className={cn(
-                                      "w-1 h-1 rounded-full",
-                                      app.paymentStatus?.toLowerCase() === "paid"
-                                        ? "bg-emerald-500"
-                                        : app.paymentStatus?.toLowerCase() === "partial"
-                                          ? "bg-amber-500"
-                                          : "bg-rose-500"
-                                    )} />
-                                    {hasAgreementWarning(app) && (
-                                      <FileWarning className="h-3 w-3 text-amber-600" aria-label="Agreements not signed" />
-                                    )}
-                                  </div>
-                                  </div>
-
-                                  <h3 className="text-xs font-black truncate text-foreground mb-0.5 leading-tight">{app.client}</h3>
-                                  {app.accountName && (
-                                    <p className="text-[8px] font-bold opacity-50 truncate leading-tight">{app.accountName}</p>
-                                  )}
-                                  <p className="text-[9px] font-bold opacity-60 line-clamp-1">{app.type}</p>
-
-                                  <div className="mt-auto pt-1.5 border-t border-black/5 flex items-center gap-1.5">
-                                    <div className={cn("w-4 h-4 rounded-md flex items-center justify-center text-[7px] text-white font-black", expert?.color)}>
-                                      {expert?.name.charAt(0)}
-                                    </div>
-                                    <span className="text-[9px] font-black truncate opacity-50">{expert?.name}</span>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            );
-                          })}
-                      </div>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-              </div>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="sm:max-w-md bg-card/95 backdrop-blur-3xl border-l border-border/50 shadow-2xl p-0 overflow-hidden">
-          {selectedAppointment && (
-            <div className="h-full flex flex-col">
-              <div className="h-40 flex flex-col justify-end p-6 text-white relative bg-neutral-950 shrink-0">
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10" />
-                <div className="absolute inset-0 opacity-10 z-0">
-                  <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:14px_14px]" />
-                </div>
-                <div className="relative z-20 space-y-2">
-                  <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 backdrop-blur-md">
-                    {selectedAppointment.status}
-                  </Badge>
-                  <h2 className="text-3xl font-black tracking-tighter leading-tight">{selectedAppointment.client}</h2>
-                  {selectedAppointment.accountName && (
-                    <p className="text-sm font-semibold text-white/70">{selectedAppointment.accountName}</p>
-                  )}
-                  <div className="flex items-center gap-3 text-[11px] font-bold text-white/50">
-                    <span className="flex items-center gap-1.5 uppercase">
-                      <Clock className="h-3.5 w-3.5" />
-                      {selectedAppointment.time}
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-white/10" />
-                    <span className="uppercase tracking-wider">{selectedAppointment.type}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-card/50">
-                <BookingAgreementNotice
-                  status={agreementStatuses[selectedAppointment.id]}
-                  booking={{ status: selectedAppointment.status, scheduled_at: selectedAppointment.scheduledAt }}
-                  clientId={selectedAppointment.clientId}
-                  showSigned
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5 col-span-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Examinee</p>
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-primary shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-black truncate">{selectedAppointment.client}</p>
-                        {selectedAppointment.accountName && (
-                          <p className="text-[10px] font-medium text-muted-foreground truncate">
-                            Billed to {selectedAppointment.accountName}
-                          </p>
-                        )}
-                      </div>
+                {visibleDays.map((day, dayIndex) => {
+                  const daySessions = layoutLanes(gridSessions.filter((s) => isSameClinicDay(s.scheduledAt, day.dateObj)));
+                  return (
+                    <div key={day.dateObj.toISOString()} className={cn("relative border-l border-border/40", dayIndex === todayIndex && "bg-primary/[0.035]")}>
+                      {hours.map((h) => (
+                        <div key={h} className="border-b border-border/40" style={{ height: HOUR_PX }}>
+                          <div className="h-1/2 border-b border-dashed border-border/25" />
+                        </div>
+                      ))}
+                      {daySessions.map(({ session: s, lane, lanes }) => {
+                        const top = ((s.startMin - startHour * 60) / 60) * HOUR_PX;
+                        const height = Math.max(26, (s.durationMin / 60) * HOUR_PX - 4);
+                        const examiner = examinerById(s.examinerId);
+                        const compact = height < 56 || lanes > 2;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => openSession(s)}
+                            title={`${s.time} · ${s.client} · ${s.type}`}
+                            className={cn(
+                              "absolute flex flex-col overflow-hidden rounded-xl px-2.5 py-1.5 text-left ring-1 transition-[transform,box-shadow] hover:z-30 hover:-translate-y-px hover:shadow-[0_10px_24px_-14px_rgba(40,36,20,0.5)]",
+                              BLOCK_STYLE[s.status],
+                            )}
+                            style={{
+                              top: top + 2,
+                              height,
+                              left: `calc(${(lane / lanes) * 100}% + 3px)`,
+                              width: `calc(${100 / lanes}% - 6px)`,
+                              zIndex: 10 + lane,
+                            }}
+                          >
+                            <span className="flex items-center gap-1.5 text-[11px]">
+                              <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[s.status])} />
+                              <span className="font-mono tabular-nums opacity-75">{s.time}</span>
+                              <PaymentDot status={s.paymentStatus} />
+                              {hasAgreementWarning(s) ? <FileWarning aria-label="Agreements not signed" className="size-3 shrink-0 text-[#B8862F]" /> : null}
+                            </span>
+                            <span className={cn("truncate text-[13px] leading-tight font-semibold", s.status === "Cancelled" && "line-through")}>{s.client}</span>
+                            {!compact ? <span className="truncate text-xs opacity-75">{s.type}</span> : null}
+                            {!compact && height > 84 ? (
+                              <span className="mt-auto flex items-center gap-1.5 pt-1 text-[11px] opacity-80">
+                                <span className={cn("flex size-4 items-center justify-center rounded-full text-[8px] font-semibold text-white", examiner?.color ?? "bg-[#8E8B82]")}>{examiner?.initials}</span>
+                                <span className="truncate">{examiner?.name}</span>
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Specialist</p>
-                    <div className="flex items-center gap-2">
-                      <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center text-[10px] text-white font-black", examiners.find(ex => ex.id === selectedAppointment.examinerId)?.color)}>
-                        {examiners.find(ex => ex.id === selectedAppointment.examinerId)?.name.charAt(0)}
-                      </div>
-                      <p className="text-xs font-black truncate">{examiners.find(ex => ex.id === selectedAppointment.examinerId)?.name}</p>
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-1.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Session</p>
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-primary/60" />
-                      <p className="text-xs font-black">{selectedAppointment.duration} Exam</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="p-5 rounded-2xl bg-card border border-border/50 shadow-sm space-y-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                      <FileText className="h-3 w-3" /> Objective
-                    </p>
-                    <p className="text-xs font-bold text-foreground/80 leading-snug italic tracking-tight">
-                      "{selectedAppointment.reason}"
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Timeline</p>
-                    {timelineLoading ? (
-                      <p className="text-[10px] text-muted-foreground ml-1">Loading session phases…</p>
-                    ) : timelinePhases.length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground ml-1">No session phases logged yet.</p>
-                    ) : (
-                      <div className="space-y-3 relative before:absolute before:left-[9px] before:top-2 before:bottom-2 before:w-px before:bg-border/30">
-                        {timelinePhases.map((phase) => (
-                          <div key={phase.id} className="flex gap-3 relative z-10">
-                            <div className="mt-1 p-0.5 rounded-full bg-card border border-border shadow-xs text-primary">
-                              <CheckCircle2 className="h-2.5 w-2.5" />
-                            </div>
-                            <div>
-                              <p className="text-[11px] font-black text-foreground/90">{phase.name}</p>
-                              <p className="text-[8px] font-bold text-muted-foreground/60 uppercase">
-                                {formatClinicClock(phase.start_time)}
-                              </p>
-                              {phase.notes && (
-                                <p className="text-[9px] text-muted-foreground mt-0.5">{phase.notes}</p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2 flex flex-col gap-2 pb-6">
-                  <Button
-                    className="w-full h-12 rounded-xl font-black text-xs shadow-lg shadow-primary/10 transition-all hover:scale-[1.01] bg-primary text-primary-foreground"
-                    render={
-                      <Link href={`/dashboard/clients/${selectedAppointment.clientId}/exams/${selectedAppointment.id}`} />
-                    }
-                  >
-                    Open session documentation
-                  </Button>
-                  {selectedAppointment.subjectId ? (
-                    <Button
-                      variant="outline"
-                      className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
-                      render={
-                        <Link
-                          href={`/dashboard/clients/${selectedAppointment.clientId}/examinees/${selectedAppointment.subjectId}`}
-                        />
+                  );
+                })}
+                {showNow ? (
+                  <div aria-hidden="true" className="pointer-events-none absolute right-0 left-16 z-40" style={{ top: nowTop }}>
+                    <div
+                      className="relative h-0.5 bg-primary"
+                      style={
+                        view === "week"
+                          ? { marginLeft: `${(todayIndex / 7) * 100}%`, width: `${100 / 7}%` }
+                          : undefined
                       }
                     >
-                      Open examinee profile
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    className="w-full h-10 rounded-xl font-black text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/50"
-                    render={<Link href={`/dashboard/clients/${selectedAppointment.clientId}`} />}
-                  >
-                    Open billing account
-                  </Button>
+                      <span className="absolute -top-[5px] -left-1.5 size-3 rounded-full bg-primary ring-2 ring-white dark:ring-card" />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {!loading && gridSessions.length === 0 ? (
+                <p className="border-t border-border/40 px-6 py-4 text-center text-[13px] text-muted-foreground">
+                  No sessions {view === "day" ? "on this day" : "this week"}
+                  {!allShown ? " for the selected examiners" : ""}.{" "}
+                  <Link href="/dashboard/calendar/book" className="font-medium text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
+                    Book one
+                  </Link>
+                </p>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-[13px] text-muted-foreground">
+        {(Object.keys(STATUS_DOT) as Status[]).map((st) => (
+          <span key={st} className="flex items-center gap-1.5">
+            <span aria-hidden="true" className={cn("size-2 rounded-full", STATUS_DOT[st])} />
+            {st}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-[#B94A3E]" /> Unpaid
+        </span>
+        <span className="flex items-center gap-1.5">
+          <FileWarning aria-hidden="true" className="size-3.5 text-[#B8862F]" /> Agreements unsigned
+        </span>
+      </div>
+
+      {/* Session sheet */}
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent className="w-full gap-0 overflow-hidden border-l border-border/50 bg-white p-0 shadow-2xl sm:max-w-[560px] dark:bg-card [&_[data-slot=sheet-close]]:top-5 [&_[data-slot=sheet-close]]:right-5 [&_[data-slot=sheet-close]]:z-30 [&_[data-slot=sheet-close]]:flex [&_[data-slot=sheet-close]]:size-9 [&_[data-slot=sheet-close]]:items-center [&_[data-slot=sheet-close]]:justify-center [&_[data-slot=sheet-close]]:rounded-full [&_[data-slot=sheet-close]]:bg-white/10! [&_[data-slot=sheet-close]]:text-[#FAF9F5] [&_[data-slot=sheet-close]]:opacity-100 [&_[data-slot=sheet-close]]:ring-1 [&_[data-slot=sheet-close]]:ring-white/15">
+          {selected ? (
+            <div className="flex h-full flex-col">
+              <GlowPanel tone={selected.status === "Cancelled" ? "ink" : selected.status === "Pending" ? "lavender" : selected.status === "Confirmed" ? "sage" : "terracotta"} orb="62%" lineTop={0} className="shrink-0 rounded-none px-6 pt-6 pb-5 shadow-none ring-0 sm:px-7">
+                <div key={`head-${selected.id}`} className="flex flex-col gap-3 pr-12 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-4 motion-safe:duration-500 motion-safe:fill-mode-both">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill status={selected.status} onDark />
+                    <span className="font-mono text-xs text-[#B5B2A8]">EX-{String(selected.id).padStart(4, "0")}</span>
+                  </div>
+                  <SheetTitle className="text-2xl leading-tight font-medium tracking-[-0.02em] text-[#FAF9F5]">{selected.client}</SheetTitle>
+                  <SheetDescription className="text-sm text-[#C9C6BC]">
+                    {selected.type}
+                    {selected.accountName ? <span className="text-[#8E8B82]"> · billed to {selected.accountName}</span> : null}
+                  </SheetDescription>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-[#C9C6BC]">
+                    <span className="flex items-center gap-1.5">
+                      <CalendarIcon aria-hidden="true" className="size-3.5" />
+                      {selected.scheduledAt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                      <span className="font-mono text-[#FAF9F5]">
+                        {selected.time}–{minutesToClock(selected.startMin + selected.durationMin)}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock aria-hidden="true" className="size-3.5" />
+                      {selected.durationMin} min
+                    </span>
+                    {examinerById(selected.examinerId) ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn("flex size-5 items-center justify-center rounded-full text-[9px] font-semibold text-white", examinerById(selected.examinerId)?.color)}>
+                          {examinerById(selected.examinerId)?.initials}
+                        </span>
+                        {examinerById(selected.examinerId)?.name}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </GlowPanel>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div key={`body-${selected.id}`} className="flex flex-col gap-6 px-4 py-5 sm:px-6">
+                  <div className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-100">
+                    <BookingAgreementNotice status={agreementStatuses[selected.id]} booking={{ status: selected.status, scheduled_at: selected.scheduledAt }} clientId={selected.clientId} showSigned />
+                  </div>
+
+                  <section className="flex flex-col gap-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-150">
+                    <h3 className="px-1 text-[13px] font-medium">Case notes</h3>
+                    <p className="rounded-xl bg-[#F7F6F1] px-3.5 py-3 text-sm leading-relaxed text-foreground/85 dark:bg-muted/50">{selected.reason || "No case notes recorded."}</p>
+                  </section>
+
+                  <section className="flex flex-col gap-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-200">
+                    <h3 className="px-1 text-[13px] font-medium">Session timeline</h3>
+                    {phasesLoading ? (
+                      <div className="flex flex-col gap-2">
+                        <div className="h-10 animate-pulse rounded-xl bg-muted" />
+                        <div className="h-10 animate-pulse rounded-xl bg-muted" />
+                      </div>
+                    ) : phases.length === 0 ? (
+                      <p className="rounded-xl px-3.5 py-3 text-sm text-muted-foreground ring-1 ring-border/60">No phases logged yet. They appear once the examiner starts the session.</p>
+                    ) : (
+                      <ol className="flex flex-col">
+                        {phases.map((phase, i) => (
+                          <li key={phase.id} className="relative flex gap-3 pb-4 last:pb-0">
+                            {i < phases.length - 1 ? <span aria-hidden="true" className="absolute top-6 bottom-0 left-[11px] w-px bg-border" /> : null}
+                            <span className="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300">
+                              <CheckCircle2 aria-hidden="true" className="size-3.5" />
+                            </span>
+                            <span className="flex min-w-0 flex-col">
+                              <span className="text-sm font-medium">{phase.name}</span>
+                              <span className="font-mono text-xs text-muted-foreground">{formatClinicClock(phase.start_time)}</span>
+                              {phase.notes ? <span className="mt-0.5 text-[13px] text-muted-foreground">{phase.notes}</span> : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+
+                  <section className="flex flex-col gap-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-[250ms]">
+                    <Link
+                      href={`/dashboard/clients/${selected.clientId}/exams/${selected.id}`}
+                      className="flex h-12 items-center justify-between rounded-2xl bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground"
+                    >
+                      Open session documentation
+                      <ArrowUpRight aria-hidden="true" className="size-4" />
+                    </Link>
+                    <div className="flex flex-col divide-y divide-border/50 rounded-2xl ring-1 ring-border/60">
+                      {selected.subjectId ? (
+                        <SheetLink href={`/dashboard/clients/${selected.clientId}/examinees/${selected.subjectId}`} icon={UserRound} label="Examinee profile" />
+                      ) : null}
+                      <SheetLink href={`/dashboard/clients/${selected.clientId}`} icon={FileText} label={`Billing account${selected.accountName ? ` · ${selected.accountName}` : ""}`} />
+                      <SheetLink href="/dashboard/exams" icon={CalendarIcon} label="Reschedule or edit in Exams" />
+                    </div>
+                  </section>
                 </div>
               </div>
             </div>
-          )}
+          ) : null}
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-function mapExaminers(examiners: UserRecord[]): CalendarExaminer[] {
-  return examiners.map((examiner, index) => ({
-    id: String(examiner.id),
-    name: examiner.name,
-    specialty: examiner.role?.name || "Examiner",
-    color: examinerColors[index % examinerColors.length],
+/* ------------------------------------------------------------------ */
+/* Pieces & helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+function SheetLink({ href, icon: Icon, label }: { href: string; icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>; label: string }) {
+  return (
+    <Link href={href} className="group flex h-12 items-center justify-between gap-3 rounded-xl px-3 text-sm transition-colors hover:bg-[#F7F6F1] dark:hover:bg-muted/60">
+      <span className="flex min-w-0 items-center gap-3">
+        <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        <span className="truncate">{label}</span>
+      </span>
+      <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+    </Link>
+  );
+}
+
+function PaymentDot({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === "paid") return null;
+  return (
+    <span
+      role="img"
+      aria-label={s === "partial" ? "Partly paid" : "Unpaid"}
+      title={s === "partial" ? "Partly paid" : "Unpaid"}
+      className={cn("size-1.5 shrink-0 rounded-full", s === "partial" ? "bg-[#E2B35A]" : "bg-[#B94A3E]")}
+    />
+  );
+}
+
+/** Side-by-side lanes for overlapping sessions within one day column. */
+function layoutLanes(list: Session[]): { session: Session; lane: number; lanes: number }[] {
+  const sorted = [...list].sort((a, b) => a.startMin - b.startMin || b.durationMin - a.durationMin);
+  const result: { session: Session; lane: number; lanes: number }[] = [];
+  let cluster: { session: Session; lane: number }[] = [];
+  let laneEnds: number[] = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    const lanes = Math.max(1, laneEnds.length);
+    for (const item of cluster) result.push({ ...item, lanes });
+    cluster = [];
+    laneEnds = [];
+  };
+  for (const s of sorted) {
+    const end = s.startMin + s.durationMin;
+    if (s.startMin >= clusterEnd && cluster.length) flush();
+    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= s.startMin);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    cluster.push({ session: s, lane });
+    clusterEnd = Math.max(clusterEnd, end);
+  }
+  if (cluster.length) flush();
+  return result;
+}
+
+function mapExaminers(rows: UserRecord[]): Examiner[] {
+  return rows.map((row, index) => ({
+    id: String(row.id),
+    name: row.name,
+    initials: row.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? "")
+      .join(""),
+    color: EXAMINER_COLORS[index % EXAMINER_COLORS.length],
   }));
 }
 
-function mapAppointments(appointments: AppointmentRecord[]): CalendarAppointment[] {
-  return appointments.map((appointment) => {
-    const scheduledAt = new Date(appointment.scheduled_at);
-    const durationHours = appointment.duration / 60;
-    const parsedNotes = parseNotes(appointment.notes);
-    const tone = getStatusTone(appointment.status);
-    const parties = resolveAppointmentParties(appointment);
-
-    return {
-      id: appointment.id,
-      clientId: appointment.client_id,
-      subjectId: parties.subjectId,
-      client: parties.primaryName,
-      accountName: parties.accountName,
-      examinerId: String(appointment.examiner_id),
-      time: formatClinicClock(scheduledAt),
-      duration: `${durationHours % 1 === 0 ? durationHours.toFixed(0) : durationHours.toFixed(1)}h`,
-      type: parsedNotes.title,
-      status: getStatusLabel(appointment.status),
-      paymentStatus: String(appointment.payment_status || ""),
-      examFee: Number(appointment.exam_fee || 0),
-      dayNum: clinicDayOfMonth(scheduledAt),
-      dayName: clinicWeekdayShort(scheduledAt),
-      color: tone.color,
-      dot: tone.dot,
-      reason: parsedNotes.reason,
-      scheduledAt,
-    };
-  });
+function mapSessions(rows: AppointmentRecord[]): Session[] {
+  return rows
+    .map((row) => {
+      const scheduledAt = new Date(row.scheduled_at);
+      const time = formatClinicClock(scheduledAt);
+      const [h, m] = time.split(":").map(Number);
+      const lines = (row.notes || "").split("\n").map((l) => l.trim()).filter(Boolean);
+      const parties = resolveAppointmentParties(row);
+      const status = (["confirmed", "completed", "cancelled"].includes((row.status || "").toLowerCase())
+        ? (row.status.charAt(0).toUpperCase() + row.status.slice(1).toLowerCase())
+        : "Pending") as Status;
+      return {
+        id: row.id,
+        clientId: row.client_id,
+        subjectId: parties.subjectId,
+        client: parties.primaryName,
+        accountName: parties.accountName,
+        examinerId: String(row.examiner_id),
+        time,
+        startMin: (h || 0) * 60 + (m || 0),
+        durationMin: Number(row.duration) > 0 ? Number(row.duration) : 60,
+        type: lines[0] || "Exam",
+        status,
+        paymentStatus: String(row.payment_status || ""),
+        reason: lines.slice(1).join(" "),
+        scheduledAt,
+      };
+    })
+    .filter((s) => !Number.isNaN(s.scheduledAt.getTime()));
 }
 
-function parseNotes(notes: string): { title: string; reason: string } {
-  const lines = (notes || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length === 0) {
-    return { title: "Appointment", reason: "No details provided." };
-  }
-
-  if (lines.length === 1) {
-    return { title: lines[0], reason: lines[0] };
-  }
-
-  return {
-    title: lines[0],
-    reason: lines.slice(1).join(" "),
-  };
+function minutesToClock(total: number) {
+  const m = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
-
-function getStatusLabel(status: string): string {
-  const normalized = status.toLowerCase();
-  if (normalized === "confirmed") return "Confirmed";
-  if (normalized === "completed") return "Completed";
-  if (normalized === "cancelled") return "Cancelled";
-  return "Pending";
-}
-
-function getStatusTone(status: string): { color: string; dot: string } {
-  const normalized = status.toLowerCase();
-  if (normalized === "confirmed") {
-    return { color: "bg-blue-500/10 border-blue-500/20 text-blue-700", dot: "bg-blue-500" };
-  }
-  if (normalized === "completed") {
-    return { color: "bg-emerald-500/10 border-emerald-500/20 text-emerald-700", dot: "bg-emerald-500" };
-  }
-  if (normalized === "cancelled") {
-    return { color: "bg-rose-500/10 border-rose-500/20 text-rose-700", dot: "bg-rose-500" };
-  }
-  return { color: "bg-amber-500/10 border-amber-500/20 text-amber-700", dot: "bg-amber-500" };
-}
-
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function shiftDateByView(date: Date, view: "month" | "week" | "day", direction: -1 | 1): Date {
-  const shifted = new Date(date);
+function shiftDate(date: Date, view: View, direction: -1 | 1): Date {
+  const next = new Date(date);
   if (view === "month") {
-    shifted.setMonth(shifted.getMonth() + direction);
-  } else if (view === "week") {
-    shifted.setDate(shifted.getDate() + direction * 7);
-  } else {
-    shifted.setDate(shifted.getDate() + direction);
-  }
-  return startOfDay(shifted);
+    next.setDate(1);
+    next.setMonth(next.getMonth() + direction);
+  } else if (view === "week") next.setDate(next.getDate() + direction * 7);
+  else next.setDate(next.getDate() + direction);
+  return startOfDay(next);
 }
 
-function buildMonthCells(referenceDate: Date): Array<{ dateObj: Date }> {
-  const firstOfMonth = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
-  const gridStart = new Date(firstOfMonth);
-  gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
-
-  return Array.from({ length: 42 }).map((_, index) => {
-    const dateObj = new Date(gridStart);
-    dateObj.setDate(gridStart.getDate() + index);
+/** Six Monday-first weeks covering the month. */
+function buildMonthCells(reference: Date): { dateObj: Date }[] {
+  const first = new Date(reference.getFullYear(), reference.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7;
+  const start = new Date(first);
+  start.setDate(first.getDate() - offset);
+  return Array.from({ length: 42 }, (_, i) => {
+    const dateObj = new Date(start);
+    dateObj.setDate(start.getDate() + i);
     return { dateObj };
   });
 }
 
-function buildWeekDays(referenceDate: Date): CalendarDay[] {
-  const start = new Date(referenceDate);
-  const day = start.getDay();
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diffToMonday);
-
-  return Array.from({ length: 7 }).map((_, index) => {
+function buildWeekDays(reference: Date): CalendarDay[] {
+  const start = new Date(reference);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return Array.from({ length: 7 }, (_, i) => {
     const dateObj = new Date(start);
-    dateObj.setDate(start.getDate() + index);
-    return {
-      name: clinicWeekdayShort(dateObj),
-      date: formatClinicGridDate(dateObj),
-      dateObj,
-    };
+    dateObj.setDate(start.getDate() + i);
+    return { name: clinicWeekdayShort(dateObj), date: formatClinicGridDate(dateObj), dateObj };
   });
 }

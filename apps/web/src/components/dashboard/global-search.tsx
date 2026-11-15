@@ -63,13 +63,13 @@ export function GlobalSearch() {
 
   return (
     <div ref={containerRef} className="relative hidden md:block w-full max-w-sm">
-      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Search aria-hidden="true" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9C998F]" />
       <Input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}
         placeholder="Search clients by name or email…"
-        className="h-9 pl-9 rounded-full bg-muted/40 border-border/50"
+        className="h-11 rounded-full border-0 bg-[#2B2A27] dark:bg-[#1B1B19] pl-10 text-[#FAF9F5] shadow-[0_1px_2px_rgba(20,20,19,0.2)] ring-1 ring-white/[0.06] placeholder:text-[#8A877E] focus-visible:ring-white/30"
       />
       {showDropdown && (
         <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-border bg-popover shadow-lg">

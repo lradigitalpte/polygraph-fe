@@ -3,55 +3,83 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-  FileSignature,
-  Search,
-  Copy,
-  ExternalLink,
-  RefreshCw,
-  Eye,
-  EyeOff,
-  Calendar,
-  Mail,
-  ShieldAlert,
-  Loader2,
-  CheckCircle,
-  AlertTriangle,
-  HelpCircle,
-  ClipboardList,
-  Lock,
-  ShieldCheck,
+  AlertCircle,
   Archive,
   ArchiveRestore,
+  ArrowUpRight,
+  Copy,
   Download,
+  Eye,
+  EyeOff,
+  FilePen,
+  FileSignature,
+  Loader2,
+  Lock,
+  Mail,
+  RefreshCcw,
+  RotateCw,
+  Search,
+  Send,
+  ShieldCheck,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
+
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { formatSubjectName } from "@/lib/subjects";
-import { clinicDateKey, formatClinicDateLabel } from "@/lib/clinic-time";
-import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
+import { GlassStat, GlowPanel, Highlight, Segmented } from "@/components/dashboard/ui-kit";
 import { RegenerateReportDialog } from "@/components/dashboard/regenerate-report-dialog";
+import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { clinicDateKey, formatClinicDateLabel } from "@/lib/clinic-time";
+import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import {
-  DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
-  fetchSecureShares,
+  buildReportWorkflowMap,
   createSecureShare,
-  regenerateSecureShare,
-  setSecureShareArchived,
+  DEFAULT_REPORT_SHARE_EXPIRY_DAYS,
+  downloadLockedReportPreview,
   fetchConsolidatedStats,
   fetchReportWorkflowStatuses,
-  downloadLockedReportPreview,
-  buildReportWorkflowMap,
+  fetchSecureShares,
+  regenerateSecureShare,
+  setSecureShareArchived,
+  type ConsolidatedReportStats,
   type ReportWorkflowStatus,
   type SecureReportShare,
-  type ConsolidatedReportStats,
 } from "@/lib/reports";
-import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
+import { formatSubjectName } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
+import { cn } from "@/lib/utils";
+
+type Tab = "sessions" | "sent";
+type WorkflowFilter = "all" | ReportWorkflowStatus;
+type ShareFilter = "all" | "live" | "expired" | "archived";
+
+const PAGE_SIZES = [10, 20, 50] as const;
+
+const WORKFLOW_LABEL: Record<ReportWorkflowStatus, string> = {
+  none: "Needs report",
+  draft: "Draft",
+  locked: "Ready to send",
+  sent: "Sent",
+};
+
+/** Verdicts in reading order: clear results, then concerning, then undecided. */
+const VERDICTS = [
+  { key: "ndi_count", code: "NDI", label: "No deception indicated", dot: "bg-[#7FBF8A]" },
+  { key: "nsr_count", code: "NSR", label: "No significant response", dot: "bg-[#B9DDBF]" },
+  { key: "di_count", code: "DI", label: "Deception indicated", dot: "bg-[#E58A7E]" },
+  { key: "sr_count", code: "SR", label: "Significant response", dot: "bg-[#E2B35A]" },
+  { key: "inconclusive_count", code: "INC", label: "Inconclusive", dot: "bg-[#ECE9E0]" },
+] as const;
+
+const shareSubjectName = (share: SecureReportShare) =>
+  share.subject ? formatSubjectName(share.subject) || "Unnamed examinee" : "Unknown examinee";
+
+const isShareExpired = (share: SecureReportShare) => new Date(share.expires_at).getTime() < Date.now();
+
+const shortDate = (value: string) =>
+  new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 export default function ReportsDashboard() {
   const router = useRouter();
@@ -69,47 +97,43 @@ export default function ReportsDashboard() {
   const [appointments, setAppointments] = React.useState<AppointmentRecord[]>([]);
   const [examiners, setExaminers] = React.useState<UserRecord[]>([]);
   const [stats, setStats] = React.useState<ConsolidatedReportStats | null>(null);
+  const [reportWorkflow, setReportWorkflow] = React.useState<Record<number, ReportWorkflowStatus>>({});
   const [loading, setLoading] = React.useState(true);
+  // Skeletons only on the first load; a refresh keeps the current data on screen.
+  const [loadedOnce, setLoadedOnce] = React.useState(false);
+  const firstLoad = loading && !loadedOnce;
+  const [error, setError] = React.useState<string | null>(null);
+
+  const [tab, setTab] = React.useState<Tab>("sessions");
   const [search, setSearch] = React.useState("");
-  const [revealedPasswords, setRevealedPasswords] = React.useState<Record<number, boolean>>({});
-  const [reportWorkflow, setReportWorkflow] = React.useState<
-    Record<number, ReportWorkflowStatus>
-  >({});
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+  const [workflowFilter, setWorkflowFilter] = React.useState<WorkflowFilter>("all");
+  const [shareFilter, setShareFilter] = React.useState<ShareFilter>("all");
+  const [page, setPage] = React.useState(1);
+  const [perPage, setPerPage] = React.useState<number>(10);
+  const [revealed, setRevealed] = React.useState<Record<number, boolean>>({});
 
-  // Sessions table filter + pagination
-  const [examsSearch, setExamsSearch] = React.useState("");
-  const [examsDateFrom, setExamsDateFrom] = React.useState("");
-  const [examsDateTo, setExamsDateTo] = React.useState("");
-  const [examsWorkflowFilter, setExamsWorkflowFilter] = React.useState<"all" | ReportWorkflowStatus>("all");
-  const [examsPage, setExamsPage] = React.useState(1);
-  const [examsPerPage, setExamsPerPage] = React.useState(5);
-
-  // Shares table filter + pagination
-  const [sharesPage, setSharesPage] = React.useState(1);
-  const [sharesStatusFilter, setSharesStatusFilter] = React.useState<"all" | "active" | "expired">("all");
-  const [sharesSearchDateFrom, setSharesSearchDateFrom] = React.useState("");
-  const [sharesSearchDateTo, setSharesSearchDateTo] = React.useState("");
-  const [sharesPerPage, setSharesPerPage] = React.useState(5);
-  const [sharesArchiveView, setSharesArchiveView] = React.useState<"active" | "archived">("active");
-
-  // Share Dialog states
+  // Share / rotate dialogs (both confirm before any email is sent)
   const [selectedExamId, setSelectedExamId] = React.useState<number | null>(null);
   const [recipientEmail, setRecipientEmail] = React.useState("");
   const [shareExpiryDays, setShareExpiryDays] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   const [protectionMode, setProtectionMode] = React.useState<"password" | "secure_link">("password");
+  const [sharing, setSharing] = React.useState(false);
   const [regenerateId, setRegenerateId] = React.useState<number | null>(null);
   const [regenerateMode, setRegenerateMode] = React.useState<"password" | "secure_link">("password");
   const [regenerateExpiry, setRegenerateExpiry] = React.useState(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   const [regenerating, setRegenerating] = React.useState(false);
-  const [sharing, setSharing] = React.useState(false);
   const [downloadingExamId, setDownloadingExamId] = React.useState<number | null>(null);
+  const [archivingId, setArchivingId] = React.useState<number | null>(null);
 
-
-  const loadData = async () => {
+  // Everything is loaded once and filtered here, so typing in search doesn't refetch.
+  const load = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [sharesData, statsData, apptsData, workflowRows, examinersData] = await Promise.all([
-        fetchSecureShares({ search, archive: "all" }),
+        fetchSecureShares({ archive: "all" }),
         fetchConsolidatedStats(),
         fetchAppointments(),
         fetchReportWorkflowStatuses(),
@@ -121,61 +145,149 @@ export default function ReportsDashboard() {
       setExaminers(examinersData);
       setReportWorkflow(buildReportWorkflowMap(workflowRows));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load report data");
+      setError(err instanceof Error ? err.message : "Failed to load reports");
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
-  };
+  }, []);
 
   React.useEffect(() => {
-    void loadData();
-  }, [search]);
+    void load();
+  }, [load]);
 
-  const handleOpenShare = (examId: number, initialEmail?: string) => {
-    const status = reportWorkflow[examId];
+  // Any filter change returns to page 1.
+  React.useEffect(() => {
+    setPage(1);
+  }, [tab, search, dateFrom, dateTo, workflowFilter, shareFilter, perPage]);
+
+  /* ---------------- derived data ---------------- */
+
+  const examinerName = React.useMemo(() => {
+    const map = new Map<number, string>();
+    for (const e of examiners) map.set(e.id, e.name);
+    return (id?: number) => (id ? map.get(id) || `Examiner #${id}` : "—");
+  }, [examiners]);
+
+  const completedExams = React.useMemo(() => appointments.filter((a) => a.exam_id && a.exam_id > 0), [appointments]);
+  const statusOf = React.useCallback((examId: number): ReportWorkflowStatus => reportWorkflow[examId] ?? "none", [reportWorkflow]);
+
+  const workflowCounts = React.useMemo(() => {
+    const counts: Record<ReportWorkflowStatus, number> = { none: 0, draft: 0, locked: 0, sent: 0 };
+    for (const a of completedExams) counts[statusOf(a.exam_id!)] += 1;
+    return counts;
+  }, [completedExams, statusOf]);
+
+  const needle = search.trim().toLowerCase();
+  const inRange = React.useCallback(
+    (value: string) => {
+      const day = clinicDateKey(value);
+      return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+    },
+    [dateFrom, dateTo],
+  );
+
+  const filteredExams = React.useMemo(
+    () =>
+      completedExams.filter((a) => {
+        if (workflowFilter !== "all" && statusOf(a.exam_id!) !== workflowFilter) return false;
+        if (!inRange(a.scheduled_at)) return false;
+        if (!needle) return true;
+        const name = a.subject ? formatSubjectName(a.subject) : "";
+        return [name, a.client?.name ?? "", examinerName(a.examiner_id)].some((v) => v.toLowerCase().includes(needle));
+      }),
+    [completedExams, workflowFilter, statusOf, inRange, needle, examinerName],
+  );
+
+  const shareCounts = React.useMemo(() => {
+    let all = 0;
+    let live = 0;
+    let expired = 0;
+    let archived = 0;
+    for (const s of shares) {
+      if (s.archived_at) {
+        archived += 1;
+        continue;
+      }
+      all += 1;
+      if (isShareExpired(s)) expired += 1;
+      else live += 1;
+    }
+    return { all, live, expired, archived };
+  }, [shares]);
+
+  const filteredShares = React.useMemo(
+    () =>
+      shares.filter((s) => {
+        if (shareFilter === "archived" ? !s.archived_at : s.archived_at) return false;
+        if (shareFilter === "live" && isShareExpired(s)) return false;
+        if (shareFilter === "expired" && !isShareExpired(s)) return false;
+        if (!inRange(s.created_at)) return false;
+        if (!needle) return true;
+        return [shareSubjectName(s), s.recipient_email].some((v) => v.toLowerCase().includes(needle));
+      }),
+    [shares, shareFilter, inRange, needle],
+  );
+
+  const rows = tab === "sessions" ? filteredExams : filteredShares;
+  const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * perPage;
+  const pagedExams = filteredExams.slice(pageStart, pageStart + perPage);
+  const pagedShares = filteredShares.slice(pageStart, pageStart + perPage);
+
+  const issued = stats?.total_reports ?? 0;
+  const filtersActive = needle !== "" || dateFrom !== "" || dateTo !== "" || (tab === "sessions" ? workflowFilter !== "all" : shareFilter !== "all");
+  const clearFilters = () => {
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setWorkflowFilter("all");
+    setShareFilter("all");
+  };
+
+  /* ---------------- actions ---------------- */
+
+  const openShare = (examId: number, email?: string) => {
+    const status = statusOf(examId);
     if (status !== "locked" && status !== "sent") {
       toast.error("Finalize and lock the report in the Report Builder before emailing it.");
       return;
     }
     setSelectedExamId(examId);
-    setRecipientEmail(initialEmail || "");
+    setRecipientEmail(email || "");
     setShareExpiryDays(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
     setProtectionMode("password");
   };
 
   const handleCreateShare = async () => {
     if (!selectedExamId || !recipientEmail.trim()) {
-      toast.error("Please enter a valid email address");
+      toast.error("Enter the recipient's email address");
       return;
     }
     setSharing(true);
     try {
-      await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays, protectionMode);
-      toast.success("Secure PDF encrypted and sent successfully!");
+      const created = await createSecureShare(null, recipientEmail.trim(), selectedExamId, shareExpiryDays, protectionMode);
+      if (created?.email_error) toast.warning("The link was created, but the email didn't go out. Copy the link from the list and send it yourself.", { duration: 10000 });
+      else toast.success("Secure report sent");
       setSelectedExamId(null);
-      void loadData();
+      void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to generate secure share");
+      toast.error(err instanceof Error ? err.message : "Couldn't send the report");
     } finally {
       setSharing(false);
     }
   };
 
-  const handleOpenReportEditor = (examId: number, subjectName: string) => {
-    const status = reportWorkflow[examId];
-    if (status === "locked" && !canViewLockedReport) {
+  const openEditor = (examId: number, subjectName: string) => {
+    if (statusOf(examId) === "locked" && !canViewLockedReport) {
       toast.error("You don't have permission to view locked final reports.");
       return;
     }
     router.push(`/dashboard/reports/${examId}?subject=${encodeURIComponent(subjectName)}`);
   };
 
-  const handleDownloadPreview = async (examId: number) => {
-    const status = reportWorkflow[examId];
-    if (status !== "locked") {
-      toast.error("Only locked reports awaiting send can be downloaded for local review.");
-      return;
-    }
+  const downloadPreview = async (examId: number) => {
     if (!canViewLockedReport) {
       toast.error("You don't have permission to download locked final reports.");
       return;
@@ -183,933 +295,455 @@ export default function ReportsDashboard() {
     setDownloadingExamId(examId);
     try {
       await downloadLockedReportPreview(examId);
-      toast.success("Report preview downloaded.");
+      toast.success("Preview downloaded");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to download report preview");
+      toast.error(err instanceof Error ? err.message : "Couldn't download the preview");
     } finally {
       setDownloadingExamId(null);
     }
   };
 
-  const workflowBadge = (status: ReportWorkflowStatus | undefined) => {
-    switch (status) {
-      case "sent":
-        return <Badge className="bg-emerald-500/10 text-emerald-700 border-none">Sent</Badge>;
-      case "locked":
-        return (
-          <Badge className="bg-amber-500/10 text-amber-700 border-none gap-1">
-            <Lock className="h-3 w-3" />
-            Locked — pending send
-          </Badge>
-        );
-      case "draft":
-        return <Badge variant="outline">Draft</Badge>;
-      default:
-        return <Badge variant="secondary">Needs report</Badge>;
+  const copyLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/shared/report/${token}`);
+      toast.success("Secure link copied");
+    } catch {
+      toast.error("Couldn't copy — your browser blocked clipboard access");
     }
   };
 
-  const handleCopyLink = (token: string) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const secureLink = `${origin}/shared/report/${token}`;
-    navigator.clipboard.writeText(secureLink);
-    toast.success("Secure link copied to clipboard");
+  const openRegenerate = (share: SecureReportShare) => {
+    setRegenerateId(share.id);
+    setRegenerateMode(share.protection_mode || "password");
+    setRegenerateExpiry(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
   };
 
-  const handleOpenRegenerate = (share: SecureReportShare) => {
-    setRegenerateId(share.id); setRegenerateMode(share.protection_mode || "password"); setRegenerateExpiry(DEFAULT_REPORT_SHARE_EXPIRY_DAYS);
-  };
   const handleRegenerate = async () => {
     if (!regenerateId) return;
     setRegenerating(true);
     try {
       const updated = await regenerateSecureShare(regenerateId, regenerateExpiry, regenerateMode);
-      toast.success("Secure share link rotated successfully! A new notification email was sent.");
       setShares((prev) => prev.map((s) => (s.id === regenerateId ? updated : s)));
       setRegenerateId(null);
-      const statsData = await fetchConsolidatedStats();
-      setStats(statsData);
+      if (updated.email_error) toast.warning("The link was created, but the email didn't go out. Copy the link from the list and send it yourself.", { duration: 10000 });
+      else toast.success("Link rotated · a new email was sent");
+      setStats(await fetchConsolidatedStats());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to rotate link");
-    } finally { setRegenerating(false); }
+      toast.error(err instanceof Error ? err.message : "Couldn't rotate the link");
+    } finally {
+      setRegenerating(false);
+    }
   };
 
-  const togglePasswordReveal = (id: number) => {
-    setRevealedPasswords((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
-  };
-
-  const handleArchiveToggle = async (share: SecureReportShare) => {
+  const toggleArchive = async (share: SecureReportShare) => {
     const archived = !share.archived_at;
+    setArchivingId(share.id);
     try {
       const updated = await setSecureShareArchived(share.id, archived);
-      setShares((prev) => prev.map((item) => item.id === share.id ? updated : item));
-      toast.success(archived ? "Report delivery archived." : "Report delivery restored.");
+      setShares((prev) => prev.map((s) => (s.id === share.id ? updated : s)));
+      toast.success(archived ? "Delivery archived" : "Delivery restored");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Unable to update report archive");
+      toast.error(err instanceof Error ? err.message : "Couldn't update the archive");
+    } finally {
+      setArchivingId(null);
     }
   };
-
-  // Sessions table derived data — Dubai clinic calendar day (YYYY-MM-DD)
-  const toInputDate = (value: string) => clinicDateKey(value);
-
-  const completedExams = React.useMemo(() => {
-    return appointments.filter((appt) => appt.exam_id && appt.exam_id > 0);
-  }, [appointments]);
-
-  const examinerNameById = React.useMemo(() => {
-    const map = new Map<number, string>();
-    for (const examiner of examiners) {
-      map.set(examiner.id, examiner.name);
-    }
-    return map;
-  }, [examiners]);
-
-  const examinerLabel = React.useCallback(
-    (examinerId?: number) => {
-      if (!examinerId) return "—";
-      return examinerNameById.get(examinerId) || `Examiner #${examinerId}`;
-    },
-    [examinerNameById],
-  );
-
-  const filteredExams = React.useMemo(() => {
-    const q = examsSearch.trim().toLowerCase();
-    return completedExams.filter((appt) => {
-      const name = appt.subject
-        ? `${appt.subject.first_name} ${appt.subject.last_name}`.toLowerCase()
-        : "";
-      const client = (appt.client?.name || "").toLowerCase();
-      const examiner = examinerLabel(appt.examiner_id).toLowerCase();
-      const day = toInputDate(appt.scheduled_at);
-      const workflowStatus = reportWorkflow[appt.exam_id!] ?? "none";
-      const matchesText = !q || name.includes(q) || client.includes(q) || examiner.includes(q);
-      const matchesDateFrom = !examsDateFrom || day >= examsDateFrom;
-      const matchesDateTo = !examsDateTo || day <= examsDateTo;
-      const matchesWorkflow = examsWorkflowFilter === "all" || workflowStatus === examsWorkflowFilter;
-      return matchesText && matchesDateFrom && matchesDateTo && matchesWorkflow;
-    });
-  }, [completedExams, examsSearch, examsDateFrom, examsDateTo, examsWorkflowFilter, reportWorkflow, examinerLabel]);
-
-  const workflowCounts = React.useMemo(() => {
-    const counts: Record<ReportWorkflowStatus, number> = {
-      none: 0,
-      draft: 0,
-      locked: 0,
-      sent: 0,
-    };
-    for (const appt of completedExams) {
-      const status = reportWorkflow[appt.exam_id!] ?? "none";
-      counts[status] += 1;
-    }
-    return counts;
-  }, [completedExams, reportWorkflow]);
-
-  const examsTotalPages = Math.max(1, Math.ceil(filteredExams.length / examsPerPage));
-  React.useEffect(() => { if (examsPage > examsTotalPages) setExamsPage(examsTotalPages); }, [examsTotalPages, examsPage]);
-  const paginatedExams = React.useMemo(
-    () => filteredExams.slice((examsPage - 1) * examsPerPage, examsPage * examsPerPage),
-    [filteredExams, examsPage, examsPerPage],
-  );
-
-  // Shares table derived data
-  const filteredShares = React.useMemo(() => {
-    const now = Date.now();
-    return shares.filter((s) => {
-	  if (sharesArchiveView === "active" && s.archived_at) return false;
-	  if (sharesArchiveView === "archived" && !s.archived_at) return false;
-      const createdDay = toInputDate(s.created_at);
-      const matchesDateFrom = !sharesSearchDateFrom || createdDay >= sharesSearchDateFrom;
-      const matchesDateTo = !sharesSearchDateTo || createdDay <= sharesSearchDateTo;
-      if (sharesStatusFilter === "active" && new Date(s.expires_at).getTime() < now) return false;
-      if (sharesStatusFilter === "expired" && new Date(s.expires_at).getTime() >= now) return false;
-      return matchesDateFrom && matchesDateTo;
-    });
-  }, [shares, sharesArchiveView, sharesStatusFilter, sharesSearchDateFrom, sharesSearchDateTo]);
-
-  const sharesTotalPages = Math.max(1, Math.ceil(filteredShares.length / sharesPerPage));
-  React.useEffect(() => { if (sharesPage > sharesTotalPages) setSharesPage(sharesTotalPages); }, [sharesTotalPages, sharesPage]);
-  const paginatedShares = filteredShares.slice((sharesPage - 1) * sharesPerPage, sharesPage * sharesPerPage);
 
   if (userLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 aria-hidden="true" className="size-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 max-w-7xl mx-auto">
-      {/* Gradients */}
-      <div className="fixed inset-0 pointer-events-none z-[-1]">
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/4" />
-      </div>
-
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-5 sm:p-8 rounded-2xl sm:rounded-[2.5rem] bg-card/40 border border-border/50 backdrop-blur-xl shadow-sm relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.03] to-transparent pointer-events-none" />
-        <div className="space-y-1 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 sm:p-3 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-              <FileSignature className="h-5 w-5 sm:h-6 sm:w-6" />
+    <div className="mx-auto max-w-[1440px] space-y-5 pb-10">
+      {/* Hero */}
+      <GlowPanel tone="terracotta" orb="72%" lineTop={40} className="p-5 sm:p-7">
+        <div className="flex flex-col gap-6 pt-6 sm:gap-8 sm:pt-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div className="flex max-w-2xl flex-col gap-2">
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">
+                <FileSignature aria-hidden="true" className="size-4" />
+                Reports
+              </span>
+              <h1 className="text-3xl leading-[1.05] font-normal tracking-[-0.03em] sm:text-[44px]">
+                Examination <span className="font-semibold">reports</span>
+              </h1>
+              <p className="max-w-xl text-[15px] text-[#C9C6BC]">
+                Write, lock and send reports for completed exams. Each one goes out as an encrypted PDF behind an expiring secure link.
+              </p>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Forensic Reports</h1>
+            <div className="flex items-center gap-2 self-start md:self-auto">
+              <button
+                type="button"
+                onClick={() => void load()}
+                disabled={loading}
+                aria-label="Refresh"
+                title="Refresh"
+                className="flex size-11 items-center justify-center rounded-full bg-white/[0.07] text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12] disabled:opacity-50"
+              >
+                <RefreshCcw aria-hidden="true" className={cn("size-4", loading && "animate-spin")} />
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/verify")}
+                className="flex h-11 items-center gap-2 rounded-full bg-white/[0.07] px-5 text-sm font-medium text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12]"
+              >
+                <ShieldCheck aria-hidden="true" className="size-4" />
+                Verify a PDF
+              </button>
+            </div>
           </div>
-          <p className="text-muted-foreground text-xs sm:text-sm font-bold opacity-70 uppercase tracking-widest text-[10px] pl-1 pt-1">
-            Consolidated Corporate Secure Document shares
-          </p>
-          <p className="text-xs text-muted-foreground pl-1 pt-2 max-w-2xl">
-            Audit, view, and rotate secure report links generated for subjects and clients. Reports are sent as password-encrypted PDFs with temporary self-unlock tokens.
-          </p>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <GlassStat label="Needs report" value={workflowCounts.none} hint="Completed, no report yet" icon={FilePen} accent="terracotta" loading={firstLoad} />
+            <GlassStat label="Drafts" value={workflowCounts.draft} hint="Started, not locked" icon={FileSignature} accent="lavender" loading={firstLoad} />
+            <GlassStat label="Ready to send" value={workflowCounts.locked} hint="Locked, awaiting email" icon={Lock} accent="amber" loading={firstLoad} />
+            <GlassStat
+              label="Live links"
+              value={shareCounts.live}
+              hint={shareCounts.expired ? `${shareCounts.expired} expired` : "Recipients can open these"}
+              icon={Send}
+              accent="sage"
+              loading={firstLoad}
+            />
+          </div>
+
+          {/* Verdicts: five labelled counts, not a chart */}
+          <div className="flex flex-col gap-3 rounded-[22px] bg-white/[0.05] p-4 ring-1 ring-white/10 sm:p-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[13px] text-[#C9C6BC]">Issued reports by verdict</span>
+              <span className="text-[13px] text-[#B5B2A8] tabular-nums">
+                {firstLoad ? "—" : `${issued.toLocaleString()} total`}
+              </span>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+              {VERDICTS.map((v) => {
+                const count = stats?.[v.key] ?? 0;
+                const share = issued > 0 ? Math.round((count / issued) * 100) : 0;
+                return (
+                  <div key={v.code} className="flex min-w-0 flex-col gap-1">
+                    <dt className="flex min-w-0 items-center gap-2 text-xs text-[#C9C6BC]" title={v.label}>
+                      <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", v.dot)} />
+                      <span className="font-mono text-[11px] font-semibold text-[#ECE9E0]">{v.code}</span>
+                      <span className="truncate">{v.label}</span>
+                    </dt>
+                    <dd className="flex h-5 items-center gap-2 pl-3.5">
+                      {firstLoad ? (
+                        <span aria-hidden="true" className="block h-full w-8 animate-pulse rounded bg-white/10" />
+                      ) : (
+                        <>
+                          <span className="text-xl leading-none font-medium tabular-nums">{count}</span>
+                          {issued > 0 ? <span className="text-xs leading-none text-[#B5B2A8] tabular-nums">{share}%</span> : null}
+                        </>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="relative z-10 h-11 rounded-xl px-5 font-bold w-full md:w-auto justify-center"
-          onClick={() => router.push("/verify")}
-        >
-          <ShieldCheck className="mr-2 h-4 w-4" />
-          Verify PDF
-        </Button>
+      </GlowPanel>
+
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 rounded-[26px] bg-white p-3 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-4 dark:bg-card">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <Segmented
+            label="View"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "sessions", label: "Sessions", count: completedExams.length },
+              { value: "sent", label: "Sent reports", count: shareCounts.all },
+            ]}
+          />
+          <div className="relative w-full lg:w-80">
+            <label htmlFor="reports-search" className="sr-only">
+              Search
+            </label>
+            <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="reports-search"
+              placeholder={tab === "sessions" ? "Search examinee, client or examiner…" : "Search examinee or recipient…"}
+              className="h-11 rounded-full border-0 bg-[#F3F1EA] pr-10 pl-11 text-sm shadow-none dark:bg-muted"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+                className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card"
+              >
+                <X aria-hidden="true" className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-border/50 pt-3 lg:flex-row lg:items-center lg:justify-between">
+          {tab === "sessions" ? (
+            <Segmented
+              label="Report status"
+              value={workflowFilter}
+              onChange={setWorkflowFilter}
+              options={[
+                { value: "all", label: "All", count: completedExams.length },
+                { value: "none", label: WORKFLOW_LABEL.none, count: workflowCounts.none },
+                { value: "draft", label: WORKFLOW_LABEL.draft, count: workflowCounts.draft },
+                { value: "locked", label: WORKFLOW_LABEL.locked, count: workflowCounts.locked },
+                { value: "sent", label: WORKFLOW_LABEL.sent, count: workflowCounts.sent },
+              ]}
+            />
+          ) : (
+            <Segmented
+              label="Link status"
+              value={shareFilter}
+              onChange={setShareFilter}
+              options={[
+                { value: "all", label: "All", count: shareCounts.all },
+                { value: "live", label: "Live", count: shareCounts.live },
+                { value: "expired", label: "Expired", count: shareCounts.expired },
+                { value: "archived", label: "Archived", count: shareCounts.archived },
+              ]}
+            />
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-muted-foreground">{tab === "sessions" ? "Exam date" : "Sent"}</span>
+            <DateInput label="From" value={dateFrom} max={dateTo || undefined} onChange={setDateFrom} />
+            <span aria-hidden="true" className="text-muted-foreground">
+              –
+            </span>
+            <DateInput label="To" value={dateTo} min={dateFrom || undefined} onChange={setDateTo} />
+          </div>
+        </div>
       </div>
 
-      {/* Statistics widgets */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 sm:gap-6">
-        {[
-          { label: "Total Reports Issued", value: stats?.total_reports ?? 0, icon: FileSignature, color: "bg-primary/10 text-primary" },
-          {
-            label: "No Deception Indicated (NDI)",
-            value: stats?.ndi_count ?? 0,
-            icon: CheckCircle,
-            color: "bg-emerald-500/10 text-emerald-500",
-          },
-          {
-            label: "Deception Indicated (DI)",
-            value: stats?.di_count ?? 0,
-            icon: AlertTriangle,
-            color: "bg-rose-500/10 text-rose-500",
-          },
-          {
-            label: "No Significant Response (NSR)",
-            value: stats?.nsr_count ?? 0,
-            icon: CheckCircle,
-            color: "bg-sky-500/10 text-sky-500",
-          },
-          {
-            label: "Significant Response (SR)",
-            value: stats?.sr_count ?? 0,
-            icon: AlertTriangle,
-            color: "bg-violet-500/10 text-violet-500",
-          },
-          {
-            label: "Inconclusive Findings",
-            value: stats?.inconclusive_count ?? 0,
-            icon: HelpCircle,
-            color: "bg-neutral-500/10 text-neutral-500",
-          },
-        ].map((stat, i) => (
-          <Card key={i} className="border-border/40 bg-card/30 backdrop-blur-md shadow-xl overflow-hidden group hover:border-primary/30 transition-all hover:scale-[1.02] min-w-0">
-            <CardContent className="p-3 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 mb-2 sm:mb-4">
-                <div className={cn("p-2 sm:p-2.5 rounded-xl shadow-inner shrink-0 w-fit", stat.color)}>
-                  <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
-                </div>
-                <p className="text-[9px] sm:text-[10px] uppercase font-black tracking-wider text-muted-foreground/70 leading-tight">{stat.label}</p>
-              </div>
-              <p className="text-xl sm:text-3xl font-black tracking-tighter">{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {error ? (
+        <div className="flex items-center justify-between gap-3 rounded-[20px] bg-[#F6E3E1] px-4 py-3 text-sm text-[#8A2C22] dark:bg-red-950 dark:text-red-300">
+          <span className="flex items-center gap-2">
+            <AlertCircle aria-hidden="true" className="size-4" />
+            {error}
+          </span>
+          <button type="button" onClick={() => void load()} className="font-medium underline-offset-4 hover:underline">
+            Try again
+          </button>
+        </div>
+      ) : null}
 
-      <Tabs defaultValue="sessions" className="space-y-6">
-        <TabsList className="w-full grid grid-cols-2 sm:flex sm:w-auto h-auto justify-start gap-2 rounded-2xl border border-border/50 bg-muted/40 p-1.5 shadow-sm backdrop-blur">
-          <TabsTrigger
-            value="sessions"
-            className="w-full sm:w-auto rounded-xl px-4 sm:px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
-          >
-            Sessions to Build
-          </TabsTrigger>
-          <TabsTrigger
-            value="reports"
-            className="w-full sm:w-auto rounded-xl px-4 sm:px-5 py-2.5 text-xs font-black uppercase tracking-widest text-muted-foreground transition-colors data-[active]:bg-primary data-[active]:text-primary-foreground data-[active]:shadow-md"
-          >
-            Sent Reports
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="sessions" className="space-y-6 mt-0 outline-none">
-          <Card className="border-border/40 bg-card/30 backdrop-blur-md rounded-2xl sm:rounded-[2.5rem] overflow-hidden shadow-xl min-w-0 max-w-full">
-            <CardHeader className="px-4 sm:px-8 pt-5 sm:pt-8 pb-4 min-w-0 max-w-full">
-              <div className="flex flex-col gap-4 min-w-0 max-w-full">
-                <div className="min-w-0 max-w-full">
-                  <CardTitle className="text-base sm:text-lg flex items-center gap-2 font-bold max-w-full leading-snug break-words">
-                    <ClipboardList className="h-5 w-5 text-primary shrink-0" />
-                    <span className="break-words">Sessions Ready for Report Customization</span>
-                  </CardTitle>
-                  <CardDescription className="mt-1 text-xs sm:text-sm leading-relaxed max-w-full">
-                    Completed assessments ready for your formal Polygraph report — write, finalize, and send from here.
-                  </CardDescription>
-                </div>
-                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto] min-w-0 max-w-full">
-                  <div className="relative w-full min-w-0">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Search examinee, client..."
-                      className="h-10 pl-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0"
-                      value={examsSearch}
-                      onChange={(e) => { setExamsSearch(e.target.value); setExamsPage(1); }}
-                    />
-                  </div>
-                  <Input
-                    type="date"
-                    className="h-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0 max-w-full"
-                    value={examsDateFrom}
-                    onChange={(e) => { setExamsDateFrom(e.target.value); setExamsPage(1); }}
+      {/* Table */}
+      <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+        <div className="overflow-x-auto">
+          {tab === "sessions" ? (
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+              <TableHead columns={["Examinee", "Client", "Examiner", "Exam date", "Report"]} />
+              <tbody className="divide-y divide-border/40">
+                {firstLoad ? (
+                  <SkeletonRows cols={6} />
+                ) : pagedExams.length === 0 ? (
+                  <EmptyRow
+                    cols={6}
+                    title={filtersActive ? "No sessions match these filters" : "No completed sessions yet"}
+                    hint={filtersActive ? undefined : "Sessions appear here once their exam has been started or completed."}
+                    action={filtersActive ? { label: "Clear filters", onClick: clearFilters } : undefined}
                   />
-                  <Input
-                    type="date"
-                    className="h-10 rounded-xl bg-card border-border/50 text-xs sm:text-sm w-full min-w-0 max-w-full"
-                    value={examsDateTo}
-                    onChange={(e) => { setExamsDateTo(e.target.value); setExamsPage(1); }}
-                  />
-                  <div className="grid grid-cols-4 sm:flex sm:items-center gap-1.5 w-full sm:w-auto">
-                    {[5, 10, 20, 50].map((size) => (
-                      <Button
-                        key={size}
-                        type="button"
-                        size="sm"
-                        variant={examsPerPage === size ? "default" : "outline"}
-                        className="h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-black uppercase tracking-widest w-full sm:w-auto"
-                        onClick={() => { setExamsPerPage(size); setExamsPage(1); }}
-                      >
-                        {size}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 overflow-x-auto pb-1.5 max-w-full no-scrollbar">
-                  {([
-                    { value: "all" as const, label: "All", count: completedExams.length },
-                    { value: "none" as const, label: "Needs report", count: workflowCounts.none },
-                    { value: "draft" as const, label: "Draft", count: workflowCounts.draft },
-                    { value: "locked" as const, label: "Locked — pending send", count: workflowCounts.locked },
-                    { value: "sent" as const, label: "Sent", count: workflowCounts.sent },
-                  ]).map((filter) => (
-                    <Button
-                      key={filter.value}
-                      type="button"
-                      size="sm"
-                      variant={examsWorkflowFilter === filter.value ? "default" : "outline"}
-                      className="h-10 px-3.5 sm:px-4 rounded-xl text-xs font-black uppercase tracking-widest shrink-0"
-                      onClick={() => { setExamsWorkflowFilter(filter.value); setExamsPage(1); }}
-                    >
-                      {filter.label}
-                      <span className="ml-1.5 opacity-70">({filter.count})</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead>
-                    <tr className="bg-muted/30 border-b border-border/50 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      <th className="px-8 py-4">Examinee</th>
-                      <th className="px-8 py-4">Requesting Client</th>
-                      <th className="px-8 py-4">Examiner</th>
-                      <th className="px-8 py-4">Date</th>
-                      <th className="px-8 py-4">Report status</th>
-                      <th className="px-8 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/20">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={6} className="px-8 py-8 text-center text-muted-foreground italic">
-                          Loading sessions...
-                        </td>
-                      </tr>
-                    ) : paginatedExams.length > 0 ? (
-                      paginatedExams.map((appt) => {
-                        const examineeName = appt.subject
-                          ? formatSubjectName(appt.subject)
-                          : `Examinee #${appt.subject_id}`;
-                        return (
-                          <tr key={appt.id} className="hover:bg-primary/[0.02] transition-colors">
-                            <td className="px-8 py-4 font-semibold text-foreground">{examineeName}</td>
-                            <td className="px-8 py-4 text-xs font-medium text-foreground/80">{appt.client?.name || "Corporate"}</td>
-                            <td className="px-8 py-4 text-xs font-medium text-foreground/80">{examinerLabel(appt.examiner_id)}</td>
-                            <td className="px-8 py-4 text-xs text-muted-foreground">{formatClinicDateLabel(appt.scheduled_at)}</td>
-                            <td className="px-8 py-4">
-                              {workflowBadge(reportWorkflow[appt.exam_id!])}
-                            </td>
-                            <td className="px-8 py-4 text-right space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="rounded-xl text-xs gap-1.5 font-semibold"
-                                onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
-                              >
-                                <FileSignature className="h-3.5 w-3.5" />
-                                {reportWorkflow[appt.exam_id!] === "locked" || reportWorkflow[appt.exam_id!] === "sent"
-                                  ? "View Locked Report"
-                                  : "Write / Edit Report"}
-                              </Button>
-                              {reportWorkflow[appt.exam_id!] === "locked" && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="rounded-xl text-xs gap-1.5 font-semibold"
-                                  onClick={() => void handleDownloadPreview(appt.exam_id!)}
-                                  disabled={!canViewLockedReport || downloadingExamId === appt.exam_id}
-                                  title="Download a local preview PDF before sending"
-                                >
-                                  {downloadingExamId === appt.exam_id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Download className="h-3.5 w-3.5" />
-                                  )}
-                                  Download Preview
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                className="rounded-xl text-xs gap-1.5 font-bold"
-                                onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
-                                disabled={reportWorkflow[appt.exam_id!] !== "locked" && reportWorkflow[appt.exam_id!] !== "sent"}
-                                title={
-                                  reportWorkflow[appt.exam_id!] === "locked" || reportWorkflow[appt.exam_id!] === "sent"
-                                    ? "Email secure PDF to client"
-                                    : "Finalize and lock the report before sending"
-                                }
-                              >
-                                <Mail className="h-3.5 w-3.5" />
-                                Email Secure Report
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="px-8 py-12 text-center text-muted-foreground italic">
-                          {examsSearch || examsDateFrom || examsDateTo || examsWorkflowFilter !== "all"
-                            ? "No sessions match your filters."
-                            : "No active sessions found. Ensure session documentation is started or completed."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Card List View */}
-              <div className="block md:hidden divide-y divide-border/20">
-                {loading ? (
-                  <div className="p-8 text-center text-muted-foreground italic">
-                    Loading sessions...
-                  </div>
-                ) : paginatedExams.length > 0 ? (
-                  paginatedExams.map((appt) => {
-                    const examineeName = appt.subject
-                      ? formatSubjectName(appt.subject)
-                      : `Examinee #${appt.subject_id}`;
-                    const status = reportWorkflow[appt.exam_id!];
-                    return (
-                      <div key={appt.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors min-w-0 max-w-full overflow-hidden">
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 min-w-0">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-extrabold text-base text-foreground leading-tight break-words">{examineeName}</h4>
-                            <p className="text-xs text-muted-foreground mt-0.5 font-medium break-words">
-                              Client: <span className="text-foreground/80">{appt.client?.name || "Corporate"}</span>
-                            </p>
-                          </div>
-                          <div className="shrink-0 self-start">
-                            {workflowBadge(status)}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground bg-muted/20 p-2.5 rounded-xl border border-border/30">
-                          <div>
-                            <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Examiner</span>
-                            <span className="font-medium text-foreground">{examinerLabel(appt.examiner_id)}</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Scheduled</span>
-                            <span className="font-medium text-foreground">{formatClinicDateLabel(appt.scheduled_at)}</span>
-                          </div>
-                        </div>
-
-                        {/* Dedicated Mobile Action Buttons */}
-                        <div className="flex flex-col gap-2 pt-1">
-                          {status === "locked" && (
-                            <Button
-                              size="sm"
-                              variant="default"
-                              className="w-full rounded-xl text-xs gap-2 font-bold h-10 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                              onClick={() => void handleDownloadPreview(appt.exam_id!)}
-                              disabled={!canViewLockedReport || downloadingExamId === appt.exam_id}
-                            >
-                              {downloadingExamId === appt.exam_id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                              Download Report Preview
-                            </Button>
-                          )}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full rounded-xl text-xs gap-1.5 font-semibold h-10"
-                              onClick={() => handleOpenReportEditor(appt.exam_id!, examineeName)}
-                            >
-                              <FileSignature className="h-3.5 w-3.5" />
-                              {status === "locked" || status === "sent"
-                                ? "View Report"
-                                : "Write / Edit Report"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={status === "locked" ? "outline" : "secondary"}
-                              className="w-full rounded-xl text-xs gap-1.5 font-bold h-10"
-                              onClick={() => handleOpenShare(appt.exam_id!, appt.subject?.email)}
-                              disabled={status !== "locked" && status !== "sent"}
-                            >
-                              <Mail className="h-3.5 w-3.5" />
-                              Email Secure Report
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
                 ) : (
-                  <div className="p-8 text-center text-muted-foreground italic text-xs">
-                    {examsSearch || examsDateFrom || examsDateTo || examsWorkflowFilter !== "all"
-                      ? "No sessions match your filters."
-                      : "No active sessions found. Ensure session documentation is started or completed."}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Showing <span className="text-foreground">{filteredExams.length > 0 ? (examsPage - 1) * examsPerPage + 1 : 0}-{Math.min(examsPage * examsPerPage, filteredExams.length)}</span> of {filteredExams.length} sessions
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
-                    onClick={() => setExamsPage((p) => Math.max(1, p - 1))}
-                    disabled={examsPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
-                    onClick={() => setExamsPage((p) => Math.min(examsTotalPages, p + 1))}
-                    disabled={examsPage === examsTotalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="reports" className="space-y-6 mt-0 outline-none">
-          <div className="space-y-6">
-            <div className="flex flex-col gap-4 px-1 sm:px-2">
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant={sharesArchiveView === "active" ? "default" : "outline"}
-                  className="rounded-xl flex-1 sm:flex-initial"
-                  onClick={() => { setSharesArchiveView("active"); setSharesPage(1); }}
-                >
-                  Sent reports
-                </Button>
-                <Button
-                  size="sm"
-                  variant={sharesArchiveView === "archived" ? "default" : "outline"}
-                  className="rounded-xl flex-1 sm:flex-initial"
-                  onClick={() => { setSharesArchiveView("archived"); setSharesPage(1); }}
-                >
-                  <Archive className="mr-2 h-4 w-4" /> Archived
-                </Button>
-              </div>
-              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
-                <div className="relative w-full">
-                  <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by examinee or email..."
-                    className="h-12 pl-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
-                    value={search}
-                    onChange={(e) => { setSearch(e.target.value); setSharesPage(1); }}
-                  />
-                </div>
-                <Input
-                  type="date"
-                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
-                  value={sharesSearchDateFrom}
-                  onChange={(e) => { setSharesSearchDateFrom(e.target.value); setSharesPage(1); }}
-                />
-                <Input
-                  type="date"
-                  className="h-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm text-sm"
-                  value={sharesSearchDateTo}
-                  onChange={(e) => { setSharesSearchDateTo(e.target.value); setSharesPage(1); }}
-                />
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {[5, 10, 20, 50].map((size) => (
-                    <Button
-                      key={size}
-                      size="sm"
-                      variant={sharesPerPage === size ? "default" : "outline"}
-                      className="h-10 px-3.5 rounded-xl text-xs font-black uppercase tracking-widest flex-1 sm:flex-initial"
-                      onClick={() => { setSharesPerPage(size); setSharesPage(1); }}
-                    >
-                      {size}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
-                {(["all", "active", "expired"] as const).map((f) => (
-                  <Button
-                    key={f}
-                    size="sm"
-                    variant={sharesStatusFilter === f ? "default" : "outline"}
-                    className="h-10 px-5 rounded-xl capitalize text-xs font-black uppercase tracking-widest shrink-0"
-                    onClick={() => { setSharesStatusFilter(f); setSharesPage(1); }}
-                  >
-                    {f === "all" ? "All" : f === "active" ? "Active" : "Expired"}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-2xl sm:rounded-[2.5rem] border border-border/40 bg-card/20 backdrop-blur-xl overflow-hidden shadow-2xl">
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead>
-                    <tr className="bg-muted/30 border-b border-border/50">
-                      <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Examinee</th>
-                      <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Recipient Email</th>
-                      <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Passcode</th>
-                      <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status / Expiration</th>
-                      <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/20">
-                    {loading ? (
-                      <tr>
-                        <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
-                          Loading reports list...
-                        </td>
-                      </tr>
-                    ) : paginatedShares.length > 0 ? (
-                      paginatedShares.map((share) => {
-                        const isExpired = new Date(share.expires_at).getTime() < Date.now();
-                        const formattedExpiry = new Date(share.expires_at).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        });
-
-                        return (
-                          <tr key={share.id} className="hover:bg-primary/[0.03] transition-all group">
-                            <td className="px-8 py-6">
-                              <div className="flex flex-col gap-1">
-                                <span className="font-black text-base leading-none text-foreground">
-                                  {share.subject ? `${share.subject.first_name} ${share.subject.last_name}` : "Unknown Subject"}
-                                </span>
-                                <span className="flex items-center gap-2">
-                                  {share.exam_report && (
-                                    <Badge
-                                      className={cn(
-                                        "text-[9px] font-black uppercase tracking-[0.1em]",
-                                        (share.exam_report.verdict === "NDI" || share.exam_report.verdict === "NSR")
-                                          ? "bg-emerald-500/10 text-emerald-600 border-none"
-                                          : (share.exam_report.verdict === "DI" || share.exam_report.verdict === "SR")
-                                            ? "bg-rose-500/10 text-rose-600 border-none"
-                                            : "bg-neutral-500/10 text-neutral-600 border-none"
-                                      )}
-                                    >
-                                      {share.exam_report.verdict}
-                                    </Badge>
-                                  )}
-                                  <span className="text-[9px] text-muted-foreground/80 font-normal">
-                                    Sent: {new Date(share.created_at).toLocaleDateString()}
-                                  </span>
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 font-semibold text-xs text-foreground/80">
-                              <div className="flex items-center gap-1.5">
-                                <Mail className="h-4 w-4 text-primary/70 shrink-0" />
-                                {share.recipient_email}
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm tracking-wider font-bold">
-                                  {share.protection_mode === "secure_link" ? "No PIN" : revealedPasswords[share.id] ? (share.password || "—") : "••••••"}
-                                </span>
-                                {share.protection_mode !== "secure_link" && <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 rounded-lg"
-                                  onClick={() => togglePasswordReveal(share.id)}
-                                >
-                                  {revealedPasswords[share.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </Button>}
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 space-y-1">
-                              <Badge
-                                className={cn(
-                                  "rounded-full px-3 py-0.5 text-[9px] font-black uppercase tracking-widest border-none shadow-sm",
-                                  isExpired ? "bg-rose-500/10 text-rose-600" : "bg-emerald-500/10 text-emerald-600"
-                                )}
-                              >
-                                {isExpired ? "Expired" : "Active"}
-                              </Badge>
-                              <div className="text-[9px] text-muted-foreground font-semibold flex items-center gap-1">
-                                <Calendar className="h-3 w-3 shrink-0" />
-                                {isExpired ? `Expired ${formattedExpiry}` : `Expires ${formattedExpiry}`}
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 text-right space-x-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 rounded-xl hover:bg-primary/10 hover:text-primary transition-all"
-                                onClick={() => handleCopyLink(share.token)}
-                                title="Copy Secure Link"
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 rounded-xl hover:bg-amber-500/10 hover:text-amber-600 transition-all"
-                                onClick={() => handleOpenRegenerate(share)}
-                                title="Regenerate / Rotate Link"
-                              >
-                                <RefreshCw className="h-4 w-4" />
-                              </Button>
-                              <a href={`/shared/report/${share.token}`} target="_blank" rel="noopener noreferrer">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-9 w-9 rounded-xl hover:bg-blue-500/10 hover:text-blue-600 transition-all"
-                                  title="Visit Shared Portal"
-                                >
-                                  <ExternalLink className="h-4 w-4" />
-                                </Button>
-                              </a>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 rounded-xl hover:bg-muted"
-                                onClick={() => void handleArchiveToggle(share)}
-                                title={share.archived_at ? "Restore report delivery" : "Archive report delivery"}
-                              >
-                                {share.archived_at ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
-                          {sharesArchiveView === "archived" ? "No archived report deliveries." : "No report shares found."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Card List View */}
-              <div className="block md:hidden divide-y divide-border/20">
-                {loading ? (
-                  <div className="p-8 text-center text-muted-foreground font-bold italic">
-                    Loading reports list...
-                  </div>
-                ) : paginatedShares.length > 0 ? (
-                  paginatedShares.map((share) => {
-                    const isExpired = new Date(share.expires_at).getTime() < Date.now();
-                    const formattedExpiry = new Date(share.expires_at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    });
-
+                  pagedExams.map((appt) => {
+                    const examId = appt.exam_id!;
+                    const status = statusOf(examId);
+                    const name = appt.subject ? formatSubjectName(appt.subject) || `Examinee #${appt.subject_id}` : `Examinee #${appt.subject_id}`;
+                    const finished = status === "locked" || status === "sent";
                     return (
-                      <div key={share.id} className="p-4 space-y-3 hover:bg-primary/[0.03] transition-all">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h4 className="font-black text-base leading-tight text-foreground">
-                              {share.subject ? `${share.subject.first_name} ${share.subject.last_name}` : "Unknown Subject"}
-                            </h4>
-                            <div className="flex items-center gap-2 mt-1">
-                              {share.exam_report && (
-                                <Badge
-                                  className={cn(
-                                    "text-[9px] font-black uppercase tracking-[0.1em]",
-                                    (share.exam_report.verdict === "NDI" || share.exam_report.verdict === "NSR")
-                                      ? "bg-emerald-500/10 text-emerald-600 border-none"
-                                      : (share.exam_report.verdict === "DI" || share.exam_report.verdict === "SR")
-                                        ? "bg-rose-500/10 text-rose-600 border-none"
-                                        : "bg-neutral-500/10 text-neutral-600 border-none"
-                                  )}
-                                >
-                                  {share.exam_report.verdict}
-                                </Badge>
-                              )}
-                              <span className="text-[10px] text-muted-foreground">
-                                Sent {new Date(share.created_at).toLocaleDateString()}
-                              </span>
-                            </div>
-                          </div>
-                          <Badge
-                            className={cn(
-                              "rounded-full px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest border-none shrink-0",
-                              isExpired ? "bg-rose-500/10 text-rose-600" : "bg-emerald-500/10 text-emerald-600"
+                      <tr key={appt.id} className="transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40">
+                        <td className="max-w-[260px] px-6 py-4">
+                          <span className="block truncate font-medium">
+                            <Highlight text={name} query={search} />
+                          </span>
+                        </td>
+                        <td className="max-w-[220px] px-6 py-4">
+                          <span className="block truncate">
+                            <Highlight text={appt.client?.name || "—"} query={search} />
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-muted-foreground">
+                          <Highlight text={examinerName(appt.examiner_id)} query={search} />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">{formatClinicDateLabel(appt.scheduled_at)}</td>
+                        <td className="px-6 py-4">
+                          <WorkflowPill status={status} />
+                        </td>
+                        <td className="px-6 py-4">
+                          <RowActions>
+                            {status === "locked" ? (
+                              <ActionButton primary label="Send report" icon={Mail} onClick={() => openShare(examId, appt.subject?.email)} />
+                            ) : status === "sent" ? (
+                              <ActionButton label="Send again" icon={Mail} onClick={() => openShare(examId, appt.subject?.email)} />
+                            ) : (
+                              <ActionButton
+                                primary
+                                label={status === "draft" ? "Continue draft" : "Write report"}
+                                icon={FilePen}
+                                onClick={() => openEditor(examId, name)}
+                              />
                             )}
-                          >
-                            {isExpired ? "Expired" : "Active"}
-                          </Badge>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-2 text-xs bg-muted/20 p-2.5 rounded-xl border border-border/30">
-                          <div className="flex items-center gap-1.5 text-foreground/80 font-medium">
-                            <Mail className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-                            <span className="truncate">{share.recipient_email}</span>
-                          </div>
-                          <div className="flex items-center justify-between pt-1 border-t border-border/20">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] uppercase font-bold text-muted-foreground">PIN:</span>
-                              <span className="font-mono text-xs font-bold">
-                                {share.protection_mode === "secure_link" ? "No PIN" : revealedPasswords[share.id] ? (share.password || "—") : "••••••"}
-                              </span>
-                              {share.protection_mode !== "secure_link" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 rounded-md"
-                                  onClick={() => togglePasswordReveal(share.id)}
-                                >
-                                  {revealedPasswords[share.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                </Button>
-                              )}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
-                              <Calendar className="h-3 w-3 shrink-0" />
-                              {isExpired ? `Expired ${formattedExpiry}` : `Expires ${formattedExpiry}`}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-4 gap-2 pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1"
-                            onClick={() => handleCopyLink(share.token)}
-                            title="Copy Link"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Copy</span>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1 text-amber-600 hover:text-amber-700"
-                            onClick={() => handleOpenRegenerate(share)}
-                            title="Rotate Link"
-                          >
-                            <RefreshCw className="h-3.5 w-3.5" />
-                            <span className="hidden sm:inline">Rotate</span>
-                          </Button>
-                          <a href={`/shared/report/${share.token}`} target="_blank" rel="noopener noreferrer" className="col-span-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center text-blue-600 hover:text-blue-700"
-                              title="Visit Portal"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span className="hidden sm:inline">Portal</span>
-                            </Button>
-                          </a>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 text-xs rounded-xl gap-1 font-semibold flex items-center justify-center col-span-1"
-                            onClick={() => void handleArchiveToggle(share)}
-                            title={share.archived_at ? "Restore" : "Archive"}
-                          >
-                            {share.archived_at ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
-                            <span className="hidden sm:inline">{share.archived_at ? "Restore" : "Archive"}</span>
-                          </Button>
-                        </div>
-                      </div>
+                            {status === "locked" && canViewLockedReport ? (
+                              <ActionButton
+                                iconOnly
+                                label="Download preview PDF"
+                                icon={downloadingExamId === examId ? Loader2 : Download}
+                                spin={downloadingExamId === examId}
+                                disabled={downloadingExamId === examId}
+                                onClick={() => void downloadPreview(examId)}
+                              />
+                            ) : null}
+                            {finished ? <ActionButton iconOnly label="Open report" icon={ArrowUpRight} onClick={() => openEditor(examId, name)} /> : null}
+                          </RowActions>
+                        </td>
+                      </tr>
                     );
                   })
-                ) : (
-                  <div className="p-8 text-center text-muted-foreground font-bold italic text-xs">
-                    {sharesArchiveView === "archived" ? "No archived report deliveries." : "No report shares found."}
-                  </div>
                 )}
-              </div>
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <TableHead columns={["Examinee", "Recipient", "Sent", "Access", "Link"]} />
+              <tbody className="divide-y divide-border/40">
+                {firstLoad ? (
+                  <SkeletonRows cols={6} />
+                ) : pagedShares.length === 0 ? (
+                  <EmptyRow
+                    cols={6}
+                    title={
+                      filtersActive && shareFilter !== "archived"
+                        ? "No sent reports match these filters"
+                        : shareFilter === "archived"
+                          ? "Nothing archived"
+                          : "No reports sent yet"
+                    }
+                    hint={!filtersActive ? "Lock a report from the Sessions view, then send it from there." : undefined}
+                    action={filtersActive ? { label: "Clear filters", onClick: clearFilters } : { label: "Go to sessions", onClick: () => setTab("sessions") }}
+                  />
+                ) : (
+                  pagedShares.map((share) => {
+                    const expired = isShareExpired(share);
+                    const pin = share.protection_mode !== "secure_link";
+                    const name = shareSubjectName(share);
+                    return (
+                      <tr key={share.id} className={cn("transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40", share.archived_at && "text-muted-foreground")}>
+                        <td className="max-w-[260px] px-6 py-4">
+                          <span className="flex items-center gap-2.5">
+                            {share.exam_report?.verdict ? <VerdictChip verdict={share.exam_report.verdict} /> : null}
+                            <span className="truncate font-medium">
+                              <Highlight text={name} query={search} />
+                            </span>
+                          </span>
+                        </td>
+                        <td className="max-w-[240px] px-6 py-4">
+                          <span className="block truncate text-muted-foreground">
+                            <Highlight text={share.recipient_email} query={search} />
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="flex flex-col gap-0.5">
+                            <span>{shortDate(share.created_at)}</span>
+                            {share.status === "viewed" ? <span className="text-xs text-[#2D5A27] dark:text-emerald-300">Opened by recipient</span> : null}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {pin ? (
+                            <span className="flex items-center gap-1">
+                              <span className="min-w-[4.5rem] font-mono text-[13px] tracking-wider tabular-nums">{revealed[share.id] ? share.password || "—" : "••••••"}</span>
+                              <button
+                                type="button"
+                                aria-label={revealed[share.id] ? "Hide PIN" : "Show PIN"}
+                                aria-pressed={Boolean(revealed[share.id])}
+                                onClick={() => setRevealed((r) => ({ ...r, [share.id]: !r[share.id] }))}
+                                className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+                              >
+                                {revealed[share.id] ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
+                              </button>
+                            </span>
+                          ) : (
+                            <span className="text-[13px] text-muted-foreground">Link only, no PIN</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="flex flex-col gap-0.5">
+                            <LinkPill expired={expired} />
+                            <span className="pl-1 text-xs whitespace-nowrap text-muted-foreground">
+                              {expired ? "Expired" : "Expires"} {shortDate(share.expires_at)}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <RowActions>
+                            <ActionButton label="Rotate" icon={RotateCw} onClick={() => openRegenerate(share)} />
+                            <ActionButton iconOnly label="Copy secure link" icon={Copy} onClick={() => void copyLink(share.token)} />
+                            <a
+                              href={`/shared/report/${share.token}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label="Open recipient's view"
+                              title="Open recipient's view"
+                              className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+                            >
+                              <ArrowUpRight aria-hidden="true" className="size-4" />
+                            </a>
+                            <ActionButton
+                              iconOnly
+                              label={share.archived_at ? "Restore delivery" : "Archive delivery"}
+                              icon={archivingId === share.id ? Loader2 : share.archived_at ? ArchiveRestore : Archive}
+                              spin={archivingId === share.id}
+                              disabled={archivingId === share.id}
+                              onClick={() => void toggleArchive(share)}
+                            />
+                          </RowActions>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-8 py-4 border-t border-border/30 bg-muted/10 gap-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Showing <span className="text-foreground">{filteredShares.length > 0 ? (sharesPage - 1) * sharesPerPage + 1 : 0}-{Math.min(sharesPage * sharesPerPage, filteredShares.length)}</span> of {filteredShares.length} reports
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
-                    onClick={() => setSharesPage((p) => Math.max(1, p - 1))}
-                    disabled={sharesPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-4 rounded-xl border-border/50 text-xs font-black uppercase tracking-widest disabled:opacity-30"
-                    onClick={() => setSharesPage((p) => Math.min(sharesTotalPages, p + 1))}
-                    disabled={sharesPage === sharesTotalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
+        {!firstLoad && rows.length > 0 ? (
+          <div className="flex flex-col gap-3 border-t border-border/50 px-6 py-3 text-[13px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span className="tabular-nums">
+              {pageStart + 1}–{Math.min(pageStart + perPage, rows.length)} of {rows.length} {tab === "sessions" ? "sessions" : "reports"}
+            </span>
+            <div className="flex items-center gap-2">
+              <Select value={String(perPage)} onValueChange={(v) => setPerPage(Number(v))}>
+                <SelectTrigger aria-label="Rows per page" className="h-9 w-auto rounded-full border-0 bg-[#F3F1EA] px-3.5 text-[13px] shadow-none dark:bg-muted">
+                  <SelectValue>{perPage} per page</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n} per page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {totalPages > 1 ? (
+                <>
+                  <PagerButton label="Previous" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} />
+                  <span className="px-1 tabular-nums">
+                    {safePage} / {totalPages}
+                  </span>
+                  <PagerButton label="Next" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)} />
+                </>
+              ) : null}
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+        ) : null}
+      </div>
+
       <ShareReportDialog
         open={selectedExamId !== null}
         onOpenChange={(open) => !open && setSelectedExamId(null)}
@@ -1122,8 +756,191 @@ export default function ReportsDashboard() {
         onProtectionModeChange={setProtectionMode}
         onSubmit={handleCreateShare}
       />
-      <RegenerateReportDialog open={regenerateId !== null} onOpenChange={(open) => !open && setRegenerateId(null)} protectionMode={regenerateMode} onProtectionModeChange={setRegenerateMode} expiryDays={regenerateExpiry} onExpiryDaysChange={setRegenerateExpiry} submitting={regenerating} onSubmit={handleRegenerate} />
-
+      <RegenerateReportDialog
+        open={regenerateId !== null}
+        onOpenChange={(open) => !open && setRegenerateId(null)}
+        protectionMode={regenerateMode}
+        onProtectionModeChange={setRegenerateMode}
+        expiryDays={regenerateExpiry}
+        onExpiryDaysChange={setRegenerateExpiry}
+        submitting={regenerating}
+        onSubmit={handleRegenerate}
+      />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Pieces                                                              */
+/* ------------------------------------------------------------------ */
+
+type IconType = React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>;
+
+function TableHead({ columns }: { columns: string[] }) {
+  return (
+    <thead>
+      <tr className="border-b border-border/50 text-[13px] text-muted-foreground">
+        {columns.map((c) => (
+          <th key={c} className="px-6 pt-5 pb-3 font-medium">
+            {c}
+          </th>
+        ))}
+        <th className="px-6 pt-5 pb-3 text-right font-medium">Actions</th>
+      </tr>
+    </thead>
+  );
+}
+
+function RowActions({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center justify-end gap-1">{children}</div>;
+}
+
+function ActionButton({
+  label,
+  icon: Icon,
+  onClick,
+  primary,
+  iconOnly,
+  disabled,
+  spin,
+}: {
+  label: string;
+  icon: IconType;
+  onClick: () => void;
+  primary?: boolean;
+  iconOnly?: boolean;
+  disabled?: boolean;
+  spin?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={iconOnly ? label : undefined}
+      title={iconOnly ? label : undefined}
+      className={cn(
+        "flex h-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-50",
+        iconOnly ? "w-9 text-muted-foreground hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted" : "px-3.5",
+        !iconOnly &&
+          (primary
+            ? "bg-[#30302E] text-[#FAF9F5] hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground"
+            : "ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted"),
+      )}
+    >
+      <Icon aria-hidden="true" className={cn(iconOnly ? "size-4" : "size-3.5", spin && "animate-spin")} />
+      {iconOnly ? null : label}
+    </button>
+  );
+}
+
+const WORKFLOW_STYLE: Record<ReportWorkflowStatus, { chip: string; dot: string }> = {
+  none: { chip: "bg-primary/12 text-[oklch(0.42_0.12_39)] dark:text-primary", dot: "bg-primary" },
+  draft: { chip: "bg-[#EFEBFE] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200", dot: "bg-[#7C6BD6]" },
+  locked: { chip: "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300", dot: "bg-[#E2B35A]" },
+  sent: { chip: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300", dot: "bg-[#3F7A37] dark:bg-emerald-400" },
+};
+
+function WorkflowPill({ status }: { status: ReportWorkflowStatus }) {
+  const style = WORKFLOW_STYLE[status];
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium whitespace-nowrap", style.chip)}>
+      {status === "locked" ? <Lock aria-hidden="true" className="size-3" /> : <span aria-hidden="true" className={cn("size-1.5 rounded-full", style.dot)} />}
+      {WORKFLOW_LABEL[status]}
+    </span>
+  );
+}
+
+function LinkPill({ expired }: { expired: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium",
+        expired ? "bg-[#ECE9E0] text-[#55534C] dark:bg-muted dark:text-muted-foreground" : "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300",
+      )}
+    >
+      <span aria-hidden="true" className={cn("size-1.5 rounded-full", expired ? "bg-[#8B887E]" : "bg-[#3F7A37] dark:bg-emerald-400")} />
+      {expired ? "Expired" : "Live"}
+    </span>
+  );
+}
+
+function VerdictChip({ verdict }: { verdict: string }) {
+  const v = verdict.toUpperCase();
+  const tone =
+    v === "NDI" || v === "NSR"
+      ? "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300"
+      : v === "DI" || v === "SR"
+        ? "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300"
+        : "bg-[#ECE9E0] text-[#55534C] dark:bg-muted dark:text-muted-foreground";
+  return <span className={cn("shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold", tone)}>{verdict}</span>;
+}
+
+function DateInput({ label, value, onChange, min, max }: { label: string; value: string; onChange: (v: string) => void; min?: string; max?: string }) {
+  return (
+    <div className="relative">
+      <Input
+        type="date"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn("h-10 w-[9.5rem] rounded-full border-0 bg-[#F3F1EA] px-3.5 text-[13px] shadow-none dark:bg-muted", value && "pr-9")}
+      />
+      {value ? (
+        <button
+          type="button"
+          aria-label={`Clear ${label.toLowerCase()} date`}
+          onClick={() => onChange("")}
+          className="absolute top-1/2 right-1.5 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card"
+        >
+          <X aria-hidden="true" className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function PagerButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-9 items-center rounded-full px-3.5 text-[13px] font-medium text-foreground ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-40 dark:hover:bg-muted"
+    >
+      {label}
+    </button>
+  );
+}
+
+function SkeletonRows({ cols }: { cols: number }) {
+  return (
+    <>
+      {[0, 1, 2, 3].map((i) => (
+        <tr key={i}>
+          <td colSpan={cols} className="px-6 py-3.5">
+            <div className="h-9 animate-pulse rounded-xl bg-muted" />
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function EmptyRow({ cols, title, hint, action }: { cols: number; title: string; hint?: string; action?: { label: string; onClick: () => void } }) {
+  return (
+    <tr>
+      <td colSpan={cols} className="px-6 py-14 text-center">
+        <p className="text-[15px] font-medium">{title}</p>
+        {hint ? <p className="mx-auto mt-1 max-w-sm text-[13px] text-muted-foreground">{hint}</p> : null}
+        {action ? (
+          <button type="button" onClick={action.onClick} className="mt-2 text-sm text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
+            {action.label}
+          </button>
+        ) : null}
+      </td>
+    </tr>
   );
 }

@@ -25,7 +25,7 @@ export default function SettingsLayout({
   }, [loading, can, router]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-[#F3F1EA] dark:bg-background">
       <IdleTimeout />
       {/* Settings Sidebar */}
       <div className="hidden lg:flex lg:h-full lg:min-h-0 lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:z-50">

@@ -3,40 +3,33 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Bell,
-  Mail,
-  Send,
-  Clock,
-  CheckCircle2,
-  Search,
-  Wallet,
-  Calendar,
-  FileText,
-  ClipboardList,
-  RefreshCcw,
-  Plus,
-  Loader2,
-  AlertCircle,
-  Trash2,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import { toast } from "sonner";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  Bell,
+  CalendarClock,
+  ClipboardList,
+  Loader2,
+  Mail,
+  PenLine,
+  RefreshCcw,
+  Search,
+  Send,
+  Trash2,
+  Wallet,
+  X,
+} from "lucide-react";
+
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
+import { GlassStat, GlowPanel, Highlight, Segmented } from "@/components/dashboard/ui-kit";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { deleteInvoice } from "@/lib/billing";
+import { formatClinicDateLabel, formatClinicDateTime } from "@/lib/clinic-time";
 import { resendFormRequest } from "@/lib/forms";
 import {
   dispatchAppointmentReminder,
@@ -48,11 +41,22 @@ import {
   type PaymentReminderItem,
   type SessionReminderItem,
 } from "@/lib/reminders";
-import { formatClinicDateLabel, formatClinicDateTime } from "@/lib/clinic-time";
+import { cn } from "@/lib/utils";
 
-type ComposeTarget =
-  | (PaymentReminderItem & { kind: "payment" })
-  | (SessionReminderItem & { kind: "session" });
+type Tab = "payment" | "forms" | "sessions";
+type ComposeTarget = (PaymentReminderItem & { kind: "payment" }) | (SessionReminderItem & { kind: "session" });
+
+/** Balances below this are almost always leftover rounding between invoice and payment. */
+const SMALL_BALANCE = 5;
+
+type PendingSend = {
+  title: string;
+  recipient: string;
+  subject?: string;
+  run: () => Promise<void>;
+};
+
+const TEMPLATES = ["Payment Due", "Prep Guide", "Confirmation", "Result Followup"] as const;
 
 export default function RemindersPage() {
   const router = useRouter();
@@ -65,9 +69,13 @@ export default function RemindersPage() {
     }
   }, [userLoading, can, router]);
 
+  const canManagePayments = can("payment:manage");
+
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [tab, setTab] = React.useState<Tab>("payment");
   const [search, setSearch] = React.useState("");
+  const [hideSmall, setHideSmall] = React.useState(true);
   const [paymentReminders, setPaymentReminders] = React.useState<PaymentReminderItem[]>([]);
   const [sessionReminders, setSessionReminders] = React.useState<SessionReminderItem[]>([]);
   const [formReminders, setFormReminders] = React.useState<FormReminderItem[]>([]);
@@ -78,10 +86,10 @@ export default function RemindersPage() {
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
   const [toEmail, setToEmail] = React.useState("");
-  const [sending, setSending] = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
 
-  const canManagePayments = can("payment:manage");
+  const [pendingSend, setPendingSend] = React.useState<PendingSend | null>(null);
+  const [sending, setSending] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -93,8 +101,7 @@ export default function RemindersPage() {
       setFormReminders(data.formReminders);
       setSentCount(getSentReminderIdsToday().size);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load reminders";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to load reminders");
       setPaymentReminders([]);
       setSessionReminders([]);
       setFormReminders([]);
@@ -107,47 +114,94 @@ export default function RemindersPage() {
     void load();
   }, [load]);
 
-  async function handleDeletePaymentReminder(rem: PaymentReminderItem) {
-    setDeletingId(rem.id);
-    try {
-      await deleteInvoice({
-        quotationId: rem.quotationId,
-        appointmentId: rem.appointmentId,
-      });
-      setPaymentReminders((current) => current.filter((item) => item.id !== rem.id));
-      toast.success(`${rem.id} removed from billing`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete invoice");
-    } finally {
-      setDeletingId(null);
-    }
-  }
+  /* ---------------- sending (always confirmed first) ---------------- */
 
-  const openCompose = (target: ComposeTarget | null) => {
-    setSelected(target);
-    if (target?.kind === "payment") {
-      const tpl = paymentReminderTemplate(target);
-      setSubject(tpl.subject);
-      setBody(tpl.body);
-      setToEmail(target.email || "");
-    } else if (target?.kind === "session") {
-      const tpl = sessionReminderTemplate(target);
-      setSubject(tpl.subject);
-      setBody(tpl.body);
-      setToEmail(target.email || "");
-    } else {
-      setSubject("");
-      setBody("");
-      setToEmail("");
+  const confirmAndSend = async () => {
+    if (!pendingSend) return;
+    setSending(true);
+    try {
+      await pendingSend.run();
+      setPendingSend(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send");
+    } finally {
+      setSending(false);
     }
+  };
+
+  const requestPaymentSend = (item: PaymentReminderItem) => {
+    if (!item.email) {
+      openCompose({ ...item, kind: "payment" });
+      toast.message("Add a recipient email before sending");
+      return;
+    }
+    const tpl = paymentReminderTemplate(item);
+    setPendingSend({
+      title: "Send payment reminder?",
+      recipient: item.email,
+      subject: tpl.subject,
+      run: async () => {
+        await dispatchAppointmentReminder(item.appointmentId, { to_email: item.email!, subject: tpl.subject, body: tpl.body }, item.id);
+        toast.success(`Payment reminder sent to ${item.client}`);
+        await load();
+      },
+    });
+  };
+
+  const requestFormResend = (item: FormReminderItem) => {
+    setPendingSend({
+      title: "Resend form link?",
+      recipient: item.email,
+      subject: item.formName,
+      run: async () => {
+        await resendFormRequest(item.requestId);
+        toast.success(`Form link resent to ${item.client}`);
+        await load();
+      },
+    });
+  };
+
+  const requestComposeSend = () => {
+    if (!selected?.appointmentId) {
+      toast.error("Open compose from a row so the message is linked to a booking");
+      return;
+    }
+    const to = toEmail.trim();
+    if (!to || !to.includes("@")) {
+      toast.error("Enter a valid recipient email");
+      return;
+    }
+    if (!subject.trim() || !body.trim()) {
+      toast.error("Add a subject and a message");
+      return;
+    }
+    const target = selected;
+    setPendingSend({
+      title: "Send this email?",
+      recipient: to,
+      subject: subject.trim(),
+      run: async () => {
+        await dispatchAppointmentReminder(target.appointmentId, { to_email: to, subject: subject.trim(), body: body.trim() }, target.id);
+        toast.success("Reminder sent", { description: `Logged for ${target.client}` });
+        setIsComposeOpen(false);
+        await load();
+      },
+    });
+  };
+
+  /* ---------------- compose ---------------- */
+
+  const openCompose = (target: ComposeTarget) => {
+    setSelected(target);
+    const tpl = target.kind === "payment" ? paymentReminderTemplate(target) : sessionReminderTemplate(target);
+    setSubject(tpl.subject);
+    setBody(tpl.body);
+    setToEmail(target.email || "");
     setIsComposeOpen(true);
   };
 
-  const applyTemplate = (name: string) => {
+  const applyTemplate = (name: (typeof TEMPLATES)[number]) => {
     if (!selected) return;
-
-    // Any template can be chosen regardless of how the compose dialog was opened
-    // (payment vs session); we synthesise the fields the template needs.
     if (name === "Payment Due") {
       const item: PaymentReminderItem =
         selected.kind === "payment"
@@ -169,19 +223,7 @@ export default function RemindersPage() {
       setBody(tpl.body);
       return;
     }
-
-    const map: Record<string, string> = {
-      "Prep Guide": "Prep instructions",
-      Confirmation: "Confirm schedule",
-      "Result Followup": "Follow-up report",
-    };
-    const type = map[name];
-    if (!type) return;
-
-    const formatWhen = (iso: string) => {
-      return formatClinicDateTime(iso) || "your scheduled time";
-    };
-
+    const type = { "Prep Guide": "Prep instructions", Confirmation: "Confirm schedule", "Result Followup": "Follow-up report" }[name];
     const sessionItem: SessionReminderItem =
       selected.kind === "session"
         ? { ...selected, type }
@@ -192,7 +234,7 @@ export default function RemindersPage() {
             client: selected.client,
             email: selected.email,
             type,
-            appointment: formatWhen(selected.sessionDate),
+            appointment: formatClinicDateTime(selected.sessionDate) || "your scheduled time",
             status: "Ready",
             scheduledAt: selected.sessionDate,
           };
@@ -201,588 +243,494 @@ export default function RemindersPage() {
     setBody(tpl.body);
   };
 
-  const handleSend = async () => {
-    if (!selected?.appointmentId) {
-      toast.error("Select a session from the list to send a tracked reminder");
-      return;
-    }
-    if (!toEmail.trim() || !toEmail.includes("@")) {
-      toast.error("Enter a valid recipient email");
-      return;
-    }
-    if (!window.confirm(`Send this email to ${toEmail.trim()} now? This will email the recipient immediately.`)) {
-      return;
-    }
-    setSending(true);
+  async function deletePaymentReminder(rem: PaymentReminderItem) {
+    setDeletingId(rem.id);
     try {
-      await dispatchAppointmentReminder(
-        selected.appointmentId,
-        {
-          to_email: toEmail.trim(),
-          subject: subject.trim(),
-          body: body.trim(),
-        },
-        selected.id
-      );
-      toast.success("Reminder sent", {
-        description: `Logged for ${selected.client}`,
-      });
-      setIsComposeOpen(false);
-      await load();
+      await deleteInvoice({ quotationId: rem.quotationId, appointmentId: rem.appointmentId });
+      setPaymentReminders((current) => current.filter((item) => item.id !== rem.id));
+      toast.success(`${rem.id} removed from billing`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send");
+      toast.error(err instanceof Error ? err.message : "Failed to delete invoice");
     } finally {
-      setSending(false);
+      setDeletingId(null);
     }
-  };
+  }
 
-  const quickSendPayment = async (item: PaymentReminderItem) => {
-    if (!item.email) {
-      openCompose({ ...item, kind: "payment" });
-      toast.message("Add recipient email before sending");
-      return;
-    }
-    if (!window.confirm(`Send a payment reminder to ${item.email} now? This will email the recipient immediately.`)) {
-      return;
-    }
-    setSending(true);
-    try {
-      const tpl = paymentReminderTemplate(item);
-      await dispatchAppointmentReminder(
-        item.appointmentId,
-        { to_email: item.email, subject: tpl.subject, body: tpl.body },
-        item.id
-      );
-      toast.success(`Payment reminder sent to ${item.client}`);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send");
-    } finally {
-      setSending(false);
-    }
-  };
+  /* ---------------- filtering ---------------- */
 
   const needle = search.trim().toLowerCase();
-  const filterText = (client: string, id: string) =>
-    !needle || client.toLowerCase().includes(needle) || id.toLowerCase().includes(needle);
+  const matches = (...values: (string | undefined)[]) => !needle || values.some((v) => (v ?? "").toLowerCase().includes(needle));
 
-  const filteredPayment = paymentReminders.filter((r) => filterText(r.client, r.id));
-  const filteredSession = sessionReminders.filter((r) => filterText(r.client, r.id));
-  const filteredForms = formReminders.filter((r) => filterText(r.client, r.id));
-  const overduePayment = filteredPayment.filter((r) => r.status === "Overdue").length;
+  const smallBalances = paymentReminders.filter((r) => r.balance < SMALL_BALANCE);
+  const payments = paymentReminders.filter((r) => (!hideSmall || r.balance >= SMALL_BALANCE) && matches(r.client, r.id, r.title, r.email));
+  const forms = formReminders.filter((r) => matches(r.client, r.id, r.formName, r.email));
+  const sessions = sessionReminders.filter((r) => matches(r.client, r.id, r.type, r.email));
+
+  const realOverdue = paymentReminders.filter((r) => r.status === "Overdue" && r.balance >= SMALL_BALANCE);
+  const overdueTotal = realOverdue.reduce((sum, r) => sum + r.balance, 0);
+  const currencyMatch = /^[A-Z]{3}/.exec(paymentReminders[0]?.amount ?? "");
+  const currency = currencyMatch?.[0] ?? "AED";
+
+  const tabOptions = [
+    { value: "payment" as const, label: "Payment due", count: paymentReminders.filter((r) => !hideSmall || r.balance >= SMALL_BALANCE).length },
+    { value: "forms" as const, label: "Forms", count: formReminders.length },
+    { value: "sessions" as const, label: "Sessions", count: sessionReminders.length },
+  ];
 
   return (
-    <div className="space-y-8 max-w-[1400px] mx-auto pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-black tracking-tighter text-foreground flex items-center gap-3">
-            <Bell className="h-8 w-8 text-primary" />
-            Clinical Communications
-          </h1>
-          <p className="text-muted-foreground text-sm font-medium max-w-xl">
-            Payment and session reminders from live bookings and billing. Sends email via your
-            configured SMTP server.
-          </p>
+    <div className="mx-auto max-w-[1440px] space-y-5 pb-10">
+      {/* Hero */}
+      <GlowPanel tone="lavender" orb="68%" lineTop={40} className="p-5 sm:p-7">
+        <div className="flex flex-col gap-6 pt-6 sm:gap-8 sm:pt-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div className="flex max-w-2xl flex-col gap-2">
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">
+                <Bell aria-hidden="true" className="size-4" />
+                Reminders
+              </span>
+              <h1 className="text-3xl leading-[1.05] font-normal tracking-[-0.03em] sm:text-[44px]">
+                Client <span className="font-semibold">reminders</span>
+              </h1>
+              <p className="max-w-xl text-[15px] text-[#C9C6BC]">Chase payments, nudge unfinished forms and prepare examinees for their sessions. Every email is confirmed before it sends.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="flex h-11 items-center justify-center gap-2 self-start rounded-full bg-white/[0.07] px-5 text-sm font-medium text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12] disabled:opacity-50 md:self-auto"
+            >
+              <RefreshCcw aria-hidden="true" className={cn("size-4", loading && "animate-spin")} />
+              Refresh
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <GlassStat
+              label="Overdue payments"
+              value={realOverdue.length}
+              hint={realOverdue.length ? `${currency} ${overdueTotal.toLocaleString("en-US", { maximumFractionDigits: 2 })} outstanding` : "Nothing overdue"}
+              icon={Wallet}
+              accent="terracotta"
+              loading={loading}
+            />
+            <GlassStat label="Forms pending" value={formReminders.length} hint="Sent but not completed" icon={ClipboardList} accent="amber" loading={loading} />
+            <GlassStat label="Upcoming sessions" value={sessionReminders.length} hint="Ready for prep or confirmation" icon={CalendarClock} accent="lavender" loading={loading} />
+            <GlassStat label="Sent today" value={sentCount} hint="From this browser" icon={Send} accent="sage" loading={loading} />
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="h-10 px-4 rounded-xl font-bold text-[10px] uppercase tracking-widest"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-            ) : (
-              <RefreshCcw className="mr-2 h-3 w-3" />
-            )}
-            Refresh
-          </Button>
-          <Button
-            onClick={() => openCompose(null)}
-            className="h-10 px-5 rounded-xl font-black text-[10px] uppercase tracking-widest"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Compose
-          </Button>
+      </GlowPanel>
+
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 rounded-[26px] bg-white p-3 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-4 lg:flex-row lg:items-center lg:justify-between dark:bg-card">
+        <Segmented label="Reminder type" value={tab} onChange={setTab} options={tabOptions} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {tab === "payment" && smallBalances.length > 0 ? (
+            <label className="flex h-10 cursor-pointer items-center gap-2.5 rounded-full px-3 text-[13px] text-muted-foreground hover:bg-[#F7F6F1] dark:hover:bg-muted/50">
+              <input type="checkbox" className="size-4 accent-[#30302E]" checked={hideSmall} onChange={(e) => setHideSmall(e.target.checked)} />
+              Hide balances under {SMALL_BALANCE} ({smallBalances.length})
+            </label>
+          ) : null}
+          <div className="relative w-full sm:w-80">
+            <label htmlFor="reminder-search" className="sr-only">
+              Search reminders
+            </label>
+            <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="reminder-search"
+              placeholder="Search client, reference or email…"
+              className="h-11 rounded-full border-0 bg-[#F3F1EA] pr-10 pl-11 text-sm shadow-none dark:bg-muted"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search ? (
+              <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card">
+                <X aria-hidden="true" className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search client or reference..."
-          className="pl-10 h-10 rounded-xl"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          <div>
-            <p>{error}</p>
-            <Button variant="link" className="h-auto p-0 text-destructive" onClick={() => void load()}>
-              Try again
-            </Button>
-          </div>
+      {error ? (
+        <div className="flex items-center justify-between gap-3 rounded-[20px] bg-[#F6E3E1] px-4 py-3 text-sm text-[#8A2C22] dark:bg-red-950 dark:text-red-300">
+          <span className="flex items-center gap-2">
+            <AlertCircle aria-hidden="true" className="size-4" />
+            {error}
+          </span>
+          <button type="button" onClick={() => void load()} className="font-medium underline-offset-4 hover:underline">
+            Try again
+          </button>
         </div>
-      )}
+      ) : null}
 
-      <Tabs defaultValue="payment" className="space-y-6">
-        <div className="flex items-center justify-between border-b border-border/50 pb-1 overflow-x-auto">
-          <TabsList className="bg-transparent h-12 p-0 gap-8">
-            <TabsTrigger
-              value="payment"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
-            >
-              <Wallet className="mr-2 h-4 w-4" />
-              Payment Due ({filteredPayment.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="forms"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
-            >
-              <ClipboardList className="mr-2 h-4 w-4" />
-              Forms ({filteredForms.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="general"
-              className="bg-transparent border-none p-0 h-12 rounded-none data-[active]:bg-transparent data-[active]:text-primary data-[active]:border-b-2 data-[active]:border-primary font-black text-xs uppercase tracking-widest text-muted-foreground"
-            >
-              <Calendar className="mr-2 h-4 w-4" />
-              Sessions ({filteredSession.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="hidden md:flex items-center gap-4 text-xs font-bold text-muted-foreground shrink-0">
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-              {sentCount} sent today
-            </span>
-            <span className="w-px h-3 bg-border/50" />
-            <span className="flex items-center gap-1.5">
-              <ClipboardList className="h-3.5 w-3.5 text-blue-500" />
-              {filteredForms.length} forms pending
-            </span>
-            <span className="w-px h-3 bg-border/50" />
-            <span className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-amber-500" />
-              {overduePayment} payments overdue
-            </span>
-          </div>
-        </div>
-
-        {loading ? (
-          <div className="flex justify-center py-20 text-muted-foreground">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" />
-            Loading communications...
-          </div>
-        ) : (
-          <>
-            <TabsContent value="payment" className="space-y-4 outline-none">
-              {filteredPayment.length === 0 ? (
-                <EmptyState
-                  title="No outstanding balances"
-                  description="Unpaid or partial invoices from bookings will appear here."
-                  href="/dashboard/payments"
-                  linkLabel="Open Financial Hub"
-                />
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredPayment.map((rem) => (
-                    <Card
-                      key={`${rem.id}-${rem.appointmentId}`}
-                      className="border-border/50 bg-card/30 backdrop-blur-md overflow-hidden hover:border-primary/30 transition-all shadow-sm"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="space-y-1 min-w-0">
-                            <p className="text-[10px] font-black text-primary uppercase tracking-tighter">
-                              {rem.id}
-                            </p>
-                            <h3 className="text-lg font-black text-foreground leading-tight truncate">
-                              {rem.client}
-                            </h3>
-                            <p className="text-xs text-muted-foreground truncate">{rem.title}</p>
-                          </div>
-                          <UrgencyBadge status={rem.status} />
-                        </div>
-
-                        <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-3 mb-6">
-                          <Row label="Outstanding" value={rem.amount} />
-                          <Row label="Session" value={rem.due} />
-                          {rem.email ? (
-                            <Row label="Email" value={rem.email} />
-                          ) : (
-                            <p className="text-[10px] text-amber-600 font-semibold">No email on file</p>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            className="flex-1 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
-                            disabled={sending || deletingId === rem.id}
-                            onClick={() => void quickSendPayment(rem)}
-                          >
-                            <Send className="mr-2 h-3.5 w-3.5" />
-                            Send reminder
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-10 w-10 rounded-xl"
-                            onClick={() => openCompose({ ...rem, kind: "payment" })}
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
-                          {canManagePayments && (
+      {/* Tables */}
+      <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+        <div className="overflow-x-auto">
+          {tab === "payment" ? (
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
+              <TableHead columns={["Reference", "Client", "Session", "Outstanding", "Status", "Email"]} />
+              <tbody className="divide-y divide-border/40">
+                {loading ? (
+                  <SkeletonRows cols={7} />
+                ) : payments.length === 0 ? (
+                  <EmptyRow cols={7} title={needle ? "No payment reminders match your search" : "No outstanding balances"} hint="Unpaid or partly paid bookings appear here." href="/dashboard/payments" linkLabel="Open payments" />
+                ) : (
+                  payments.map((rem) => (
+                    <tr key={`${rem.id}-${rem.appointmentId}`} className="transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40">
+                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{rem.id}</td>
+                      <td className="max-w-[280px] px-6 py-4">
+                        <span className="flex flex-col gap-0.5">
+                          <span className="truncate font-medium">
+                            <Highlight text={rem.client} query={search} />
+                          </span>
+                          <span className="truncate text-[13px] text-muted-foreground">{rem.title}</span>
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="flex flex-col gap-0.5">
+                          <span>{formatClinicDateLabel(rem.sessionDate) || "—"}</span>
+                          <span className="text-[13px] text-muted-foreground">{rem.due}</span>
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={cn("font-mono tabular-nums", rem.balance >= SMALL_BALANCE ? "text-[#8A2C22] dark:text-red-300" : "text-muted-foreground")}>{rem.amount}</span>
+                        {rem.balance < SMALL_BALANCE ? <span className="block text-xs text-muted-foreground">Likely rounding</span> : null}
+                      </td>
+                      <td className="px-6 py-4">
+                        <UrgencyChip status={rem.status} />
+                      </td>
+                      <td className="max-w-[220px] px-6 py-4">
+                        <EmailCell email={rem.email} />
+                      </td>
+                      <td className="px-6 py-4">
+                        <RowActions>
+                          <ActionButton primary label="Send reminder" icon={Send} disabled={deletingId === rem.id} onClick={() => requestPaymentSend(rem)} />
+                          <ActionButton label="Edit message" icon={PenLine} iconOnly onClick={() => openCompose({ ...rem, kind: "payment" })} />
+                          {canManagePayments ? (
                             <DeleteConfirmDialog
                               title={`Delete ${rem.id}`}
-                              description={
-                                rem.quotationId
-                                  ? "This permanently removes the invoice from billing. The linked session is kept."
-                                  : "This permanently deletes the session and its billing record."
-                              }
+                              description={rem.quotationId ? "This permanently removes the invoice from billing. The linked session is kept." : "This permanently deletes the session and its billing record."}
                               confirmLabel="Delete"
                               triggerLabel=""
                               trigger={
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-10 w-10 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                  disabled={deletingId === rem.id}
-                                  title="Delete invoice"
-                                >
-                                  {deletingId === rem.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </Button>
+                                <button type="button" aria-label={`Delete invoice ${rem.id}`} disabled={deletingId === rem.id} className="flex size-9 items-center justify-center rounded-full text-[#8A2C22] transition-colors hover:bg-[#F6E3E1] disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-950">
+                                  {deletingId === rem.id ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Trash2 aria-hidden="true" className="size-4" />}
+                                </button>
                               }
-                              onConfirm={async () => handleDeletePaymentReminder(rem)}
+                              onConfirm={async () => deletePaymentReminder(rem)}
                             />
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="forms" className="space-y-4 outline-none">
-              {filteredForms.length === 0 ? (
-                <EmptyState
-                  title="No forms awaiting completion"
-                  description="Send consent, privacy, or intake forms from a client's Document Vault. Incomplete links appear here for reminders."
-                  href="/dashboard/clients"
-                  linkLabel="Go to clients"
-                />
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredForms.map((rem) => (
-                    <Card
-                      key={rem.id}
-                      className="border-border/50 bg-card/30 backdrop-blur-md overflow-hidden hover:border-primary/30 transition-all shadow-sm"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="space-y-1 min-w-0">
-                            <p className="text-[10px] font-black text-primary uppercase tracking-tighter">
-                              {rem.id}
-                            </p>
-                            <h3 className="text-lg font-black text-foreground leading-tight truncate">
-                              {rem.client}
-                            </h3>
-                            <p className="text-xs text-muted-foreground truncate">{rem.formName}</p>
-                          </div>
-                          <Badge
-                            className={cn(
-                              "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] shrink-0",
-                              rem.status === "Opened"
-                                ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
-                                : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                            )}
-                          >
-                            {rem.status}
-                          </Badge>
-                        </div>
-
-                        <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-3 mb-6">
-                          <Row label="Sent" value={rem.due} />
-                          <Row
-                            label="Link expires"
-                            value={formatFormExpires(rem.expiresAt)}
-                          />
-                          {rem.email ? (
-                            <Row label="Email" value={rem.email} />
-                          ) : (
-                            <p className="text-[10px] text-amber-600 font-semibold">No email on file</p>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            className="flex-1 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
-                            onClick={async () => {
-                              try {
-                                await resendFormRequest(rem.requestId);
-                                toast.success("Form link resent");
-                                await load();
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Failed to resend"
-                                );
-                              }
-                            }}
-                          >
-                            <RefreshCcw className="mr-2 h-3.5 w-3.5" />
-                            Resend link
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-10 w-10 rounded-xl"
-                            render={
-                              <Link
-                                href={
-                                  rem.subjectId
-                                    ? `/dashboard/clients/${rem.clientId}/examinees/${rem.subjectId}/documents`
-                                    : `/dashboard/clients/${rem.clientId}/documents`
-                                }
-                              />
-                            }
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="general" className="space-y-4 outline-none">
-              {filteredSession.length === 0 ? (
-                <EmptyState
-                  title="No upcoming sessions"
-                  description="Book exams on the calendar to send prep and confirmation messages."
-                  href="/dashboard/calendar/book"
-                  linkLabel="Book new exam"
-                />
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredSession.map((rem) => (
-                    <Card
-                      key={`${rem.id}-${rem.appointmentId}`}
-                      className="border-border/50 bg-card/30 backdrop-blur-md overflow-hidden hover:border-primary/30 transition-all shadow-sm"
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex justify-between items-start mb-6">
-                          <div className="space-y-1 min-w-0">
-                            <p className="text-[10px] font-black text-primary uppercase tracking-tighter">
-                              {rem.id}
-                            </p>
-                            <h3 className="text-lg font-black text-foreground leading-tight truncate">
-                              {rem.client}
-                            </h3>
-                          </div>
-                          <Badge
-                            className={cn(
-                              "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px]",
-                              rem.status === "Ready"
-                                ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
-                                : rem.status === "Queued"
-                                  ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                                  : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                            )}
-                          >
-                            {rem.status}
-                          </Badge>
-                        </div>
-
-                        <div className="p-4 rounded-xl bg-muted/20 border border-border/30 space-y-3 mb-6">
-                          <Row label="Template" value={rem.type} />
-                          <Row label="Schedule" value={rem.appointment} />
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            className="flex-1 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest"
-                            onClick={() => openCompose({ ...rem, kind: "session" })}
-                          >
-                            <Send className="mr-2 h-3.5 w-3.5" />
-                            Send reminder
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-10 w-10 rounded-xl"
-                            render={<Link href={`/dashboard/clients/${rem.clientId}/exams`} />}
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </TabsContent>
-          </>
-        )}
-      </Tabs>
-
-      <Sheet open={isComposeOpen} onOpenChange={setIsComposeOpen}>
-        <SheetContent className="sm:max-w-xl border-l border-border/50 p-0 overflow-hidden">
-          <div className="h-full flex flex-col">
-            <SheetHeader className="p-6 border-b border-border/50 text-left space-y-2">
-              <SheetTitle className="text-xl font-black">
-                {selected ? `Message to ${selected.client}` : "Compose message"}
-              </SheetTitle>
-              <SheetDescription>
-                {selected
-                  ? `${selected.id} — uses appointment email API`
-                  : "Pick a card from the list to link an appointment"}
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Recipient email
-                </label>
-                <Input
-                  type="email"
-                  value={toEmail}
-                  onChange={(e) => setToEmail(e.target.value)}
-                  placeholder="client@example.com"
-                  className="h-11 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Template
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {["Payment Due", "Prep Guide", "Confirmation", "Result Followup"].map((tmp) => (
-                    <Button
-                      key={tmp}
-                      type="button"
-                      variant="outline"
-                      className="h-10 rounded-xl text-xs font-bold"
-                      onClick={() => applyTemplate(tmp)}
-                      disabled={!selected}
-                    >
-                      {tmp}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Subject
-                </label>
-                <Input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  className="h-11 rounded-xl"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Message
-                </label>
-                <textarea
-                  className="w-full min-h-[200px] p-4 rounded-xl bg-muted/20 border border-border/50 text-sm resize-none focus:outline-none focus:border-primary/50"
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                />
-              </div>
-
-              <Button
-                className="w-full h-12 rounded-xl font-black text-xs uppercase tracking-widest"
-                disabled={sending || !selected}
-                onClick={() => void handleSend()}
-              >
-                {sending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4 mr-2" />
+                          ) : null}
+                        </RowActions>
+                      </td>
+                    </tr>
+                  ))
                 )}
-                Dispatch email
-              </Button>
-
-              {!selected && (
-                <p className="text-xs text-muted-foreground text-center">
-                  Open compose from a payment or session card to attach an appointment.
-                </p>
-              )}
-            </div>
+              </tbody>
+            </table>
+          ) : tab === "forms" ? (
+            <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+              <TableHead columns={["Reference", "Recipient", "Form", "Sent", "Link expires", "Status"]} />
+              <tbody className="divide-y divide-border/40">
+                {loading ? (
+                  <SkeletonRows cols={7} />
+                ) : forms.length === 0 ? (
+                  <EmptyRow cols={7} title={needle ? "No forms match your search" : "No forms awaiting completion"} hint="Send consent, privacy or intake forms from a client's documents. Unfinished ones appear here." href="/dashboard/clients" linkLabel="Go to clients" />
+                ) : (
+                  forms.map((rem) => (
+                    <tr key={rem.id} className="transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40">
+                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{rem.id}</td>
+                      <td className="max-w-[260px] px-6 py-4">
+                        <span className="flex flex-col gap-0.5">
+                          <span className="truncate font-medium">
+                            <Highlight text={rem.client} query={search} />
+                          </span>
+                          <span className="truncate text-[13px] text-muted-foreground">{rem.email}</span>
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">{rem.formName}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{rem.due}</td>
+                      <td className="px-6 py-4">{formatClinicDateLabel(rem.expiresAt) || rem.expiresAt}</td>
+                      <td className="px-6 py-4">
+                        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium", rem.status === "Opened" ? "bg-[#EFEBFE] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200" : "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300")}>
+                          <span aria-hidden="true" className={cn("size-1.5 rounded-full", rem.status === "Opened" ? "bg-[#7C6BD6]" : "bg-[#E2B35A]")} />
+                          {rem.status === "Opened" ? "Opened, not finished" : "Not opened"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <RowActions>
+                          <ActionButton primary label="Resend link" icon={RefreshCcw} onClick={() => requestFormResend(rem)} />
+                          <Link
+                            href={rem.subjectId ? `/dashboard/clients/${rem.clientId}/examinees/${rem.subjectId}/documents` : `/dashboard/clients/${rem.clientId}/documents`}
+                            aria-label="Open documents"
+                            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+                          >
+                            <ArrowUpRight aria-hidden="true" className="size-4" />
+                          </Link>
+                        </RowActions>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+              <TableHead columns={["Reference", "Client", "Session", "Suggested message", "Status"]} />
+              <tbody className="divide-y divide-border/40">
+                {loading ? (
+                  <SkeletonRows cols={6} />
+                ) : sessions.length === 0 ? (
+                  <EmptyRow cols={6} title={needle ? "No sessions match your search" : "No upcoming sessions"} hint="Book exams to send prep and confirmation messages." href="/dashboard/calendar/book" linkLabel="Book an exam" />
+                ) : (
+                  sessions.map((rem) => (
+                    <tr key={`${rem.id}-${rem.appointmentId}`} className="transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40">
+                      <td className="px-6 py-4 font-mono text-xs text-muted-foreground">{rem.id}</td>
+                      <td className="max-w-[260px] px-6 py-4">
+                        <span className="flex flex-col gap-0.5">
+                          <span className="truncate font-medium">
+                            <Highlight text={rem.client} query={search} />
+                          </span>
+                          <EmailCell email={rem.email} compact />
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">{rem.appointment}</td>
+                      <td className="px-6 py-4">{rem.type}</td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium",
+                            rem.status === "Sent" ? "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300" : rem.status === "Queued" ? "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300" : "bg-[#EFEBFE] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200",
+                          )}
+                        >
+                          <span aria-hidden="true" className={cn("size-1.5 rounded-full", rem.status === "Sent" ? "bg-[#3F7A37]" : rem.status === "Queued" ? "bg-[#E2B35A]" : "bg-[#7C6BD6]")} />
+                          {rem.status === "Sent" ? "Sent today" : rem.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <RowActions>
+                          <ActionButton primary label="Write reminder" icon={Mail} onClick={() => openCompose({ ...rem, kind: "session" })} />
+                          <Link
+                            href={`/dashboard/clients/${rem.clientId}/exams`}
+                            aria-label="Open client exams"
+                            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+                          >
+                            <ArrowUpRight aria-hidden="true" className="size-4" />
+                          </Link>
+                        </RowActions>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {!loading ? (
+          <div className="border-t border-border/50 px-6 py-3.5 text-[13px] text-muted-foreground">
+            {tab === "payment"
+              ? `${payments.length} of ${paymentReminders.length} balances${hideSmall && smallBalances.length ? ` · ${smallBalances.length} under ${SMALL_BALANCE} hidden` : ""}`
+              : tab === "forms"
+                ? `${forms.length} of ${formReminders.length} forms`
+                : `${sessions.length} of ${sessionReminders.length} sessions`}
           </div>
+        ) : null}
+      </div>
+
+      {/* Compose */}
+      <Sheet open={isComposeOpen} onOpenChange={setIsComposeOpen}>
+        <SheetContent className="w-full gap-0 overflow-hidden border-l border-border/50 bg-white p-0 shadow-2xl sm:max-w-[600px] dark:bg-card [&_[data-slot=sheet-close]]:top-5 [&_[data-slot=sheet-close]]:right-5 [&_[data-slot=sheet-close]]:z-30 [&_[data-slot=sheet-close]]:flex [&_[data-slot=sheet-close]]:size-9 [&_[data-slot=sheet-close]]:items-center [&_[data-slot=sheet-close]]:justify-center [&_[data-slot=sheet-close]]:rounded-full [&_[data-slot=sheet-close]]:bg-white/10! [&_[data-slot=sheet-close]]:text-[#FAF9F5] [&_[data-slot=sheet-close]]:opacity-100 [&_[data-slot=sheet-close]]:ring-1 [&_[data-slot=sheet-close]]:ring-white/15">
+          {selected ? (
+            <div className="flex h-full flex-col">
+              <GlowPanel tone={selected.kind === "payment" ? "terracotta" : "lavender"} orb="60%" lineTop={0} className="shrink-0 rounded-none px-6 pt-6 pb-5 shadow-none ring-0 sm:px-7">
+                <div className="flex flex-col gap-2 pr-12">
+                  <span className="font-mono text-xs text-[#B5B2A8]">{selected.id}</span>
+                  <SheetTitle className="text-2xl leading-tight font-medium tracking-[-0.02em] text-[#FAF9F5]">Message to {selected.client}</SheetTitle>
+                  <SheetDescription className="text-sm text-[#C9C6BC]">
+                    {selected.kind === "payment" ? `Balance ${selected.amount} · ${selected.due}` : `${selected.type} · ${selected.appointment}`}
+                  </SheetDescription>
+                </div>
+              </GlowPanel>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="flex flex-col gap-5 px-4 py-5 sm:px-6">
+                  <div className="grid gap-1.5">
+                    <label htmlFor="compose-to" className="px-1 text-[13px] font-medium">
+                      To
+                    </label>
+                    <Input id="compose-to" type="email" value={toEmail} onChange={(e) => setToEmail(e.target.value)} placeholder="client@example.com" className="h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 shadow-none dark:bg-muted" />
+                  </div>
+                  <div className="grid gap-2">
+                    <span className="px-1 text-[13px] font-medium">Start from a template</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TEMPLATES.map((t) => (
+                        <button key={t} type="button" onClick={() => applyTemplate(t)} className="h-9 rounded-full px-3.5 text-[13px] ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted">
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label htmlFor="compose-subject" className="px-1 text-[13px] font-medium">
+                      Subject
+                    </label>
+                    <Input id="compose-subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 shadow-none dark:bg-muted" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label htmlFor="compose-body" className="px-1 text-[13px] font-medium">
+                      Message
+                    </label>
+                    <Textarea id="compose-body" value={body} onChange={(e) => setBody(e.target.value)} className="min-h-[260px] resize-y rounded-xl border-0 bg-[#F3F1EA] px-3.5 py-3 text-sm leading-relaxed shadow-none dark:bg-muted" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 px-4 py-4 sm:px-6">
+                <span className="text-[13px] text-muted-foreground">You&apos;ll confirm before it sends.</span>
+                <button type="button" onClick={requestComposeSend} className="flex h-11 items-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground">
+                  <Send aria-hidden="true" className="size-4" />
+                  Review &amp; send
+                </button>
+              </div>
+            </div>
+          ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* Send confirmation — no email leaves without an explicit second click */}
+      <Dialog open={pendingSend !== null} onOpenChange={(open) => !open && !sending && setPendingSend(null)}>
+        <DialogContent className="rounded-[24px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{pendingSend?.title}</DialogTitle>
+            <DialogDescription>This emails the recipient immediately and can&apos;t be undone.</DialogDescription>
+          </DialogHeader>
+          <dl className="grid gap-2 rounded-2xl bg-[#F7F6F1] p-4 text-sm dark:bg-muted/50">
+            <div className="flex gap-3">
+              <dt className="w-16 shrink-0 text-muted-foreground">To</dt>
+              <dd className="min-w-0 font-medium break-all">{pendingSend?.recipient}</dd>
+            </div>
+            {pendingSend?.subject ? (
+              <div className="flex gap-3">
+                <dt className="w-16 shrink-0 text-muted-foreground">Subject</dt>
+                <dd className="min-w-0">{pendingSend.subject}</dd>
+              </div>
+            ) : null}
+          </dl>
+          <DialogFooter>
+            <button type="button" disabled={sending} onClick={() => setPendingSend(null)} className="h-10 rounded-full px-4 text-sm font-medium transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted">
+              Cancel
+            </button>
+            <button type="button" disabled={sending} onClick={() => void confirmAndSend()} className="flex h-10 items-center justify-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-60 dark:bg-secondary dark:text-secondary-foreground">
+              {sending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
+              {sending ? "Sending…" : "Send email"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function formatFormExpires(iso: string) {
-  return formatClinicDateLabel(iso) || iso;
-}
+/* ------------------------------------------------------------------ */
+/* Pieces                                                              */
+/* ------------------------------------------------------------------ */
 
-function Row({ label, value }: { label: string; value: string }) {
+function TableHead({ columns }: { columns: string[] }) {
   return (
-    <div className="flex justify-between items-center text-[11px] font-bold gap-2">
-      <span className="text-muted-foreground uppercase tracking-wider shrink-0">{label}</span>
-      <span className="text-foreground text-right truncate">{value}</span>
-    </div>
+    <thead>
+      <tr className="border-b border-border/50 text-[13px] text-muted-foreground">
+        {columns.map((c) => (
+          <th key={c} className="px-6 pt-5 pb-3 font-medium">
+            {c}
+          </th>
+        ))}
+        <th className="relative px-6 pt-5 pb-3 text-right font-medium">Actions</th>
+      </tr>
+    </thead>
   );
 }
 
-function UrgencyBadge({ status }: { status: PaymentReminderItem["status"] }) {
-  return (
-    <Badge
-      className={cn(
-        "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] shrink-0",
-        status === "Overdue"
-          ? "bg-rose-500/10 text-rose-500 border-rose-500/20"
-          : status === "Pending"
-            ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
-            : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-      )}
-    >
-      {status}
-    </Badge>
-  );
+function RowActions({ children }: { children: React.ReactNode }) {
+  return <div className="flex items-center justify-end gap-1">{children}</div>;
 }
 
-function EmptyState({
-  title,
-  description,
-  href,
-  linkLabel,
+function ActionButton({
+  label,
+  icon: Icon,
+  onClick,
+  primary,
+  iconOnly,
+  disabled,
 }: {
-  title: string;
-  description: string;
-  href: string;
-  linkLabel: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>;
+  onClick: () => void;
+  primary?: boolean;
+  iconOnly?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <Card className="border-dashed border-border/50">
-      <CardContent className="py-16 text-center space-y-3">
-        <p className="font-bold text-foreground">{title}</p>
-        <p className="text-sm text-muted-foreground max-w-sm mx-auto">{description}</p>
-        <Button variant="outline" render={<Link href={href as "/dashboard/payments"} />}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={iconOnly ? label : undefined}
+      title={iconOnly ? label : undefined}
+      className={cn(
+        "flex h-9 items-center justify-center gap-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-50",
+        iconOnly ? "w-9 text-muted-foreground hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted" : "px-3.5",
+        !iconOnly && (primary ? "bg-[#30302E] text-[#FAF9F5] hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground" : "ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted"),
+      )}
+    >
+      <Icon aria-hidden="true" className="size-3.5" />
+      {iconOnly ? null : label}
+    </button>
+  );
+}
+
+function EmailCell({ email, compact }: { email?: string; compact?: boolean }) {
+  if (!email || /@import\.local$/i.test(email)) {
+    return <span className={cn("inline-flex items-center gap-1.5 text-[#8A5A12] dark:text-amber-300", compact ? "text-[13px]" : "text-sm")}>No email on file</span>;
+  }
+  return <span className={cn("block truncate text-muted-foreground", compact ? "text-[13px]" : "text-sm")}>{email}</span>;
+}
+
+function UrgencyChip({ status }: { status: PaymentReminderItem["status"] }) {
+  const style =
+    status === "Overdue"
+      ? "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300"
+      : status === "Upcoming"
+        ? "bg-[#EFEBFE] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200"
+        : "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300";
+  const dot = status === "Overdue" ? "bg-[#B94A3E]" : status === "Upcoming" ? "bg-[#7C6BD6]" : "bg-[#E2B35A]";
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-medium", style)}>
+      <span aria-hidden="true" className={cn("size-1.5 rounded-full", dot)} />
+      {status}
+    </span>
+  );
+}
+
+function SkeletonRows({ cols }: { cols: number }) {
+  return (
+    <>
+      {[0, 1, 2, 3].map((i) => (
+        <tr key={i}>
+          <td colSpan={cols} className="px-6 py-3.5">
+            <div className="h-9 animate-pulse rounded-xl bg-muted" />
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function EmptyRow({ cols, title, hint, href, linkLabel }: { cols: number; title: string; hint: string; href: string; linkLabel: string }) {
+  return (
+    <tr>
+      <td colSpan={cols} className="px-6 py-14 text-center">
+        <p className="text-[15px] font-medium">{title}</p>
+        <p className="mx-auto mt-1 max-w-sm text-[13px] text-muted-foreground">{hint}</p>
+        <Link href={href as "/dashboard/payments"} className="mt-2 inline-block text-sm text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
           {linkLabel}
-        </Button>
-      </CardContent>
-    </Card>
+        </Link>
+      </td>
+    </tr>
   );
 }

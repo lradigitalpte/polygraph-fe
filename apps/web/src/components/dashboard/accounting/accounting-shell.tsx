@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Calculator, FileBarChart, Receipt } from "lucide-react";
+import { PageHero, type GlowTone } from "@/components/dashboard/ui-kit";
 import { cn } from "@/lib/utils";
 
 const ACCOUNTING_TABS = [
@@ -27,32 +28,26 @@ const ACCOUNTING_TABS = [
 ] as const;
 
 type AccountingShellProps = {
-  title: string;
+  /** Headline; wrap the emphasised word in <strong className="font-semibold">. */
+  title: React.ReactNode;
   description: string;
   actions?: React.ReactNode;
+  tone?: GlowTone;
+  /** GlassStat tiles shown inside the hero. */
+  stats?: React.ReactNode;
   children: React.ReactNode;
 };
 
-export function AccountingShell({ title, description, actions, children }: AccountingShellProps) {
+export function AccountingShell({ title, description, actions, tone = "amber", stats, children }: AccountingShellProps) {
   const pathname = usePathname() ?? "";
 
   return (
-    <div className="space-y-8">
-      <header className="space-y-6 border-b border-border pb-8">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Admin · Accounting
-        </p>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2 max-w-2xl">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">{title}</h1>
-            <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
-          </div>
-          {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
-        </div>
-        <nav
-          className="inline-flex rounded-lg border border-border bg-muted/40 p-1"
-          aria-label="Accounting sections"
-        >
+    <div className="space-y-5 pb-10">
+      <header className="space-y-5">
+        <PageHero tone={tone} orb="72%" lineTop={40} icon={Calculator} eyebrow="Accounting" title={title} description={description} actions={actions}>
+          {stats}
+        </PageHero>
+        <nav aria-label="Accounting sections" className="flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#E9E6DD] p-1 no-scrollbar sm:w-fit dark:bg-muted">
           {ACCOUNTING_TABS.map((tab) => {
             const active = pathname.includes(tab.match);
             const Icon = tab.icon;
@@ -60,14 +55,15 @@ export function AccountingShell({ title, description, actions, children }: Accou
               <Link
                 key={tab.href}
                 href={tab.href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                  "flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-sm whitespace-nowrap transition-colors",
                   active
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground hover:bg-background/60"
+                    ? "bg-white font-semibold text-foreground shadow-[0_1px_2px_rgba(40,36,20,0.08)] dark:bg-card"
+                    : "text-[#3D3929] hover:text-foreground dark:text-muted-foreground",
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                <Icon className="size-4 shrink-0" aria-hidden />
                 {tab.label}
               </Link>
             );

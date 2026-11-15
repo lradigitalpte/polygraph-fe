@@ -1,120 +1,136 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle, Loader2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { toast } from "sonner";
+import { AUTH_BUTTON, AuthHeading, AuthNotice, AuthShell, EmailField } from "@/components/auth/auth-shell";
 
-export default function ForgotPasswordPage() {
+const RESEND_SECONDS = 30;
+
+function ForgotPasswordForm() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Carry over the email typed on the sign-in page.
+  useEffect(() => {
+    const fromQuery = searchParams.get("email");
+    if (fromQuery) setEmail(fromQuery);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = window.setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [cooldown]);
+
+  const request = async () => {
+    setError(null);
     setIsLoading(true);
     try {
-      const { error } = await authClient.requestPasswordReset({
-        email,
+      const { error: resetError } = await authClient.requestPasswordReset({
+        email: email.trim(),
         redirectTo: `${window.location.origin}/reset-password`,
       });
-      if (error) {
-        toast.error(error.message || "Failed to send reset email");
-      } else {
-        setSent(true);
+      if (resetError) {
+        setError(resetError.status === 429 ? "Too many requests. Wait a minute, then try again." : resetError.message || "We couldn't send the email. Please try again.");
+        return;
       }
+      setSent(true);
+      setCooldown(RESEND_SECONDS);
     } catch {
-      toast.error("An unexpected error occurred. Please try again.");
+      setError("We couldn't reach the server. Check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  if (sent) {
+    return (
+      <>
+        <span className="mx-auto mb-5 flex size-14 items-center justify-center rounded-full bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300">
+          <MailCheck aria-hidden="true" className="size-6" />
+        </span>
+        <AuthHeading
+          title="Check your inbox"
+          subtitle={
+            <>
+              If an account exists for <span className="font-medium text-foreground">{email.trim()}</span>, a link to set a new password is on its way.
+            </>
+          }
+        />
+        <ul className="mb-8 space-y-2 rounded-2xl bg-white px-5 py-4 text-[13px] text-muted-foreground ring-1 ring-border/60 dark:bg-card">
+          <li className="list-none">• The link works for a limited time and can only be used once.</li>
+          <li className="list-none">• Nothing after a few minutes? Check spam or junk.</li>
+          <li className="list-none">• Make sure this is the email your administrator set up.</li>
+        </ul>
+        {error ? <AuthNotice tone="error">{error}</AuthNotice> : null}
+        <button type="button" onClick={() => void request()} disabled={isLoading || cooldown > 0} className={AUTH_BUTTON}>
+          {isLoading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+          {cooldown > 0 ? `Send again in ${cooldown}s` : "Send the link again"}
+        </button>
+        <button type="button" onClick={() => setSent(false)} className="mt-3 w-full text-center text-[13px] font-medium text-muted-foreground hover:text-foreground">
+          Use a different email
+        </button>
+        <BackToSignIn />
+      </>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 bg-muted/30">
-      <Card className="w-full max-w-md shadow-lg border-muted/50">
-        {sent ? (
-          <>
-            <CardHeader className="space-y-1">
-              <div className="flex justify-center mb-4">
-                <div className="w-12 h-12 rounded-xl bg-green-500/10 text-green-500 flex items-center justify-center shadow-md">
-                  <CheckCircle className="w-7 h-7" />
-                </div>
-              </div>
-              <CardTitle className="text-2xl font-bold text-center">Check your email</CardTitle>
-              <CardDescription className="text-center">
-                We sent a password reset link to <span className="font-medium text-foreground">{email}</span>
-              </CardDescription>
-            </CardHeader>
-            <CardFooter className="flex flex-col gap-4 pt-2">
-              <Link
-                href="/login"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to sign in
-              </Link>
-            </CardFooter>
-          </>
-        ) : (
-          <form onSubmit={handleSubmit}>
-            <CardHeader className="space-y-1">
-              <div className="flex justify-center mb-4">
-                <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-2xl shadow-md">
-                  P
-                </div>
-              </div>
-              <CardTitle className="text-2xl font-bold text-center">Reset Password</CardTitle>
-              <CardDescription className="text-center">
-                Enter your email address and we&apos;ll send you a link to reset your password.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  required
-                  className="rounded-lg h-11"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-4">
-              <Button
-                type="submit"
-                className="w-full rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground h-11 text-base font-semibold"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  "Send Reset Link"
-                )}
-              </Button>
-              <Link
-                href="/login"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to sign in
-              </Link>
-            </CardFooter>
-          </form>
-        )}
-      </Card>
-    </div>
+    <>
+      <AuthHeading title="Forgot your password?" subtitle="Enter your email and we'll send you a link to set a new one." />
+      {error ? <AuthNotice tone="error">{error}</AuthNotice> : null}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void request();
+        }}
+        className="space-y-5"
+      >
+        <EmailField
+          value={email}
+          onChange={(v) => {
+            setEmail(v);
+            setError(null);
+          }}
+          disabled={isLoading}
+          autoFocus
+        />
+        <button type="submit" className={AUTH_BUTTON} disabled={isLoading || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())}>
+          {isLoading ? (
+            <>
+              <Loader2 aria-hidden="true" className="size-4 animate-spin" /> Sending…
+            </>
+          ) : (
+            "Send reset link"
+          )}
+        </button>
+      </form>
+      <BackToSignIn />
+    </>
+  );
+}
+
+function BackToSignIn() {
+  return (
+    <Link href="/login" className="mt-8 flex items-center justify-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+      <ArrowLeft aria-hidden="true" className="size-4" /> Back to sign in
+    </Link>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <AuthShell panelTitle="Locked out?" panelText="It happens. We'll email you a secure link so you can choose a new password.">
+      <Suspense fallback={<Loader2 aria-label="Loading" className="mx-auto size-6 animate-spin text-muted-foreground" />}>
+        <ForgotPasswordForm />
+      </Suspense>
+    </AuthShell>
   );
 }

@@ -119,7 +119,7 @@ export function ReportRichTextField({
     return (
       <div className="space-y-2">
         <div className="rounded-xl border bg-card px-3 py-6 text-xs text-muted-foreground">Loading editor…</div>
-        {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
+        {hint ? <p className="px-1 text-xs text-muted-foreground">{hint}</p> : null}
       </div>
     );
   }
@@ -172,7 +172,7 @@ export function ReportRichTextField({
         </div>
         <EditorContent editor={editor} />
       </div>
-      {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
+      {hint ? <p className="px-1 text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

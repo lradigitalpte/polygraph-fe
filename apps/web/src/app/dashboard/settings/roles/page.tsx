@@ -1,13 +1,9 @@
 ﻿"use client";
 
 import * as React from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, Pencil, Plus, Search, Shield, X } from "lucide-react";
+import { ChevronDown, KeyRound, Loader2, Pencil, Plus, Search, Shield, ShieldAlert, UserCheck, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,16 +13,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { GlassStat, HeroAction, PageHero, Segmented } from "@/components/dashboard/ui-kit";
+import { describeActivity } from "@/lib/activity-describe";
 import { fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
 import { fetchUsers, type UserRecord } from "@/lib/users";
 import {
@@ -37,6 +26,15 @@ import {
   type PermissionRecord,
   type RoleRecord,
 } from "@/lib/rbac";
+import { cn } from "@/lib/utils";
+
+const CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+const ACTIVITY_STEP = 8;
+
+type RoleFilter = "all" | "assigned" | "unassigned";
+type RoleSort = "name" | "users" | "permissions";
+type ActivityFilter = "changes" | "all" | "failed";
 
 function permissionLabel(permission: PermissionRecord): string {
   return permission.description || permission.name.replace(/:/g, " ");
@@ -73,114 +71,6 @@ function groupPermissions(permissions: PermissionRecord[]): Array<[string, Permi
   return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-type RoleFilter = "all" | "assigned" | "unassigned";
-type RoleSort = "name" | "users" | "permissions";
-type ActivityFilter = "all" | "success" | "error";
-
-const ROLES_PAGE_SIZES = [4, 6, 8] as const;
-const ACTIVITY_PAGE_SIZES = [5, 10, 15] as const;
-
-function buildPageNumbers(currentPage: number, totalPages: number): number[] {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
-  }
-  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
-  return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
-}
-
-function PaginationBar({
-  currentPage,
-  totalPages,
-  totalItems,
-  pageSize,
-  pageSizes,
-  onPageChange,
-  onPageSizeChange,
-  label,
-}: {
-  currentPage: number;
-  totalPages: number;
-  totalItems: number;
-  pageSize: number;
-  pageSizes: readonly number[];
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
-  label: string;
-}) {
-  const pageNumbers = buildPageNumbers(currentPage, totalPages);
-  if (totalItems === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-3 border-t border-border/50 pt-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-        <p className="text-xs text-muted-foreground">
-          Showing{" "}
-          <span className="font-semibold text-foreground">
-            {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalItems)}
-          </span>{" "}
-          of {totalItems} {label}
-        </p>
-        <div className="flex items-center gap-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-            Per page
-          </Label>
-          <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-            <SelectTrigger className="h-8 w-[72px] rounded-lg">
-              <SelectValue>{pageSize}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {pageSizes.map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      {totalPages > 1 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-lg px-2.5"
-            disabled={currentPage <= 1}
-            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          {pageNumbers.map((page, index) => {
-            const prev = pageNumbers[index - 1];
-            const showEllipsis = prev !== undefined && page - prev > 1;
-            return (
-              <React.Fragment key={page}>
-                {showEllipsis && <span className="px-1 text-xs text-muted-foreground">…</span>}
-                <Button
-                  variant={currentPage === page ? "default" : "ghost"}
-                  size="sm"
-                  className={cn("h-8 w-8 rounded-lg text-xs font-black")}
-                  onClick={() => onPageChange(page)}
-                >
-                  {page}
-                </Button>
-              </React.Fragment>
-            );
-          })}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-lg px-2.5"
-            disabled={currentPage >= totalPages}
-            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function RolesPage() {
   const [roles, setRoles] = React.useState<RoleRecord[]>([]);
   const [permissions, setPermissions] = React.useState<PermissionRecord[]>([]);
@@ -189,7 +79,7 @@ export default function RolesPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
-  const [creating, setCreating] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [editingRole, setEditingRole] = React.useState<RoleRecord | null>(null);
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -199,143 +89,80 @@ export default function RolesPage() {
   const [roleSearch, setRoleSearch] = React.useState("");
   const [roleFilter, setRoleFilter] = React.useState<RoleFilter>("all");
   const [roleSort, setRoleSort] = React.useState<RoleSort>("name");
-  const [rolePage, setRolePage] = React.useState(1);
-  const [rolesPerPage, setRolesPerPage] = React.useState<number>(6);
 
   const [activitySearch, setActivitySearch] = React.useState("");
-  const [activityFilter, setActivityFilter] = React.useState<ActivityFilter>("all");
-  const [activityPage, setActivityPage] = React.useState(1);
-  const [activityPerPage, setActivityPerPage] = React.useState<number>(5);
+  const [activityFilter, setActivityFilter] = React.useState<ActivityFilter>("changes");
+  const [activityShown, setActivityShown] = React.useState(ACTIVITY_STEP);
 
   const hasRoleFilters = Boolean(roleSearch.trim()) || roleFilter !== "all";
-  const hasActivityFilters = Boolean(activitySearch.trim()) || activityFilter !== "all";
 
-  React.useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const [roleData, permissionData, userData, auditData] = await Promise.all([
-          fetchRoles(),
-          fetchPermissions(),
-          fetchUsers(),
-          fetchAuditLogs(100),
-        ]);
-        if (!mounted) return;
-        setRoles(roleData);
-        setPermissions(permissionData);
-        setUsers(userData);
-        setActivity(roleActivities(auditData));
-      } catch (err) {
-        if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load roles");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
+  const load = React.useCallback(async () => {
+    try {
+      setError(null);
+      const [roleData, permissionData, userData, auditData] = await Promise.all([fetchRoles(), fetchPermissions(), fetchUsers(), fetchAuditLogs(100)]);
+      setRoles(roleData);
+      setPermissions(permissionData);
+      setUsers(userData);
+      setActivity(roleActivities(auditData));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load roles");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   React.useEffect(() => {
-    setRolePage(1);
-  }, [roleSearch, roleFilter, roleSort, rolesPerPage]);
+    void load();
+  }, [load]);
 
   React.useEffect(() => {
-    setActivityPage(1);
-  }, [activitySearch, activityFilter, activityPerPage]);
+    setActivityShown(ACTIVITY_STEP);
+  }, [activitySearch, activityFilter]);
 
   const filteredRoles = React.useMemo(() => {
     const q = roleSearch.trim().toLowerCase();
-    let rows = roles.filter((role) => {
+    const rows = roles.filter((role) => {
       const assignedUsers = roleUserCount(role, users);
-      const permissionText = (role.permissions || [])
-        .map((p) => permissionLabel(p))
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch =
-        !q ||
-        role.name.toLowerCase().includes(q) ||
-        (role.description ?? "").toLowerCase().includes(q) ||
-        permissionText.includes(q);
-
-      const matchesFilter =
-        roleFilter === "all" ||
-        (roleFilter === "assigned" && assignedUsers > 0) ||
-        (roleFilter === "unassigned" && assignedUsers === 0);
-
+      const permissionText = (role.permissions || []).map(permissionLabel).join(" ").toLowerCase();
+      const matchesSearch = !q || role.name.toLowerCase().includes(q) || (role.description ?? "").toLowerCase().includes(q) || permissionText.includes(q);
+      const matchesFilter = roleFilter === "all" || (roleFilter === "assigned" && assignedUsers > 0) || (roleFilter === "unassigned" && assignedUsers === 0);
       return matchesSearch && matchesFilter;
     });
-
-    rows = [...rows].sort((a, b) => {
-      if (roleSort === "users") {
-        return roleUserCount(b, users) - roleUserCount(a, users);
-      }
-      if (roleSort === "permissions") {
-        return (b.permissions?.length ?? 0) - (a.permissions?.length ?? 0);
-      }
+    return [...rows].sort((a, b) => {
+      if (roleSort === "users") return roleUserCount(b, users) - roleUserCount(a, users);
+      if (roleSort === "permissions") return (b.permissions?.length ?? 0) - (a.permissions?.length ?? 0);
       return a.name.localeCompare(b.name);
     });
-
-    return rows;
   }, [roles, users, roleSearch, roleFilter, roleSort]);
 
-  const rolesTotalPages = Math.max(1, Math.ceil(filteredRoles.length / rolesPerPage));
-  const paginatedRoles = filteredRoles.slice(
-    (rolePage - 1) * rolesPerPage,
-    rolePage * rolesPerPage,
+  const describedActivity = React.useMemo(
+    () => activity.map((log) => ({ log, described: describeActivity(log), failed: log.status >= 400 })),
+    [activity],
   );
-
-  React.useEffect(() => {
-    if (rolePage > rolesTotalPages) {
-      setRolePage(rolesTotalPages);
-    }
-  }, [rolePage, rolesTotalPages]);
+  const changeCount = describedActivity.filter((e) => e.described.kind === "change").length;
+  const failedCount = describedActivity.filter((e) => e.failed).length;
 
   const filteredActivity = React.useMemo(() => {
     const q = activitySearch.trim().toLowerCase();
-    return activity.filter((log) => {
-      const isError = log.status >= 400;
-      const matchesFilter =
-        activityFilter === "all" ||
-        (activityFilter === "success" && !isError) ||
-        (activityFilter === "error" && isError);
-
-      if (!matchesFilter) return false;
+    return describedActivity.filter(({ log, described, failed }) => {
+      if (activityFilter === "changes" && described.kind !== "change") return false;
+      if (activityFilter === "failed" && !failed) return false;
+      if (activityFilter === "all" && described.kind === "background") return false;
       if (!q) return true;
-
-      return (
-        log.action.toLowerCase().includes(q) ||
-        (log.userEmail ?? "").toLowerCase().includes(q) ||
-        log.path.toLowerCase().includes(q) ||
-        String(log.status).includes(q)
-      );
+      return described.title.toLowerCase().includes(q) || (log.userEmail ?? "").toLowerCase().includes(q);
     });
-  }, [activity, activitySearch, activityFilter]);
-
-  const activityTotalPages = Math.max(1, Math.ceil(filteredActivity.length / activityPerPage));
-  const paginatedActivity = filteredActivity.slice(
-    (activityPage - 1) * activityPerPage,
-    activityPage * activityPerPage,
-  );
-
-  React.useEffect(() => {
-    if (activityPage > activityTotalPages) {
-      setActivityPage(activityTotalPages);
-    }
-  }, [activityPage, activityTotalPages]);
+  }, [describedActivity, activitySearch, activityFilter]);
 
   const togglePermission = (id: number, checked: boolean) => {
     setSelectedPermissions((current) => {
-      if (checked) {
-        return current.includes(id) ? current : [...current, id];
-      }
+      if (checked) return current.includes(id) ? current : [...current, id];
       return current.filter((value) => value !== id);
     });
+  };
+
+  const setGroup = (items: PermissionRecord[], checked: boolean) => {
+    const ids = new Set(items.map((p) => p.id));
+    setSelectedPermissions((current) => (checked ? Array.from(new Set([...current, ...ids])) : current.filter((id) => !ids.has(id))));
   };
 
   const openCreate = () => {
@@ -360,7 +187,7 @@ export default function RolesPage() {
       return;
     }
 
-    setCreating(true);
+    setSaving(true);
     try {
       if (editingRole) {
         const updated = await updateRole(editingRole.id, {
@@ -381,331 +208,402 @@ export default function RolesPage() {
       }
       setOpen(false);
       setEditingRole(null);
-      setName("");
-      setDescription("");
-      setSelectedPermissions([]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save role");
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-medium">Roles & Permissions</h3>
-          <p className="text-sm text-muted-foreground">
-            Define access levels and security permissions for your team.
-          </p>
+    <div className="space-y-5 pb-10">
+      <PageHero
+        tone="terracotta"
+        icon={Shield}
+        eyebrow="People & access"
+        title={<>Roles &amp; <strong className="font-semibold">permissions</strong></>}
+        description="Define access levels and security permissions for your team."
+        actions={
+          <HeroAction variant="primary" icon={Plus} onClick={openCreate}>
+            Create role
+          </HeroAction>
+        }
+      >
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <GlassStat label="Roles" value={roles.length} hint="Access levels defined" icon={Shield} accent="terracotta" loading={loading} />
+          <GlassStat label="Permissions" value={permissions.length} hint="Things a role can allow" icon={KeyRound} accent="lavender" loading={loading} />
+          <GlassStat label="Active users" value={users.filter((u) => u.status.toLowerCase() === "active").length} hint="Assigned to a role" icon={UserCheck} accent="sage" loading={loading} />
+          <GlassStat
+            label="Unused roles"
+            value={roles.filter((r) => roleUserCount(r, users) === 0).length}
+            hint="No active users yet"
+            icon={ShieldAlert}
+            accent="amber"
+            loading={loading}
+          />
         </div>
-        <Button className="gap-2" onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          Create Role
-        </Button>
-      </div>
+      </PageHero>
 
       {loading ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-muted-foreground">Loading roles...</CardContent>
-        </Card>
+        <div aria-hidden="true" className="grid gap-4 md:grid-cols-2">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-52 animate-pulse rounded-[26px] bg-white ring-1 ring-border/50 dark:bg-card" />
+          ))}
+        </div>
       ) : error ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-destructive">{error}</CardContent>
-        </Card>
+        <div role="alert" className="flex flex-col items-start gap-3 rounded-[26px] bg-[#F8E4E0] p-5 text-sm text-[#7A2A1E] dark:bg-red-950/60 dark:text-red-200">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+            className="flex h-9 items-center rounded-full px-4 text-sm font-medium ring-1 ring-current/30 transition-colors hover:bg-white/50"
+          >
+            Try again
+          </button>
+        </div>
       ) : (
         <>
-          <div className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/40 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          {/* Toolbar */}
+          <div className={cn(CARD, "flex flex-col gap-3 p-4 lg:flex-row lg:items-center")}>
+            <div className="relative flex-1">
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="pl-10 h-10 rounded-xl"
-                placeholder="Search roles or permissions..."
+                aria-label="Search roles or permissions"
+                placeholder="Search roles or permissions…"
+                className={cn(FIELD, "pl-10")}
                 value={roleSearch}
                 onChange={(e) => setRoleSearch(e.target.value)}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as RoleFilter)}>
-                <SelectTrigger className="h-10 w-[160px] rounded-xl">
-                  <SelectValue>
-                    {roleFilter === "all"
-                      ? "All roles"
-                      : roleFilter === "assigned"
-                        ? "Has users"
-                        : "No users"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All roles</SelectItem>
-                  <SelectItem value="assigned">Has users assigned</SelectItem>
-                  <SelectItem value="unassigned">No users assigned</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={roleSort} onValueChange={(v) => setRoleSort(v as RoleSort)}>
-                <SelectTrigger className="h-10 w-[160px] rounded-xl">
-                  <SelectValue>
-                    {roleSort === "name"
-                      ? "Sort: Name"
-                      : roleSort === "users"
-                        ? "Sort: Users"
-                        : "Sort: Permissions"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="name">Sort by name</SelectItem>
-                  <SelectItem value="users">Sort by user count</SelectItem>
-                  <SelectItem value="permissions">Sort by permissions</SelectItem>
-                </SelectContent>
-              </Select>
-              {hasRoleFilters && (
-                <Button
-                  variant="ghost"
-                  className="h-10 rounded-xl gap-1.5"
-                  onClick={() => {
-                    setRoleSearch("");
-                    setRoleFilter("all");
-                  }}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Clear
-                </Button>
-              )}
+            <Segmented<RoleFilter>
+              label="Filter roles"
+              value={roleFilter}
+              onChange={setRoleFilter}
+              options={[
+                { value: "all", label: "All roles" },
+                { value: "assigned", label: "Has users" },
+                { value: "unassigned", label: "No users" },
+              ]}
+            />
+            <div className="relative">
+              <select
+                aria-label="Sort roles"
+                value={roleSort}
+                onChange={(e) => setRoleSort(e.target.value as RoleSort)}
+                className="h-11 w-full appearance-none rounded-full bg-[#F3F1EA] pr-9 pl-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:w-44 dark:bg-muted"
+              >
+                <option value="name">Sort: Name</option>
+                <option value="users">Sort: Users</option>
+                <option value="permissions">Sort: Permissions</option>
+              </select>
+              <ChevronDown aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
             </div>
+            {hasRoleFilters ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRoleSearch("");
+                  setRoleFilter("all");
+                }}
+                className="flex h-11 items-center gap-1.5 self-start rounded-full px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground lg:self-auto dark:hover:bg-muted"
+              >
+                <X aria-hidden="true" className="size-4" />
+                Clear
+              </button>
+            ) : null}
           </div>
 
+          {/* Roles */}
           {filteredRoles.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                {hasRoleFilters ? "No roles match your filters." : "No roles found."}
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                {paginatedRoles.map((role) => {
-              const assignedUsers = roleUserCount(role, users);
-              const previewPermissions = (role.permissions || []).slice(0, 4);
-              return (
-                <Card key={role.id} className="relative overflow-hidden group">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-primary">
-                        <Shield className="h-5 w-5" />
-                        <CardTitle className="text-base">{role.name}</CardTitle>
-                      </div>
-                      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => openEdit(role)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </Button>
-                    </div>
-                    <CardDescription className="text-xs">
-                      {assignedUsers} active user{assignedUsers === 1 ? "" : "s"} assigned · {(role.permissions || []).length} permission{(role.permissions || []).length === 1 ? "" : "s"}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                      {role.description || "No description provided for this role yet."}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {previewPermissions.length === 0 ? (
-                        <Badge variant="outline">No permissions attached</Badge>
-                      ) : (
-                        <>
-                          {previewPermissions.map((permission) => (
-                            <Badge key={permission.id} variant="outline">
-                              {permissionLabel(permission)}
-                            </Badge>
-                          ))}
-                          {(role.permissions || []).length > previewPermissions.length && (
-                            <Badge variant="secondary">
-                              +{(role.permissions || []).length - previewPermissions.length} more
-                            </Badge>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            <div className={cn(CARD, "flex flex-col items-center gap-3 px-6 py-14 text-center")}>
+              <span className="flex size-12 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+                <Shield aria-hidden="true" className="size-5 text-muted-foreground" />
+              </span>
+              <div>
+                <p className="font-medium">{hasRoleFilters ? "No roles match your filters" : "No roles yet"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {hasRoleFilters ? "Try a different search or clear the filters." : "Create a role to start grouping permissions for your team."}
+                </p>
               </div>
-
-              <PaginationBar
-                currentPage={rolePage}
-                totalPages={rolesTotalPages}
-                totalItems={filteredRoles.length}
-                pageSize={rolesPerPage}
-                pageSizes={ROLES_PAGE_SIZES}
-                onPageChange={setRolePage}
-                onPageSizeChange={setRolesPerPage}
-                label="roles"
-              />
-            </>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {filteredRoles.map((role) => (
+                <RoleCard key={role.id} role={role} userCount={roleUserCount(role, users)} totalByGroup={groupedPermissions} onEdit={() => openEdit(role)} />
+              ))}
+            </div>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Role Activity</CardTitle>
-              <CardDescription>
-                Latest changes and access events related to roles and permissions.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    className="pl-10 h-10 rounded-xl"
-                    placeholder="Search activity, user, or path..."
-                    value={activitySearch}
-                    onChange={(e) => setActivitySearch(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value={activityFilter}
-                    onValueChange={(v) => setActivityFilter(v as ActivityFilter)}
-                  >
-                    <SelectTrigger className="h-10 w-[140px] rounded-xl">
-                      <SelectValue>
-                        {activityFilter === "all"
-                          ? "All events"
-                          : activityFilter === "success"
-                            ? "Success"
-                            : "Errors"}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All events</SelectItem>
-                      <SelectItem value="success">Success only</SelectItem>
-                      <SelectItem value="error">Errors only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {hasActivityFilters && (
-                    <Button
-                      variant="ghost"
-                      className="h-10 rounded-xl gap-1.5"
-                      onClick={() => {
-                        setActivitySearch("");
-                        setActivityFilter("all");
-                      }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
+          {/* Activity */}
+          <section aria-labelledby="role-activity-title" className="space-y-3 pt-3">
+            <div>
+              <h2 id="role-activity-title" className="text-lg font-medium tracking-[-0.01em]">
+                Recent role activity
+              </h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">Latest changes and access events related to roles and permissions.</p>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className="relative flex-1">
+                <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  aria-label="Search activity"
+                  placeholder="Search activity or person…"
+                  className={cn(FIELD, "bg-white pl-10 ring-1 ring-border/50 dark:bg-card")}
+                  value={activitySearch}
+                  onChange={(e) => setActivitySearch(e.target.value)}
+                />
               </div>
+              <Segmented<ActivityFilter>
+                label="Filter activity"
+                value={activityFilter}
+                onChange={setActivityFilter}
+                options={[
+                  { value: "changes", label: "Changes", count: changeCount },
+                  { value: "all", label: "All events" },
+                  { value: "failed", label: "Failed", count: failedCount, disabled: failedCount === 0 },
+                ]}
+              />
+            </div>
 
-              {filteredActivity.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  {hasActivityFilters ? "No activity matches your filters." : "No role activity recorded yet."}
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    {paginatedActivity.map((log) => (
-                    <div key={log.id} className="rounded-lg border p-4">
-                      <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <div className="font-medium">{log.action}</div>
-                        <Badge variant={log.status >= 400 ? "warning" : "success"}>{log.status}</Badge>
+            {filteredActivity.length === 0 ? (
+              <div className={cn(CARD, "px-6 py-12 text-center")}>
+                <p className="font-medium">{activitySearch.trim() ? "No activity matches your search" : activityFilter === "changes" ? "No role changes recorded yet" : "No role activity recorded yet"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {activityFilter === "changes" && activity.length > 0 ? "Switch to All events to see who has opened this page." : "Creating or editing a role will show up here."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <ul className={cn(CARD, "divide-y divide-border/50 overflow-hidden")}>
+                  {filteredActivity.slice(0, activityShown).map(({ log, described, failed }) => (
+                    <li key={log.id} className="flex items-center gap-3 px-5 py-3.5" title={`${log.method} ${log.path}`}>
+                      <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", failed ? "bg-[#B94A3E]" : described.kind === "change" ? "bg-primary" : "bg-[#C9C5B8] dark:bg-zinc-600")} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm">
+                          <span className={cn(described.kind === "change" && "font-medium")}>{described.title}</span>
+                          {failed ? <span className="ml-2 rounded-full bg-[#F8E4E0] px-2 py-0.5 text-[11px] font-medium text-[#7A2A1E] dark:bg-red-950/60 dark:text-red-200">Failed</span> : null}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">{log.userEmail || "System"}</p>
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">{log.userEmail || "System"} · {formatRelative(log.createdAt)}</div>
-                    </div>
+                      <time className="shrink-0 text-xs text-muted-foreground" dateTime={log.createdAt}>
+                        {formatRelative(log.createdAt)}
+                      </time>
+                    </li>
                   ))}
-                  </div>
-
-                  <PaginationBar
-                    currentPage={activityPage}
-                    totalPages={activityTotalPages}
-                    totalItems={filteredActivity.length}
-                    pageSize={activityPerPage}
-                    pageSizes={ACTIVITY_PAGE_SIZES}
-                    onPageChange={setActivityPage}
-                    onPageSizeChange={setActivityPerPage}
-                    label="events"
-                  />
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="bg-primary/5 border-dashed border-primary/20">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <Shield className="h-12 w-12 text-primary/40 mb-4" />
-              <h4 className="font-bold">Need custom permissions?</h4>
-              <p className="text-sm text-muted-foreground max-w-sm mb-6">
-                Create roles with granular permission sets that match your organization workflow.
-              </p>
-              <Button variant="outline" onClick={openCreate}>Create Custom Role</Button>
-            </CardContent>
-          </Card>
+                </ul>
+                {filteredActivity.length > activityShown ? (
+                  <button
+                    type="button"
+                    onClick={() => setActivityShown((n) => n + ACTIVITY_STEP)}
+                    className="mx-auto flex h-10 items-center rounded-full px-5 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+                  >
+                    Show {Math.min(ACTIVITY_STEP, filteredActivity.length - activityShown)} more
+                    <span className="ml-1.5 text-muted-foreground">· {filteredActivity.length - activityShown} left</span>
+                  </button>
+                ) : null}
+              </>
+            )}
+          </section>
         </>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+      {/* Create / edit */}
+      <Dialog open={open} onOpenChange={(next) => !saving && setOpen(next)}>
+        <DialogContent className="flex max-h-[90vh] flex-col rounded-[26px] sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingRole ? `Edit ${editingRole.name}` : "Create Role"}</DialogTitle>
-            <DialogDescription>
-              Define a role name, describe its purpose, and toggle its permissions.
-            </DialogDescription>
+            <DialogTitle>{editingRole ? `Edit ${editingRole.name}` : "Create role"}</DialogTitle>
+            <DialogDescription>Define a role name, describe its purpose, and choose what it can do.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="role-name">Role name</Label>
-              <Input id="role-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Lead Reviewer" />
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="grid gap-1.5">
+              <label htmlFor="role-name" className="px-1 text-[13px] font-medium">
+                Role name
+              </label>
+              <Input id="role-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Lead Reviewer" className={cn(FIELD, "pl-3.5")} />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="role-description">Description</Label>
+            <div className="grid gap-1.5">
+              <label htmlFor="role-description" className="px-1 text-[13px] font-medium">
+                Description <span className="font-normal text-muted-foreground">(optional)</span>
+              </label>
               <Textarea
                 id="role-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Can review exams and approve final reports."
-                className="min-h-24"
+                className="min-h-20 rounded-xl border-0 bg-[#F3F1EA] px-3.5 py-3 text-sm shadow-none dark:bg-muted"
               />
             </div>
+
             <div className="grid gap-3">
-              <Label>Permissions</Label>
-              <div className="space-y-4 max-h-112 overflow-auto pr-1">
-                {groupedPermissions.map(([group, items]) => (
-                  <div key={group} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold">{group}</div>
-                      <Badge variant="outline">{items.length}</Badge>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {items.map((permission) => {
-                        const checked = selectedPermissions.includes(permission.id);
-                        return (
-                          <label key={permission.id} className="flex items-start gap-3 rounded-lg border p-3 cursor-pointer">
-                            <Checkbox checked={checked} onCheckedChange={(value) => togglePermission(permission.id, Boolean(value))} />
-                            <div>
-                              <div className="text-sm font-medium">{permission.name}</div>
-                              <div className="text-xs text-muted-foreground">{permission.description || "No description"}</div>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[13px] font-medium">Permissions</span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {selectedPermissions.length} of {permissions.length} selected
+                </span>
               </div>
+              {groupedPermissions.map(([group, items]) => {
+                const selectedInGroup = items.filter((p) => selectedPermissions.includes(p.id)).length;
+                const allSelected = selectedInGroup === items.length;
+                return (
+                  <section key={group} aria-label={group} className="overflow-hidden rounded-2xl bg-[#F7F6F1] dark:bg-muted/40">
+                    <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+                      <h3 className="text-sm font-medium">
+                        {group} <span className="ml-1 text-xs font-normal text-muted-foreground tabular-nums">{selectedInGroup}/{items.length}</span>
+                      </h3>
+                      <button type="button" onClick={() => setGroup(items, !allSelected)} className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+                        {allSelected ? "Clear all" : "Select all"}
+                      </button>
+                    </div>
+                    <ul className="divide-y divide-border/40 border-t border-border/40 bg-white dark:bg-card">
+                      {items.map((permission) => (
+                        <li key={permission.id}>
+                          <PermissionSwitch permission={permission} checked={selectedPermissions.includes(permission.id)} onChange={(checked) => togglePermission(permission.id, checked)} />
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={handleSaveRole} disabled={creating}>
-              {creating ? "Saving..." : editingRole ? "Save Changes" : "Create Role"}
-            </Button>
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              disabled={saving}
+              className="flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveRole()}
+              disabled={saving || !name.trim()}
+              className="flex h-10 items-center justify-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-50 dark:bg-secondary dark:text-secondary-foreground"
+            >
+              {saving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+              {saving ? "Saving…" : editingRole ? "Save changes" : "Create role"}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function RoleCard({
+  role,
+  userCount,
+  totalByGroup,
+  onEdit,
+}: {
+  role: RoleRecord;
+  userCount: number;
+  totalByGroup: Array<[string, PermissionRecord[]]>;
+  onEdit: () => void;
+}) {
+  const granted = role.permissions ?? [];
+  const total = totalByGroup.reduce((n, [, items]) => n + items.length, 0);
+  const grantedGroups = groupPermissions(granted);
+  const totalFor = (group: string) => totalByGroup.find(([g]) => g === group)?.[1].length ?? 0;
+
+  return (
+    <article className={cn(CARD, "flex flex-col gap-4 p-5 sm:p-6")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#30302E] text-[#FAF9F5] dark:bg-secondary dark:text-secondary-foreground">
+            <Shield aria-hidden="true" className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-[15px] font-medium" title={role.name}>
+              {role.name}
+            </h2>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Users aria-hidden="true" className="size-3.5 shrink-0" />
+              {userCount} active {userCount === 1 ? "user" : "users"}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit ${role.name}`}
+          title={`Edit ${role.name}`}
+          className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+        >
+          <Pencil aria-hidden="true" className="size-3.5" />
+          Edit
+        </button>
+      </div>
+
+      <p className={cn("line-clamp-2 min-h-10 text-sm", role.description ? "text-foreground/80" : "text-muted-foreground")}>
+        {role.description || "No description yet."}
+      </p>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <div
+            role="progressbar"
+            aria-label={`${role.name} permissions`}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={granted.length}
+            className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#ECE9E0] dark:bg-muted"
+          >
+            <div className="h-full rounded-full bg-[#30302E] dark:bg-secondary" style={{ width: total ? `${(granted.length / total) * 100}%` : "0%" }} />
+          </div>
+          <span className="text-xs font-medium text-muted-foreground tabular-nums">
+            {granted.length}/{total} permissions
+          </span>
+        </div>
+
+        {grantedGroups.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No permissions attached.</p>
+        ) : (
+          <ul className="flex flex-wrap gap-1.5">
+            {grantedGroups.map(([group, items]) => (
+              <li key={group} className="rounded-full bg-[#ECE9E0] px-2.5 py-1 text-xs font-medium text-[#3D3929] dark:bg-muted dark:text-foreground">
+                {group} <span className="tabular-nums opacity-70">{items.length}/{totalFor(group) || items.length}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function PermissionSwitch({ permission, checked, onChange }: { permission: PermissionRecord; checked: boolean; onChange: (checked: boolean) => void }) {
+  const id = React.useId();
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="min-w-0">
+        <label htmlFor={id} className="cursor-pointer text-sm font-medium">
+          {permissionLabel(permission)}
+        </label>
+        <p className="truncate font-mono text-[11px] text-muted-foreground">{permission.name}</p>
+      </div>
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          checked ? "bg-[#30302E] dark:bg-[#5FA86C]" : "bg-[#D9D5CA] dark:bg-zinc-600",
+        )}
+      >
+        <span aria-hidden="true" className={cn("absolute top-0.5 left-0.5 block size-5 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-5" : "translate-x-0")} />
+      </button>
     </div>
   );
 }

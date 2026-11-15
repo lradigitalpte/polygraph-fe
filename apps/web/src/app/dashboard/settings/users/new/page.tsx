@@ -3,23 +3,45 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
-import { ArrowLeft, Eye, EyeOff, KeyRound, Loader2, Mail, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
+import { ArrowLeft, Check, Eye, EyeOff, Loader2, Mail, Sparkles, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHero } from "@/components/dashboard/ui-kit";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { createUser, fetchRoles, type RoleRecord } from "@/lib/users";
+import { cn } from "@/lib/utils";
 
-const ROLE_META: Record<string, { description: string; color: string }> = {
-  Admin: { description: "Full system access including billing and audit logs", color: "text-rose-500" },
-  Examiner: { description: "Access to assigned exams, calendar, and subject profiles", color: "text-sky-500" },
-  User: { description: "Basic read-only access to assigned resources", color: "text-emerald-500" },
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+const CARD = "rounded-[26px] bg-white p-5 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-6 dark:bg-card";
+
+const ROLE_DESCRIPTIONS: Record<string, string> = {
+  Admin: "Full system access including billing and audit logs.",
+  Examiner: "Assigned exams, calendar and examinee profiles.",
+  User: "Basic read-only access to assigned resources.",
 };
+
+function generatePassword(length = 14): string {
+  const sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%&*?"];
+  const all = sets.join("");
+  const pick = (chars: string) => chars[crypto.getRandomValues(new Uint32Array(1))[0] % chars.length];
+  const out = sets.map(pick); // guarantee one of each kind
+  while (out.length < length) out.push(pick(all));
+  // Fisher–Yates shuffle
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out.join("");
+}
+
+function strengthOf(password: string): { label: string; bar: string; text: string; pct: number } | null {
+  if (!password) return null;
+  if (password.length < 8) return { label: "Too short", bar: "bg-[#B94A3E]", text: "text-[#B94A3E]", pct: 25 };
+  if (password.length < 10) return { label: "Weak", bar: "bg-[#C98A1F]", text: "text-[#8A5A12] dark:text-amber-300", pct: 50 };
+  if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) return { label: "Fair", bar: "bg-[#B8A21F]", text: "text-[#6B5E10] dark:text-yellow-300", pct: 75 };
+  return { label: "Strong", bar: "bg-[#3F7A37]", text: "text-[#2D5A27] dark:text-emerald-300", pct: 100 };
+}
 
 export default function NewUserPage() {
   const router = useRouter();
@@ -30,18 +52,12 @@ export default function NewUserPage() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
   const [roleId, setRoleId] = React.useState("");
 
-  const selectedRole = roles.find((r) => String(r.id) === roleId);
-  const roleMeta = selectedRole ? ROLE_META[selectedRole.name] : null;
-
-  const passwordStrength = React.useMemo(() => {
-    if (!password) return null;
-    if (password.length < 8) return { label: "Too short", color: "bg-rose-500", width: "w-1/4" };
-    if (password.length < 10) return { label: "Weak", color: "bg-amber-500", width: "w-2/4" };
-    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) return { label: "Fair", color: "bg-yellow-400", width: "w-3/4" };
-    return { label: "Strong", color: "bg-emerald-500", width: "w-full" };
-  }, [password]);
+  const strength = React.useMemo(() => strengthOf(password), [password]);
+  const emailValid = /^\S+@\S+\.\S+$/.test(email.trim());
+  const canSubmit = name.trim() !== "" && emailValid && roleId !== "" && password.length >= 8 && !loading && !rolesLoading;
 
   React.useEffect(() => {
     let mounted = true;
@@ -57,13 +73,35 @@ export default function NewUserPage() {
         if (mounted) setRolesLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  const handleGenerate = () => {
+    setPassword(generatePassword());
+    setShowPassword(true);
+    setCopied(false);
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't copy to clipboard");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !roleId || !password) {
       toast.error("All fields are required");
+      return;
+    }
+    if (!emailValid) {
+      toast.error("Enter a valid email address");
       return;
     }
     if (password.length < 8) {
@@ -90,13 +128,9 @@ export default function NewUserPage() {
       });
 
       if (authPayload?.emailWarning) {
-        toast.warning(
-          `${name.trim()} created, but the set-password email failed: ${authPayload.emailWarning}. Share the temporary password instead.`
-        );
+        toast.warning(`${name.trim()} created, but the set-password email failed: ${authPayload.emailWarning}. Share the temporary password instead.`);
       } else {
-        toast.success(
-          `${name.trim()} created — a set-password email has been sent to ${email.trim()}.`
-        );
+        toast.success(`${name.trim()} created — a set-password email has been sent to ${email.trim()}.`);
       }
       router.push(`/dashboard/settings/users/${user.id}` as Route);
     } catch (err) {
@@ -107,155 +141,196 @@ export default function NewUserPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" className="shrink-0" render={<Link href="/dashboard/settings/users" />}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div>
-          <h3 className="text-lg font-semibold">Create New User</h3>
-          <p className="text-sm text-muted-foreground">Set up credentials and assign a role before the person signs in.</p>
-        </div>
-      </div>
+    <div className="max-w-2xl space-y-5 pb-10">
+      <Link
+        href="/dashboard/settings/users"
+        className="inline-flex h-9 items-center gap-1.5 rounded-full pr-3 pl-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+      >
+        <ArrowLeft aria-hidden="true" className="size-4" />
+        All users
+      </Link>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <PageHero
+        tone="lavender"
+        icon={UserPlus}
+        eyebrow="People & access"
+        title={<>Invite a <strong className="font-semibold">teammate</strong></>}
+        description="Set up their details and role. They'll get an email to choose their own password."
+      />
+
+      <form onSubmit={handleSubmit} className="space-y-5">
         {/* Identity */}
-        <Card className="border-border/70">
-          <CardContent className="p-5 space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <UserRound className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Identity</span>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-1.5">
-                <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Jane Smith"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="email">
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                    Email Address
-                  </span>
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="jane@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <section className={cn(CARD, "space-y-4")}>
+          <h2 className="text-[15px] font-medium">Who are they?</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field id="name" label="Full name">
+              <Input id="name" placeholder="Jane Smith" className={FIELD} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
+            </Field>
+            <Field id="email" label="Email address" error={email.trim() !== "" && !emailValid ? "Enter a valid email address." : undefined}>
+              <Input
+                id="email"
+                type="email"
+                placeholder="jane@example.com"
+                className={FIELD}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="off"
+                aria-invalid={email.trim() !== "" && !emailValid}
+              />
+            </Field>
+          </div>
+        </section>
 
-        {/* Credentials */}
-        <Card className="border-border/70">
-          <CardContent className="p-5 space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <KeyRound className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Temporary Password</span>
+        {/* Role */}
+        <section className={cn(CARD, "space-y-4")}>
+          <div>
+            <h2 className="text-[15px] font-medium">What can they do?</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">You can fine-tune individual permissions after the account is created.</p>
+          </div>
+          {rolesLoading ? (
+            <div aria-hidden="true" className="grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((i) => (
+                <div key={i} className="h-24 animate-pulse rounded-2xl bg-[#F3F1EA] dark:bg-muted" />
+              ))}
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
+          ) : (
+            <div role="radiogroup" aria-label="Access role" className="grid gap-3 sm:grid-cols-2">
+              {roles.map((role) => {
+                const selected = String(role.id) === roleId;
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setRoleId(String(role.id))}
+                    className={cn(
+                      "flex items-start gap-3 rounded-2xl p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                      selected ? "bg-[#30302E] text-[#FAF9F5] dark:bg-secondary dark:text-secondary-foreground" : "bg-[#F7F6F1] hover:bg-[#F0EEE6] dark:bg-muted/40 dark:hover:bg-muted",
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn("mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ring-1", selected ? "bg-[#FAF9F5] text-[#30302E] ring-transparent" : "ring-border")}
+                    >
+                      {selected ? <Check className="size-3" strokeWidth={3} /> : null}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{role.name}</span>
+                      <span className={cn("mt-0.5 block text-xs", selected ? "text-[#D9D5CA]" : "text-muted-foreground")}>
+                        {role.description || ROLE_DESCRIPTIONS[role.name] || "Custom role."}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Password */}
+        <section className={cn(CARD, "space-y-4")}>
+          <div>
+            <h2 className="text-[15px] font-medium">Temporary password</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">They can change it after signing in, under Profile → Security.</p>
+          </div>
+
+          <Field id="password" label="Password">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Min. 8 characters"
+                  placeholder="At least 8 characters"
+                  className={cn(FIELD, "pr-11", showPassword && "font-mono")}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pr-10"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setCopied(false);
+                  }}
                   autoComplete="new-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute top-1/2 right-2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white hover:text-foreground dark:hover:bg-card"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPassword ? <EyeOff aria-hidden="true" className="size-4" /> : <Eye aria-hidden="true" className="size-4" />}
                 </button>
               </div>
-              {passwordStrength && (
-                <div className="space-y-1">
-                  <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${passwordStrength.color} ${passwordStrength.width}`} />
-                  </div>
-                  <p className={`text-xs font-medium ${passwordStrength.color.replace("bg-", "text-")}`}>
-                    {passwordStrength.label}
-                  </p>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">The user can change this after signing in via Profile → Security.</p>
+              <button
+                type="button"
+                onClick={handleGenerate}
+                className="flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+              >
+                <Sparkles aria-hidden="true" className="size-4" />
+                <span className="hidden sm:inline">Generate</span>
+              </button>
             </div>
-          </CardContent>
-        </Card>
+          </Field>
 
-        {/* Role */}
-        <Card className="border-border/70">
-          <CardContent className="p-5 space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Access Role</span>
+          {strength ? (
+            <div className="flex items-center gap-3">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#ECE9E0] dark:bg-muted">
+                <div className={cn("h-full rounded-full transition-all", strength.bar)} style={{ width: `${strength.pct}%` }} />
+              </div>
+              <span className={cn("w-16 text-right text-xs font-medium", strength.text)}>{strength.label}</span>
+              {password ? (
+                <button
+                  type="button"
+                  onClick={() => void handleCopy()}
+                  className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              ) : null}
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="role">Assigned Role</Label>
-              <Select value={roleId} onValueChange={(v) => setRoleId(String(v))} disabled={rolesLoading}>
-                <SelectTrigger id="role">
-                  <SelectValue placeholder={rolesLoading ? "Loading roles..." : "Select a role"}>
-                    {selectedRole?.name}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={String(role.id)}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {roleMeta && (
-                <div className="flex items-start gap-2 rounded border border-border/70 bg-muted/30 px-3 py-2">
-                  <Badge variant="outline" className={`mt-0.5 shrink-0 rounded-none text-[11px] ${roleMeta.color}`}>
-                    {selectedRole?.name}
-                  </Badge>
-                  <p className="text-xs text-muted-foreground">{roleMeta.description}</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+          ) : null}
+        </section>
 
         {/* Actions */}
-        <div className="flex items-center gap-3 pt-1">
-          <Button type="submit" disabled={loading || rolesLoading} className="min-w-32">
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              "Create User"
-            )}
-          </Button>
-          <Button variant="outline" type="button" render={<Link href="/dashboard/settings/users" />}>
-            Cancel
-          </Button>
-          <p className="ml-auto text-xs text-muted-foreground hidden sm:block">
-            User can sign in at <span className="font-medium">/login</span> immediately after creation.
+        <div className="flex flex-col gap-3 rounded-[26px] bg-[#F7F6F1] p-4 sm:flex-row sm:items-center sm:justify-between dark:bg-muted/40">
+          <p className="flex items-start gap-2 text-[13px] text-muted-foreground">
+            <Mail aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Creating the user sends a set-password email to <span className="font-medium text-foreground">{emailValid ? email.trim() : "their address"}</span>.
+            </span>
           </p>
+          <div className="flex shrink-0 gap-2">
+            <Link
+              href="/dashboard/settings/users"
+              className="flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-white dark:hover:bg-muted"
+            >
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="flex h-10 min-w-32 items-center justify-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-50 dark:bg-secondary dark:text-secondary-foreground"
+            >
+              {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+              {loading ? "Creating…" : "Create user"}
+            </button>
+          </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function Field({ id, label, error, children }: { id: string; label: string; error?: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-1.5">
+      <label htmlFor={id} className="px-1 text-[13px] font-medium">
+        {label}
+      </label>
+      {children}
+      {error ? (
+        <p role="alert" className="px-1 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

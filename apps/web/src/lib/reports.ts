@@ -4,6 +4,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export type SecureReportShare = {
   id: number;
+  /** Set when the link was created but the email didn't go out. */
+  email_error?: string;
   created_at: string;
   updated_at: string;
   exam_report_id: number;

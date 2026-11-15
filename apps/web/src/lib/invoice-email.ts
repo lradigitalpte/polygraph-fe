@@ -12,11 +12,12 @@ export function buildInvoicePaymentEmailBody(input: {
   chargeAmount: number;
   /** What the customer pays at checkout when processing fee is included (optional). */
   checkoutPayTotal?: number;
-  agreementLink?: string;
+  /** The email carries a "Review & sign agreements" button for the client's terms. */
+  includeAgreements?: boolean;
   /** Bank transfer option listed after the card payment steps. */
   bankAccounts?: BankDetails[];
 }) {
-  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, agreementLink, bankAccounts } =
+  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, includeAgreements, bankAccounts } =
     input;
   const balance = Math.max(0, totalAmount - paidAmount);
   const safeCharge = Math.max(0, Math.min(chargeAmount || balance, balance));
@@ -59,23 +60,17 @@ export function buildInvoicePaymentEmailBody(input: {
   }
   lines.push("");
   lines.push("Next steps:");
-  lines.push("1) Review and sign the payment / booking approval agreement (required before we proceed).");
-  if (agreementLink) {
-    lines.push(`   Sign here: ${agreementLink}`);
-  } else {
-    lines.push(
-      "   If you received a separate agreement email, please sign that first. Otherwise reply to this email and we will resend the signing link.",
-    );
+  let step = 1;
+  if (includeAgreements) {
+    lines.push(`${step++}) Review and sign your agreements with the "Review & sign agreements" button below (required before we proceed).`);
   }
   lines.push(
     isDeposit
-      ? `2) Pay the deposit of ${payNowLabel} using the secure payment link at the bottom of this email.`
-      : `2) Pay ${payNowLabel} using the secure payment link at the bottom of this email.`,
+      ? `${step++}) Pay the deposit of ${payNowLabel} with the "Pay invoice online" button below.`
+      : `${step++}) Pay ${payNowLabel} with the "Pay invoice online" button below.`,
   );
   if (isDeposit) {
-    lines.push(
-      `3) The remaining ${remainingLabel} can be paid later (we can send another payment link when ready).`,
-    );
+    lines.push(`${step++}) The remaining ${remainingLabel} can be paid later (we can send another payment link when ready).`);
   }
   const bankText = bankDetailsEmailText(bankAccounts, code);
   if (bankText) {

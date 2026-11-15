@@ -2,19 +2,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import {
-  DocumentVaultTabs,
-  type VaultDocument,
-} from "@/components/dashboard/document-vault-tabs";
+import { DocumentVaultTabs, VAULT_CARD, type VaultDocument } from "@/components/dashboard/document-vault-tabs";
 import { DocumentSharesPanel } from "@/components/dashboard/document-shares-panel";
 import { FormRequestsPanel } from "@/components/dashboard/form-requests-panel";
 import { SendFormDialog } from "@/components/dashboard/send-form-dialog";
@@ -30,16 +18,30 @@ import {
   formatSubjectName,
   uploadSubjectDocument,
 } from "@/lib/subjects";
-import { Loader2, Send, Upload } from "lucide-react";
+import { Check, Loader2, Send, Upload } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const UPLOAD_TYPES = [
+  { value: "test_chart", label: "Test chart" },
+  { value: "biometric_trace", label: "Biometric trace" },
+  { value: "report", label: "Report" },
+  { value: "consent_form", label: "Consent (scan)" },
+  { value: "upload", label: "General file" },
+] as const;
+
+const chip = (active: boolean) =>
+  cn(
+    "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+    active ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background" : "bg-[#F3F1EA] text-[#3D3929] hover:bg-[#ECE9E0] dark:bg-muted dark:text-foreground",
+  );
 import { toast } from "sonner";
 
 export default function ExamineeDocumentsPage() {
   const { subject, subjectId, clientId, loading, error } = useSubjectDetail();
   const [formRequests, setFormRequests] = React.useState<FormRequestRecord[]>([]);
   const [requestsLoading, setRequestsLoading] = React.useState(true);
-  const [documents, setDocuments] = React.useState<
-    import("@/components/dashboard/document-vault-tabs").VaultDocument[]
-  >([]);
+  const [documents, setDocuments] = React.useState<VaultDocument[]>([]);
+  const [dragging, setDragging] = React.useState(false);
   const [docsLoading, setDocsLoading] = React.useState(true);
   const [uploading, setUploading] = React.useState(false);
   const [uploadType, setUploadType] = React.useState("test_chart");
@@ -113,12 +115,16 @@ export default function ExamineeDocumentsPage() {
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    await uploadFile(file);
+  };
+
+  const uploadFile = async (file: File) => {
     const thenSend = sendAfterUploadRef.current;
     sendAfterUploadRef.current = false;
     setUploading(true);
     try {
       const created = await uploadSubjectDocument(subjectId, file, uploadType);
-      toast.success("File saved");
+      toast.success(`${file.name} saved to the vault`);
       await loadDocuments();
       if (thenSend) {
         setSendTarget({ documentId: created.id, documentName: created.name });
@@ -135,27 +141,27 @@ export default function ExamineeDocumentsPage() {
   if (loading || docsLoading) {
     return (
       <div className="flex justify-center py-24 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+        <Loader2 aria-hidden="true" className="mr-2 size-5 animate-spin" />
+        Loading documents…
       </div>
     );
   }
 
   if (error || !subject) {
-    return <p className="text-destructive">{error || "Examinee not found"}</p>;
+    return <div className="rounded-[26px] bg-destructive/5 p-6 text-destructive ring-1 ring-destructive/20">{error || "Examinee not found."}</div>;
   }
 
-  const displayName = formatSubjectName(subject);
+  const displayName = formatSubjectName(subject).trim() || "this examinee";
   const pendingForms = formRequests.filter(
     (r) => r.status === "sent" || r.status === "opened"
   ).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Documents</h2>
-        <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
-          Forms and files for {displayName}. Send consent or prep forms to their email; completed
-          answers appear under Received.
+        <h2 className="text-2xl font-semibold tracking-[-0.02em]">Documents</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Forms and files for {displayName}. Send consent or prep forms to their email; completed answers appear under Received.
         </p>
       </div>
 
@@ -173,7 +179,7 @@ export default function ExamineeDocumentsPage() {
           />
         }
         sendTab={
-          <div className="space-y-4">
+          <div className="space-y-5">
             <SendFormDialog
               clientId={clientId}
               clientName={displayName}
@@ -183,9 +189,9 @@ export default function ExamineeDocumentsPage() {
               audience="examinee"
               onSent={() => void handleFormSent()}
               trigger={
-                <Button size="lg" className="gap-2">
+                <Button className="h-11 gap-2 rounded-full px-5">
                   <Send className="h-4 w-4" />
-                  Send form link to examinee
+                  Send a form link
                 </Button>
               }
             />
@@ -197,59 +203,65 @@ export default function ExamineeDocumentsPage() {
           </div>
         }
         uploadTab={
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Upload chart or file</CardTitle>
-              <CardDescription>Test charts, traces, reports, or scans.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 max-w-md">
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={uploadType} onValueChange={(value) => setUploadType(String(value))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="test_chart">Test chart</SelectItem>
-                    <SelectItem value="biometric_trace">Biometric trace</SelectItem>
-                    <SelectItem value="report">Report</SelectItem>
-                    <SelectItem value="consent_form">Consent</SelectItem>
-                    <SelectItem value="upload">General file</SelectItem>
-                  </SelectContent>
-                </Select>
+          <section className={cn(VAULT_CARD, "space-y-5 p-6")}>
+            <div>
+              <h3 className="text-[15px] font-medium">Upload a chart or file</h3>
+              <p className="text-[13px] text-muted-foreground">Test charts, traces, reports or scans for {displayName}.</p>
+            </div>
+            <div className="grid gap-1.5">
+              <span className="px-1 text-[13px] font-medium">What is it?</span>
+              <div role="radiogroup" aria-label="Document type" className="flex flex-wrap gap-1.5">
+                {UPLOAD_TYPES.map((t) => (
+                  <button key={t.value} type="button" role="radio" aria-checked={uploadType === t.value} onClick={() => setUploadType(t.value)} className={chip(uploadType === t.value)}>
+                    {uploadType === t.value ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  className="flex-1"
-                  disabled={uploading}
-                  onClick={() => {
-                    sendAfterUploadRef.current = false;
-                    fileInputRef.current?.click();
-                  }}
-                >
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4 mr-2" />
-                  )}
-                  Choose file
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 gap-2"
-                  disabled={uploading}
-                  onClick={() => {
-                    sendAfterUploadRef.current = true;
-                    fileInputRef.current?.click();
-                  }}
-                >
-                  <Send className="h-4 w-4" />
-                  Upload &amp; send
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                sendAfterUploadRef.current = false;
+                fileInputRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file && !uploading) {
+                  sendAfterUploadRef.current = false;
+                  void uploadFile(file);
+                }
+              }}
+              className={cn(
+                "flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors disabled:opacity-60",
+                dragging ? "border-primary bg-primary/5" : "border-border bg-[#F7F6F1] hover:bg-[#F3F1EA] dark:bg-muted/40 dark:hover:bg-muted",
+              )}
+            >
+              {uploading ? <Loader2 aria-hidden="true" className="size-7 animate-spin text-muted-foreground" /> : <Upload aria-hidden="true" className="size-7 text-muted-foreground" />}
+              <span className="text-sm font-medium">{uploading ? "Uploading…" : dragging ? "Drop to upload" : "Drop a file here, or click to choose"}</span>
+              <span className="text-xs text-muted-foreground">It&apos;s saved to the vault straight away.</span>
+            </button>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                sendAfterUploadRef.current = true;
+                fileInputRef.current?.click();
+              }}
+              className="flex h-10 w-fit items-center gap-1.5 rounded-full px-4 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-60 dark:hover:bg-muted"
+            >
+              <Send aria-hidden="true" className="size-3.5" /> Upload, then send it to the examinee
+            </button>
+          </section>
         }
         manualTab={null}
       />

@@ -4,154 +4,127 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useCurrentUser } from "@/components/dashboard/use-current-user";
-import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  ArrowUpDown,
+  ArrowUpRight,
   CheckCircle2,
   ChevronRight,
-  Filter,
+  CircleDot,
+  Clock,
+  Flag,
   Globe,
   Loader2,
   Mail,
   MessageCircle,
   Phone,
   Plus,
-  Save,
+  RefreshCw,
   Search,
   Share2,
-  Sparkles,
   Target,
   Trash2,
   TrendingUp,
+  Trophy,
   UserRoundPlus,
-  Zap,
+  Wallet,
+  X,
 } from "lucide-react";
-import {
-  deleteLeadAPI,
-  fetchLeads,
-  updateLeadAPI,
-  type LeadRecord,
-  type LeadSource,
-  type LeadStatus,
-} from "@/lib/leads";
-import { createClient } from "@/lib/clients";
+
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
+import { GHOST_FIELD, GlassStat, GlowPanel, Highlight, PropertyRow } from "@/components/dashboard/ui-kit";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
+import { deleteLeadAPI, fetchLeads, updateLeadAPI, type LeadRecord, type LeadSource, type LeadStatus } from "@/lib/leads";
+import { createClient, fetchClients, type ClientRecord } from "@/lib/clients";
+import { fetchOrganizationSettings } from "@/lib/settings";
+import { formatMoney } from "@/lib/client-account";
+import { clinicDateKey } from "@/lib/clinic-time";
 import { cn } from "@/lib/utils";
 
-const statusOptions = ["All", "New", "Contacted", "Qualified", "Converted", "Lost"] as const;
-const sourceOptions = ["All", "Instagram", "Facebook", "LinkedIn", "Referral", "Website", "Phone", "Walk-in"] as const;
-const sortOptions = ["Newest", "Highest value", "Name A-Z"] as const;
-const pipelineStatuses = statusOptions.slice(1) as ReadonlyArray<LeadStatus>;
-const priorityOptions = ["Low", "Standard", "Priority", "Urgent"] as const;
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
 
-const sourceMeta: Record<LeadSource, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
-  Instagram: { icon: MessageCircle, color: "text-pink-500" },
-  Facebook: { icon: Share2, color: "text-blue-600" },
-  LinkedIn: { icon: Globe, color: "text-sky-600" },
-  Referral: { icon: UserRoundPlus, color: "text-emerald-500" },
-  Website: { icon: Globe, color: "text-violet-500" },
-  Phone: { icon: Phone, color: "text-amber-500" },
-  "Walk-in": { icon: UserRoundPlus, color: "text-orange-500" },
+const STAGES = ["New", "Contacted", "Qualified", "Converted", "Lost"] as const satisfies readonly LeadStatus[];
+const OPEN_STAGES: LeadStatus[] = ["New", "Contacted", "Qualified"];
+const SOURCES = ["Instagram", "Facebook", "LinkedIn", "Referral", "Website", "Phone", "Walk-in"] as const satisfies readonly LeadSource[];
+const PRIORITIES = ["Low", "Standard", "Priority", "Urgent"] as const;
+const SORTS = ["Newest", "Highest value", "Name A–Z"] as const;
+
+type StageFilter = "All" | "Open" | LeadStatus;
+
+const STAGE_STYLE: Record<LeadStatus, { dot: string; chip: string; bar: string; hint: string }> = {
+  New: { dot: "bg-chart-2", chip: "bg-chart-2/15 text-[oklch(0.42_0.14_290)] dark:text-chart-2", bar: "bg-chart-2", hint: "Just came in" },
+  Contacted: { dot: "bg-[#E2B35A]", chip: "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300", bar: "bg-[#E2B35A]", hint: "Reached out" },
+  Qualified: { dot: "bg-primary", chip: "bg-primary/12 text-[oklch(0.42_0.12_39)] dark:text-primary", bar: "bg-primary", hint: "Ready to book" },
+  Converted: { dot: "bg-[#3F7A37] dark:bg-emerald-400", chip: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300", bar: "bg-[#3F7A37]", hint: "Became a client" },
+  Lost: { dot: "bg-[#8E8B82]", chip: "bg-[#ECE9E0] text-[#55534C] dark:bg-muted dark:text-muted-foreground", bar: "bg-[#B5B2A8]", hint: "Didn't proceed" },
 };
 
-const statusTone: Record<LeadStatus, string> = {
-  New: "bg-sky-500 text-white",
-  Contacted: "bg-amber-500 text-white",
-  Qualified: "bg-violet-500 text-white",
-  Converted: "bg-emerald-500 text-white",
-  Lost: "bg-rose-500 text-white",
+const SOURCE_ICON: Record<LeadSource, React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>> = {
+  Instagram: MessageCircle,
+  Facebook: Share2,
+  LinkedIn: Globe,
+  Referral: UserRoundPlus,
+  Website: Globe,
+  Phone: Phone,
+  "Walk-in": UserRoundPlus,
 };
 
-type LeadDetailForm = {
-  status: LeadStatus;
-  priority: LeadRecord["priority"];
-  estimatedValue: string;
-  nextStep: string;
-  notes: string;
-};
+const PRIORITY_LABEL: Record<LeadRecord["priority"], string> = { Low: "Low", Standard: "Standard", Priority: "High", Urgent: "Urgent" };
 
-const emptyLeadDetailForm: LeadDetailForm = {
-  status: "New",
-  priority: "Standard",
-  estimatedValue: "0",
-  nextStep: "",
-  notes: "",
-};
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
 
-function buildSparkPath(values: number[]) {
-  const width = 320;
-  const height = 120;
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
+type DetailForm = { priority: LeadRecord["priority"]; estimatedValue: string; nextStep: string; notes: string };
 
-  const points = values.map((value, index) => {
-    const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
-    const y = height - ((value - min) / range) * (height - 22) - 10;
-    return `${x},${y}`;
-  });
-
+function formFor(lead: LeadRecord): DetailForm {
   return {
-    line: points.join(" "),
-    area: `M 0,${height} L ${points.join(" L ")} L ${width},${height} Z`,
-  };
-}
-
-function toStartOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function parseLeadTimestamp(lead: LeadRecord) {
-  const timestamp = Date.parse(lead.createdAt);
-  return Number.isNaN(timestamp) ? Date.parse(lead.date) || 0 : timestamp;
-}
-
-function formatTrend(value: number) {
-  if (value > 0) {
-    return `+${value.toFixed(0)}%`;
-  }
-
-  if (value < 0) {
-    return `${value.toFixed(0)}%`;
-  }
-
-  return "0%";
-}
-
-function parseNumericInput(input: string) {
-  const normalized = input.replace(/[^\d.\-]/g, "").trim();
-  const value = Number(normalized);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function buildLeadForm(lead: LeadRecord): LeadDetailForm {
-  return {
-    status: lead.status,
     priority: lead.priority,
     estimatedValue: String(lead.estimatedValue ?? 0),
     nextStep: lead.nextStep ?? "",
     notes: lead.notes ?? "",
   };
 }
+
+function leadTime(lead: LeadRecord) {
+  const t = Date.parse(lead.createdAt);
+  return Number.isNaN(t) ? Date.parse(lead.date) || 0 : t;
+}
+
+function toNumber(input: string) {
+  const value = Number(input.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function digits(value?: string | null) {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+/** Client id recorded on a converted lead ("Converted to client CL-043"). */
+function linkedClientId(lead: LeadRecord): number | null {
+  const match = /CL-(\d+)/.exec(lead.nextStep ?? "");
+  return match ? Number(match[1]) : null;
+}
+
+function shiftKey(key: string, days: number) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -164,27 +137,26 @@ export default function LeadsPage() {
     }
   }, [userLoading, can, router]);
 
-  const [searchQuery, setSearchQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<(typeof statusOptions)[number]>("All");
-  const [sourceFilter, setSourceFilter] = React.useState<(typeof sourceOptions)[number]>("All");
-  const [sortBy, setSortBy] = React.useState<(typeof sortOptions)[number]>("Newest");
-  const [selectedLead, setSelectedLead] = React.useState<LeadRecord | null>(null);
-  const [detailForm, setDetailForm] = React.useState<LeadDetailForm>(emptyLeadDetailForm);
-  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [leads, setLeads] = React.useState<LeadRecord[]>([]);
-  const [showCreatedBanner, setShowCreatedBanner] = React.useState(false);
+  const [currency, setCurrency] = React.useState("AED");
   const [isLoading, setIsLoading] = React.useState(true);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [isDeleting, setIsDeleting] = React.useState(false);
-  const [isConverting, setIsConverting] = React.useState(false);
-  const [savingRowId, setSavingRowId] = React.useState<number | null>(null);
+  const [showCreatedBanner, setShowCreatedBanner] = React.useState(false);
+
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [stageFilter, setStageFilter] = React.useState<StageFilter>("All");
+  const [sourceFilter, setSourceFilter] = React.useState<"All" | LeadSource>("All");
+  const [sortBy, setSortBy] = React.useState<(typeof SORTS)[number]>("Newest");
+
+  const [selected, setSelected] = React.useState<LeadRecord | null>(null);
+  const [form, setForm] = React.useState<DetailForm | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState<null | "save" | "stage" | "convert" | "delete">(null);
+  const [rowBusy, setRowBusy] = React.useState<number | null>(null);
 
   const loadLeads = React.useCallback(async () => {
     setIsLoading(true);
-
     try {
-      const records = await fetchLeads();
-      setLeads(records);
+      setLeads(await fetchLeads());
     } finally {
       setIsLoading(false);
     }
@@ -193,786 +165,771 @@ export default function LeadsPage() {
   React.useEffect(() => {
     setShowCreatedBanner(new URLSearchParams(window.location.search).get("created") === "1");
     void loadLeads();
+    fetchOrganizationSettings()
+      .then((org) => org?.currency && setCurrency(org.currency))
+      .catch(() => undefined);
   }, [loadLeads]);
 
-  React.useEffect(() => {
-    if (!selectedLead) {
-      setDetailForm(emptyLeadDetailForm);
-      return;
-    }
+  const money = React.useCallback((value: number) => formatMoney(value, currency), [currency]);
 
-    setDetailForm(buildLeadForm(selectedLead));
-  }, [selectedLead]);
+  /* ---------------- analytics ---------------- */
 
-  const filteredLeads = React.useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase();
+  const stats = React.useMemo(() => {
+    const byStage = Object.fromEntries(STAGES.map((s) => [s, leads.filter((l) => l.status === s)])) as Record<LeadStatus, LeadRecord[]>;
+    const open = leads.filter((l) => OPEN_STAGES.includes(l.status));
+    const openValue = open.reduce((sum, l) => sum + (l.estimatedValue || 0), 0);
+    const wonValue = byStage.Converted.reduce((sum, l) => sum + (l.estimatedValue || 0), 0);
+    const closed = byStage.Converted.length + byStage.Lost.length;
+    const winRate = closed > 0 ? Math.round((byStage.Converted.length / closed) * 100) : null;
 
-    const result = leads.filter((lead) => {
-      const matchesSearch =
-        normalizedQuery.length === 0 ||
-        lead.name.toLowerCase().includes(normalizedQuery) ||
-        lead.id.toLowerCase().includes(normalizedQuery) ||
-        lead.interest.toLowerCase().includes(normalizedQuery) ||
-        lead.source.toLowerCase().includes(normalizedQuery);
-
-      const matchesStatus = statusFilter === "All" || lead.status === statusFilter;
-      const matchesSource = sourceFilter === "All" || lead.source === sourceFilter;
-
-      return matchesSearch && matchesStatus && matchesSource;
-    });
-
-    return result.sort((left, right) => {
-      if (sortBy === "Highest value") {
-        return right.estimatedValue - left.estimatedValue;
-      }
-
-      if (sortBy === "Name A-Z") {
-        return left.name.localeCompare(right.name);
-      }
-
-      return parseLeadTimestamp(right) - parseLeadTimestamp(left);
-    });
-  }, [leads, searchQuery, sortBy, sourceFilter, statusFilter]);
-
-  const analytics = React.useMemo(() => {
-    const today = toStartOfDay(new Date());
-    const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short" });
-
-    const weeklyLabels = Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(today);
-      day.setDate(today.getDate() - (6 - index));
-      return weekdayFormatter.format(day);
-    });
-
-    const weeklyIntake = weeklyLabels.map((_, index) => {
-      const dayStart = new Date(today);
-      dayStart.setDate(today.getDate() - (6 - index));
-
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayStart.getDate() + 1);
-
-      return leads.filter((lead) => {
-        const timestamp = parseLeadTimestamp(lead);
-        return timestamp >= dayStart.getTime() && timestamp < dayEnd.getTime();
-      }).length;
-    });
-
-    const currentWindowStart = new Date(today);
-    currentWindowStart.setDate(today.getDate() - 6);
-
-    const previousWindowStart = new Date(currentWindowStart);
-    previousWindowStart.setDate(currentWindowStart.getDate() - 7);
-
-    const intakeLast7Days = weeklyIntake.reduce((sum, count) => sum + count, 0);
-    const previous7Days = leads.filter((lead) => {
-      const timestamp = parseLeadTimestamp(lead);
-      return timestamp >= previousWindowStart.getTime() && timestamp < currentWindowStart.getTime();
-    }).length;
-
-    return { weeklyIntake, weeklyLabels, intakeLast7Days, previous7Days };
-  }, [leads]);
-
-  const totalLeads = leads.length;
-  const convertedLeads = leads.filter((lead) => lead.status === "Converted").length;
-  const activePipelineCount = leads.filter((lead) => lead.status !== "Converted" && lead.status !== "Lost").length;
-  const totalPipelineValue = leads
-    .filter((lead) => lead.status !== "Lost")
-    .reduce((sum, lead) => sum + lead.estimatedValue, 0);
-
-  const sourceCounts = React.useMemo(() => {
-    return leads.reduce<Record<LeadSource, number>>((accumulator, lead) => {
-      accumulator[lead.source] += 1;
-      return accumulator;
-    }, {
-      Instagram: 0,
-      Facebook: 0,
-      LinkedIn: 0,
-      Referral: 0,
-      Website: 0,
-      Phone: 0,
-      "Walk-in": 0,
-    });
-  }, [leads]);
-
-  const stageCounts = React.useMemo(() => {
-    return pipelineStatuses.map((status) => ({
-      status,
-      count: leads.filter((lead) => lead.status === status).length,
+    const todayKey = clinicDateKey(new Date());
+    const days = Array.from({ length: 7 }, (_, i) => shiftKey(todayKey, i - 6));
+    const keyed = leads.map((l) => clinicDateKey(new Date(leadTime(l))));
+    const perDay = days.map((day) => ({
+      key: day,
+      label: new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`)),
+      count: keyed.filter((k) => k === day).length,
     }));
+    const thisWeek = perDay.reduce((sum, d) => sum + d.count, 0);
+    const prevStart = shiftKey(todayKey, -13);
+    const prevEnd = shiftKey(todayKey, -7);
+    const lastWeek = keyed.filter((k) => k >= prevStart && k <= prevEnd).length;
+
+    const sources = SOURCES.map((source) => {
+      const items = leads.filter((l) => l.source === source);
+      const won = items.filter((l) => l.status === "Converted").length;
+      return { source, count: items.length, won };
+    })
+      .filter((s) => s.count > 0)
+      .sort((a, b) => b.count - a.count);
+
+    return { byStage, open, openValue, wonValue, winRate, closed, perDay, thisWeek, lastWeek, sources };
   }, [leads]);
 
-  const topSource = React.useMemo(() => {
-    const [entry] = Object.entries(sourceCounts).sort((left, right) => right[1] - left[1]);
+  const filtered = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = leads.filter((lead) => {
+      if (stageFilter === "Open" && !OPEN_STAGES.includes(lead.status)) return false;
+      if (stageFilter !== "All" && stageFilter !== "Open" && lead.status !== stageFilter) return false;
+      if (sourceFilter !== "All" && lead.source !== sourceFilter) return false;
+      if (!q) return true;
+      return [lead.name, lead.id, lead.interest, lead.source, lead.email, lead.phone, lead.notes].some((v) =>
+        (v ?? "").toLowerCase().includes(q),
+      );
+    });
+    return [...list].sort((a, b) => {
+      if (sortBy === "Highest value") return (b.estimatedValue || 0) - (a.estimatedValue || 0);
+      if (sortBy === "Name A–Z") return a.name.localeCompare(b.name);
+      return leadTime(b) - leadTime(a);
+    });
+  }, [leads, searchQuery, stageFilter, sourceFilter, sortBy]);
 
-    if (!entry) {
-      return { source: "Website" as LeadSource, count: 0 };
-    }
+  /* ---------------- mutations ---------------- */
 
-    return { source: entry[0] as LeadSource, count: entry[1] };
-  }, [sourceCounts]);
-
-  const conversionRate = totalLeads === 0 ? 0 : (convertedLeads / totalLeads) * 100;
-  const topSourceRate = totalLeads === 0 ? 0 : Math.round((topSource.count / totalLeads) * 100);
-  const sourceMix = Object.entries(sourceCounts)
-    .filter(([, count]) => count > 0)
-    .sort((left, right) => right[1] - left[1]);
-  const chartPath = buildSparkPath(analytics.weeklyIntake);
-  const intakeGrowth = analytics.previous7Days === 0
-    ? (analytics.intakeLast7Days > 0 ? 100 : 0)
-    : ((analytics.intakeLast7Days - analytics.previous7Days) / analytics.previous7Days) * 100;
-
-  const upsertLead = React.useCallback((updatedLead: LeadRecord) => {
-    setLeads((current) => current.map((lead) => (lead.backendId === updatedLead.backendId ? updatedLead : lead)));
-    setSelectedLead(updatedLead);
+  const replaceLead = React.useCallback((updated: LeadRecord) => {
+    setLeads((current) => current.map((l) => (l.backendId === updated.backendId ? updated : l)));
+    setSelected((current) => (current?.backendId === updated.backendId ? updated : current));
   }, []);
 
-  const updateLeadStatusInline = React.useCallback(async (lead: LeadRecord, status: LeadStatus) => {
-    setSavingRowId(lead.backendId);
-    try {
-      const updatedLead = await updateLeadAPI(lead.backendId, { status });
-      setLeads((current) => current.map((l) => (l.backendId === updatedLead.backendId ? updatedLead : l)));
-      if (selectedLead?.backendId === updatedLead.backendId) {
-        setSelectedLead(updatedLead);
-        setDetailForm(buildLeadForm(updatedLead));
-      }
-      toast.success(`${updatedLead.name} moved to ${status}.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update stage.");
-    } finally {
-      setSavingRowId(null);
-    }
-  }, [selectedLead]);
-
-  const persistLeadChanges = React.useCallback(async (overrides?: Partial<LeadDetailForm>) => {
-    if (!selectedLead) {
-      return;
-    }
-
-    const nextForm = { ...detailForm, ...overrides };
-    setIsSaving(true);
-
-    try {
-      const updatedLead = await updateLeadAPI(selectedLead.backendId, {
-        status: nextForm.status,
-        priority: nextForm.priority,
-        notes: nextForm.notes.trim(),
-        nextStep: nextForm.nextStep.trim(),
-        estimatedValue: parseNumericInput(nextForm.estimatedValue),
+  /** Turn a lead into a client: reuse a matching client (same e-mail or phone), else create one. */
+  const convertLead = React.useCallback(
+    async (lead: LeadRecord) => {
+      const email = lead.email.trim();
+      const phone = digits(lead.phone);
+      const candidates = await fetchClients(email || lead.phone || lead.name).catch(() => [] as ClientRecord[]);
+      const existing = candidates.find(
+        (c) => (email && c.email?.toLowerCase() === email.toLowerCase()) || (phone.length >= 7 && digits(c.phone) === phone),
+      );
+      const client =
+        existing ??
+        (await createClient({
+          name: lead.name,
+          email,
+          phone: lead.phone || undefined,
+          client_type: "Individual",
+          notes: [lead.interest, lead.notes].filter(Boolean).join("\n\n") || undefined,
+        }));
+      const code = `CL-${String(client.id).padStart(3, "0")}`;
+      const updated = await updateLeadAPI(lead.backendId, {
+        status: "Converted",
+        nextStep: `Converted to client ${code}`,
       });
+      replaceLead(updated);
+      if (selected?.backendId === updated.backendId) setForm(formFor(updated));
+      toast.success(existing ? `${lead.name} linked to existing client ${code}.` : `${lead.name} converted. Client ${code} created.`, {
+        action: { label: "Open client", onClick: () => router.push(`/dashboard/clients/${client.id}`) },
+      });
+    },
+    [replaceLead, router, selected],
+  );
 
-      upsertLead(updatedLead);
-      setDetailForm(buildLeadForm(updatedLead));
-      toast.success(`${updatedLead.name} updated.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update lead.");
-    } finally {
-      setIsSaving(false);
-    }
-  }, [detailForm, selectedLead, upsertLead]);
+  const changeStage = React.useCallback(
+    async (lead: LeadRecord, stage: LeadStatus, from: "row" | "sheet") => {
+      if (stage === lead.status) return;
+      if (from === "row") setRowBusy(lead.backendId);
+      else setBusy(stage === "Converted" ? "convert" : "stage");
+      try {
+        if (stage === "Converted") {
+          await convertLead(lead);
+        } else {
+          const updated = await updateLeadAPI(lead.backendId, { status: stage });
+          replaceLead(updated);
+          toast.success(`${updated.name} moved to ${stage}.`);
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Couldn't update the lead.");
+      } finally {
+        setRowBusy(null);
+        setBusy(null);
+      }
+    },
+    [convertLead, replaceLead],
+  );
 
-  const handleDeleteLead = React.useCallback(async () => {
-    if (!selectedLead) {
-      return;
-    }
+  const openLead = (lead: LeadRecord) => {
+    setSelected(lead);
+    setForm(formFor(lead));
+    setIsSheetOpen(true);
+  };
 
-    const confirmed = window.confirm(`Delete ${selectedLead.name} from the pipeline?`);
+  const original = selected ? formFor(selected) : null;
+  const dirtyFields =
+    form && original
+      ? (Object.keys(form) as (keyof DetailForm)[]).filter((key) =>
+          key === "estimatedValue" ? toNumber(form[key]) !== toNumber(original[key]) : form[key].trim() !== String(original[key]).trim(),
+        )
+      : [];
 
-    if (!confirmed) {
-      return;
-    }
-
-    setIsDeleting(true);
-
+  const saveDetails = async () => {
+    if (!selected || !form || dirtyFields.length === 0) return;
+    setBusy("save");
     try {
-      await deleteLeadAPI(selectedLead.backendId);
-      setLeads((current) => current.filter((lead) => lead.backendId !== selectedLead.backendId));
-      setSelectedLead(null);
+      const updated = await updateLeadAPI(selected.backendId, {
+        priority: form.priority,
+        estimatedValue: toNumber(form.estimatedValue),
+        nextStep: form.nextStep.trim(),
+        notes: form.notes.trim(),
+      });
+      replaceLead(updated);
+      setForm(formFor(updated));
+      toast.success("Lead updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't save the lead.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteLead = async () => {
+    if (!selected) return;
+    setBusy("delete");
+    try {
+      await deleteLeadAPI(selected.backendId);
+      setLeads((current) => current.filter((l) => l.backendId !== selected.backendId));
       setIsSheetOpen(false);
       toast.success("Lead deleted.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete lead.");
+      toast.error(error instanceof Error ? error.message : "Couldn't delete the lead.");
     } finally {
-      setIsDeleting(false);
+      setBusy(null);
     }
-  }, [selectedLead]);
+  };
 
-  const handleConvertToCase = React.useCallback(async () => {
-    if (!selectedLead) {
-      return;
-    }
-
-    setIsConverting(true);
-    try {
-      const client = await createClient({
-        name: selectedLead.name,
-        email: selectedLead.email,
-        phone: selectedLead.phone || undefined,
-        client_type: "individual",
-        notes: selectedLead.notes || undefined,
-      });
-
-      const updatedLead = await updateLeadAPI(selectedLead.backendId, { status: "Converted" });
-      upsertLead(updatedLead);
-      setDetailForm(buildLeadForm(updatedLead));
-
-      toast.success(`${selectedLead.name} converted — client profile created.`, {
-        action: {
-          label: "Open Client",
-          onClick: () => {
-            window.location.href = `/dashboard/clients/${client.id}`;
-          },
-        },
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to convert lead to case.");
-    } finally {
-      setIsConverting(false);
-    }
-  }, [selectedLead, upsertLead]);
+  const hasFilters = Boolean(searchQuery.trim()) || stageFilter !== "All" || sourceFilter !== "All";
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStageFilter("All");
+    setSourceFilter("All");
+  };
+  const weekDelta = stats.thisWeek - stats.lastWeek;
+  const maxDay = Math.max(1, ...stats.perDay.map((d) => d.count));
 
   return (
-    <div className="mx-auto max-w-400 space-y-8 pb-10">
-      <section className="relative overflow-hidden rounded-4xl border border-border/60 bg-card">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(214,107,51,0.18),transparent_34%),radial-gradient(circle_at_right,rgba(19,145,214,0.12),transparent_30%)]" />
-        <div className="relative grid gap-6 p-6 xl:grid-cols-[1.35fr_0.95fr] xl:p-8">
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-3">
-              <Badge variant="outline" className="rounded-none px-3 py-1 uppercase tracking-[0.24em]">
-                Lead Command
-              </Badge>
-              <span className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                Polygraph forensic intake desk
+    <div className="mx-auto max-w-[1440px] space-y-5 pb-10">
+      {/* Hero */}
+      <GlowPanel tone="amber" orb="66%" lineTop={40} className="p-5 sm:p-7">
+        <div className="flex flex-col gap-6 pt-6 sm:gap-8 sm:pt-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div className="flex max-w-2xl flex-col gap-2">
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">
+                <Target aria-hidden="true" className="size-4" />
+                Leads
               </span>
-            </div>
-
-            <div className="max-w-3xl space-y-3">
-              <h1 className="flex items-center gap-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-                <Target className="h-8 w-8 text-primary" />
-                Lead Acquisition Pipeline
+              <h1 className="text-3xl leading-[1.05] font-normal tracking-[-0.03em] sm:text-[44px]">
+                Lead <span className="font-semibold">pipeline</span>
               </h1>
-              <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
-                Track manual intake, qualify case demand, and route high-value polygraph inquiries into the right conversion lane.
-              </p>
+              <p className="max-w-xl text-[15px] text-[#C9C6BC]">Every enquiry from first contact to booked client.</p>
             </div>
-
-            <div className="flex flex-wrap gap-3">
+            <div className="flex w-full items-center gap-2.5 sm:w-auto">
+              <button
+                type="button"
+                onClick={() => void loadLeads()}
+                disabled={isLoading}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-white/[0.07] px-5 text-sm font-medium text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12] disabled:opacity-50 sm:flex-initial"
+              >
+                <RefreshCw aria-hidden="true" className={cn("size-4", isLoading && "animate-spin")} />
+                Refresh
+              </button>
               <Link
                 href="/dashboard/leads/new"
-                className={cn(buttonVariants({ className: "h-11 rounded-xl px-5 font-bold shadow-lg shadow-primary/15" }))}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-[#FAF9F5] pr-5 pl-2.5 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-white sm:flex-initial"
               >
-                <Plus className="mr-2 h-4 w-4" />
-                Manual Entry
+                <span className="bg-primary flex size-6 items-center justify-center rounded-full">
+                  <Plus aria-hidden="true" className="size-3.5" strokeWidth={3} />
+                </span>
+                New lead
               </Link>
-              <Button variant="outline" className="h-11 rounded-xl border-border/60 px-5 font-semibold" onClick={() => void loadLeads()}>
-                <Sparkles className="mr-2 h-4 w-4 text-primary" />
-                Refresh Intake
-              </Button>
-            </div>
-
-            {showCreatedBanner ? (
-              <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="h-4 w-4" />
-                New lead added to the pipeline and pinned at the top of the board.
-              </div>
-            ) : null}
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: "Total Intake",
-                  value: totalLeads.toString(),
-                  sub: `${analytics.intakeLast7Days} in last 7 days`,
-                  icon: TrendingUp,
-                  accent: "from-sky-500/20 via-sky-500/5 to-transparent",
-                },
-                {
-                  label: "Conversion Rate",
-                  value: `${conversionRate.toFixed(1)}%`,
-                  sub: `${convertedLeads} converted leads`,
-                  icon: Target,
-                  accent: "from-emerald-500/20 via-emerald-500/5 to-transparent",
-                },
-                {
-                  label: "Active Pipeline",
-                  value: `${activePipelineCount} Leads`,
-                  sub: `Est. $${totalPipelineValue.toLocaleString()} value`,
-                  icon: Zap,
-                  accent: "from-amber-500/20 via-amber-500/5 to-transparent",
-                },
-                {
-                  label: "Top Source",
-                  value: topSource.count > 0 ? topSource.source : "No source yet",
-                  sub: totalLeads > 0 ? `${topSourceRate}% of total leads` : "Waiting on intake activity",
-                  icon: MessageCircle,
-                  accent: "from-pink-500/20 via-pink-500/5 to-transparent",
-                },
-              ].map((metric) => {
-                const Icon = metric.icon;
-
-                return (
-                  <Card key={metric.label} className="overflow-hidden border-border/70 bg-background/80 backdrop-blur-sm">
-                    <CardContent className="relative p-5">
-                      <div className={cn("absolute inset-x-0 top-0 h-16 bg-linear-to-b", metric.accent)} />
-                      <div className="relative flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{metric.label}</p>
-                          <p className="mt-3 text-3xl font-semibold tracking-tight">{metric.value}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{metric.sub}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-card p-3">
-                          <Icon className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
             </div>
           </div>
 
-          <Card className="border-border/70 bg-background/85 backdrop-blur-sm">
-            <CardHeader className="space-y-2">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="text-base">Intake Momentum</CardTitle>
-                  <CardDescription>New inquiries captured across the last 7 days</CardDescription>
-                </div>
-                <Badge className="rounded-none" variant="secondary">
-                  <TrendingUp className="mr-1 h-3.5 w-3.5" />
-                  {formatTrend(intakeGrowth)}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-2xl border border-border/70 bg-card p-4">
-                <svg aria-label="Weekly lead intake chart" className="h-44 w-full" viewBox="0 0 320 120" preserveAspectRatio="none" role="img">
-                  <defs>
-                    <linearGradient id="lead-fill" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor="var(--color-primary)" stopOpacity="0.4" />
-                      <stop offset="100%" stopColor="var(--color-primary)" stopOpacity="0.05" />
-                    </linearGradient>
-                  </defs>
-                  <path d={chartPath.area} fill="url(#lead-fill)" />
-                  <polyline fill="none" points={chartPath.line} stroke="var(--color-primary)" strokeWidth="3" />
-                </svg>
-                <div className="mt-3 grid grid-cols-7 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                  {analytics.weeklyLabels.map((label, index) => (
-                    <span key={`${label}-${index}`} className={index === analytics.weeklyLabels.length - 1 ? "text-right" : undefined}>
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-border/70 bg-card p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Pipeline Stages</p>
-                  <div className="mt-4 space-y-4">
-                    {stageCounts.map((item) => (
-                      <div key={item.status} className="space-y-2">
-                        <div className="flex items-center justify-between text-sm font-semibold">
-                          <span>{item.status}</span>
-                          <span>{item.count}</span>
-                        </div>
-                        <div className="h-2 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className={cn(
-                              "h-full rounded-full",
-                              item.status === "Converted" ? "bg-emerald-500" :
-                              item.status === "Qualified" ? "bg-violet-500" :
-                              item.status === "Contacted" ? "bg-amber-500" :
-                              item.status === "Lost" ? "bg-rose-500" :
-                              "bg-sky-500"
-                            )}
-                            style={{ width: `${totalLeads === 0 ? 0 : (item.count / totalLeads) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/70 bg-card p-4">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Source Mix</p>
-                  <div className="mt-4 space-y-3">
-                    {sourceMix.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No intake source data yet.</p>
-                    ) : sourceMix.map(([source, count]) => {
-                      const meta = sourceMeta[source as LeadSource];
-                      const Icon = meta.icon;
-                      const width = totalLeads === 0 ? 0 : (count / totalLeads) * 100;
-
-                      return (
-                        <div key={source} className="space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2 text-sm font-semibold">
-                              <span className={cn("rounded-lg border border-border/50 bg-background p-1.5", meta.color)}>
-                                <Icon className="h-3.5 w-3.5" />
-                              </span>
-                              <span>{source}</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground">{Math.round(width)}%</span>
-                          </div>
-                          <div className="h-2 overflow-hidden rounded-full bg-muted">
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full xl:max-w-sm">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search leads by name, source, or service..."
-              className="h-11 rounded-xl border-border/60 bg-card pl-10"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <GlassStat label="Open leads" value={stats.open.length} hint={`${money(stats.openValue)} potential`} icon={CircleDot} accent="lavender" loading={isLoading} />
+            <GlassStat
+              label="New this week"
+              value={stats.thisWeek}
+              hint={weekDelta === 0 ? "Same as last week" : `${weekDelta > 0 ? "+" : ""}${weekDelta} vs last week`}
+              icon={TrendingUp}
+              accent="amber"
+              loading={isLoading}
+            />
+            <GlassStat
+              label="Win rate"
+              value={stats.winRate === null ? "–" : `${stats.winRate}%`}
+              hint={stats.closed ? `${stats.byStage.Converted.length} won · ${stats.byStage.Lost.length} lost` : "No closed leads yet"}
+              icon={Target}
+              accent="sage"
+              loading={isLoading}
+            />
+            <GlassStat
+              label="Won value"
+              value={money(stats.wonValue)}
+              hint={`From ${stats.byStage.Converted.length} converted lead${stats.byStage.Converted.length === 1 ? "" : "s"}`}
+              icon={Trophy}
+              accent="terracotta"
+              loading={isLoading}
             />
           </div>
+        </div>
+      </GlowPanel>
 
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-            <div className="flex flex-wrap gap-2">
-              {statusOptions.map((status) => (
-                <Button
-                  key={status}
-                  type="button"
-                  variant={statusFilter === status ? "default" : "outline"}
-                  className="h-10 rounded-xl px-4 text-[11px] font-black uppercase tracking-[0.18em]"
-                  onClick={() => setStatusFilter(status)}
-                >
-                  {status}
-                </Button>
-              ))}
+      {showCreatedBanner ? (
+        <div className="flex items-center justify-between gap-3 rounded-[20px] bg-[#E7F1E4] px-4 py-3 text-sm text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 aria-hidden="true" className="size-4" />
+            New lead added to the pipeline.
+          </span>
+          <button type="button" aria-label="Dismiss" onClick={() => setShowCreatedBanner(false)} className="flex size-7 items-center justify-center rounded-full hover:bg-white/60">
+            <X aria-hidden="true" className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Pipeline strip — doubles as the stage filter */}
+      <section aria-label="Pipeline stages" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        {STAGES.map((stage) => {
+          const items = stats.byStage[stage];
+          const value = items.reduce((sum, l) => sum + (l.estimatedValue || 0), 0);
+          const active = stageFilter === stage;
+          const share = leads.length ? (items.length / leads.length) * 100 : 0;
+          return (
+            <button
+              key={stage}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setStageFilter(active ? "All" : stage)}
+              className={cn(
+                "flex flex-col gap-3 rounded-[22px] bg-white p-4 text-left ring-1 transition-all dark:bg-card",
+                active ? "ring-2 ring-foreground/80" : "ring-border/50 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_-18px_rgba(40,36,20,0.4)]",
+              )}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <span aria-hidden="true" className={cn("size-2 rounded-full", STAGE_STYLE[stage].dot)} />
+                  {stage}
+                </span>
+                <span className="text-xs text-muted-foreground">{STAGE_STYLE[stage].hint}</span>
+              </span>
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="text-[28px] leading-none font-medium tracking-[-0.02em] tabular-nums">{isLoading ? "–" : items.length}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">{value > 0 ? money(value) : ""}</span>
+              </span>
+              <span aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-[#F0EDE4] dark:bg-muted">
+                <span className={cn("block h-full rounded-full", STAGE_STYLE[stage].bar)} style={{ width: `${share}%` }} />
+              </span>
+            </button>
+          );
+        })}
+      </section>
+
+      {/* Insights */}
+      <section className="flex flex-wrap gap-4">
+        <div className="flex min-w-0 flex-[3_1_420px] flex-col gap-4 rounded-[28px] bg-white p-6 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold">New enquiries</h2>
+              <span className="text-[13px] text-muted-foreground">Last 7 days</span>
             </div>
-
-            <div className="flex gap-3">
-              <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(value as (typeof sourceOptions)[number])}>
-                <SelectTrigger className="h-10 min-w-40 rounded-xl border-border/60 bg-card">
-                  <Filter className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <SelectValue placeholder="Source" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sourceOptions.map((source) => (
-                    <SelectItem key={source} value={source}>{source}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={sortBy} onValueChange={(value) => setSortBy(value as (typeof sortOptions)[number])}>
-                <SelectTrigger className="h-10 min-w-40 rounded-xl border-border/60 bg-card">
-                  <ArrowUpDown className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <SelectValue placeholder="Sort" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortOptions.map((option) => (
-                    <SelectItem key={option} value={option}>{option}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-1 text-xs font-semibold",
+                weekDelta > 0
+                  ? "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300"
+                  : weekDelta < 0
+                    ? "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300"
+                    : "bg-[#F3F1EA] text-[#55534C] dark:bg-muted dark:text-muted-foreground",
+              )}
+            >
+              {stats.thisWeek} this week · {stats.lastWeek} last week
+            </span>
+          </div>
+          <div
+            role="img"
+            aria-label={`New enquiries per day: ${stats.perDay.map((d) => `${d.label} ${d.count}`).join(", ")}`}
+            className="flex h-40 items-end gap-2"
+          >
+            {stats.perDay.map((day, index) => (
+              <div key={day.key} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
+                <span className={cn("font-mono text-xs tabular-nums", day.count ? "text-foreground" : "text-muted-foreground/60")}>{day.count}</span>
+                <span
+                  className={cn("w-full max-w-12 rounded-lg", index === 6 ? "bg-primary" : day.count ? "bg-[#ECE9E0] dark:bg-muted" : "bg-[#F3F1EA] dark:bg-muted/50")}
+                  style={{ height: `${Math.max(day.count ? 10 : 4, (day.count / maxDay) * 110)}px` }}
+                />
+                <span className={cn("text-xs", index === 6 ? "font-semibold text-foreground" : "text-muted-foreground")}>{index === 6 ? "Today" : day.label}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-          <span>
-            Showing {filteredLeads.length} of {totalLeads} leads in pipeline.
-          </span>
-          <span>
-            {statusFilter !== "All" || sourceFilter !== "All" || searchQuery ? "Filters active" : "No filters applied"}
-          </span>
-        </div>
-
-        <div className="overflow-hidden rounded-4xl border border-border/50 bg-card/30 shadow-xl shadow-foreground/2">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-border/50 bg-muted/30">
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Lead</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Source</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Interest</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pipeline</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Value</th>
-                  <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-widest text-muted-foreground">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/30">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-14 text-center text-sm text-muted-foreground">
-                      Loading leads...
-                    </td>
-                  </tr>
-                ) : filteredLeads.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-14 text-center text-sm text-muted-foreground">
-                      No leads match the current filters. Adjust search, stage, or source to widen the pipeline.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredLeads.map((lead) => {
-                    const meta = sourceMeta[lead.source];
-                    const Icon = meta.icon;
-
-                    return (
-                      <tr key={lead.backendId} className="group transition-colors hover:bg-primary/2">
-                        <td className="px-6 py-5">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[10px] font-black uppercase tracking-[0.18em] text-primary">{lead.id}</span>
-                            <span className="text-sm font-extrabold text-foreground">{lead.name}</span>
-                            <span className="text-xs text-muted-foreground">{lead.date}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-2.5">
-                            <span className={cn("rounded-xl border border-border/50 bg-background p-2", meta.color)}>
-                              <Icon className="h-4 w-4" />
-                            </span>
-                            <div>
-                              <p className="text-xs font-bold text-foreground">{lead.source}</p>
-                              <p className="text-[11px] text-muted-foreground">{lead.preferredContact} first</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="space-y-1">
-                            <p className="text-xs font-bold text-foreground">{lead.interest}</p>
-                            <p className="line-clamp-2 max-w-sm text-[11px] text-muted-foreground">{lead.notes}</p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="space-y-2">
-                            <Select
-                              value={lead.status}
-                              onValueChange={(value) => void updateLeadStatusInline(lead, value as LeadStatus)}
-                              disabled={savingRowId === lead.backendId}
-                            >
-                              <SelectTrigger className={cn("h-7 w-32 gap-1 rounded-lg border-none px-2 text-[9px] font-black uppercase tracking-widest shadow-none [&>svg]:h-3 [&>svg]:w-3", statusTone[lead.status])}>
-                                {savingRowId === lead.backendId ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <SelectValue />
-                                )}
-                              </SelectTrigger>
-                              <SelectContent>
-                                {pipelineStatuses.map((status) => (
-                                  <SelectItem key={status} value={status} className="text-[11px]">{status}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <p className="text-[11px] font-semibold text-muted-foreground">{lead.priority} priority</p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="space-y-1">
-                            <p className="text-sm font-extrabold text-foreground">${lead.estimatedValue.toLocaleString()}</p>
-                            <p className="text-[11px] text-muted-foreground">{lead.nextStep}</p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 rounded-xl hover:bg-primary/10 hover:text-primary"
-                            onClick={() => {
-                              setSelectedLead(lead);
-                              setIsSheetOpen(true);
-                            }}
-                          >
-                            <ChevronRight className="h-5 w-5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+        <div className="flex min-w-0 flex-[2_1_300px] flex-col gap-4 rounded-[28px] bg-white p-6 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-base font-semibold">Where leads come from</h2>
+            <span className="text-[13px] text-muted-foreground">All time · and how many became clients</span>
           </div>
+          {stats.sources.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No leads recorded yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {stats.sources.map((s, index) => {
+                const Icon = SOURCE_ICON[s.source];
+                return (
+                  <li key={s.source}>
+                    <button
+                      type="button"
+                      onClick={() => setSourceFilter(sourceFilter === s.source ? "All" : s.source)}
+                      aria-pressed={sourceFilter === s.source}
+                      className={cn("flex w-full flex-col gap-1.5 rounded-xl px-2 py-1.5 text-left transition-colors hover:bg-[#F7F6F1] dark:hover:bg-muted/50", sourceFilter === s.source && "bg-[#F7F6F1] dark:bg-muted/50")}
+                    >
+                      <span className="flex items-center justify-between gap-3 text-sm">
+                        <span className="flex items-center gap-2.5">
+                          <span className="flex size-7 items-center justify-center rounded-full bg-[#F3F1EA] text-[#3D3929] dark:bg-muted dark:text-foreground">
+                            <Icon aria-hidden="true" className="size-3.5" />
+                          </span>
+                          {s.source}
+                          {index === 0 && stats.sources.length > 1 ? (
+                            <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-[oklch(0.42_0.12_39)] dark:text-primary">Top</span>
+                          ) : null}
+                        </span>
+                        <span className="text-[13px] text-muted-foreground">
+                          <span className="font-mono text-foreground tabular-nums">{s.count}</span> · {s.won} won
+                        </span>
+                      </span>
+                      <span aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-[#F0EDE4] dark:bg-muted">
+                        <span className="flex h-full" style={{ width: `${(s.count / leads.length) * 100}%` }}>
+                          <span className="h-full bg-[#3F7A37]" style={{ flexGrow: s.won }} />
+                          <span className="h-full bg-[#ECE9E0] dark:bg-foreground/30" style={{ flexGrow: s.count - s.won }} />
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </section>
 
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 rounded-[26px] bg-white p-3 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-4 lg:flex-row lg:items-center lg:justify-between dark:bg-card">
+        <div className="relative w-full lg:max-w-md">
+          <label htmlFor="lead-search" className="sr-only">
+            Search leads
+          </label>
+          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="lead-search"
+            placeholder="Search name, interest, email, phone or notes…"
+            className="h-11 rounded-full border-0 bg-[#F3F1EA] pr-10 pl-11 text-sm shadow-none dark:bg-muted"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery ? (
+            <button type="button" aria-label="Clear search" onClick={() => setSearchQuery("")} className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card">
+              <X aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={stageFilter} onValueChange={(v) => setStageFilter(v as StageFilter)}>
+            <SelectTrigger aria-label="Stage" className="h-10 w-auto min-w-36 rounded-full border-0 bg-[#F3F1EA] px-4 text-sm shadow-none dark:bg-muted">
+              <SelectValue>{stageFilter === "All" ? "All stages" : stageFilter === "Open" ? "Open leads" : stageFilter}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All stages</SelectItem>
+              <SelectItem value="Open">Open leads</SelectItem>
+              {STAGES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as "All" | LeadSource)}>
+            <SelectTrigger aria-label="Source" className="h-10 w-auto min-w-36 rounded-full border-0 bg-[#F3F1EA] px-4 text-sm shadow-none dark:bg-muted">
+              <SelectValue>{sourceFilter === "All" ? "All sources" : sourceFilter}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All sources</SelectItem>
+              {SOURCES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as (typeof SORTS)[number])}>
+            <SelectTrigger aria-label="Sort" className="h-10 w-auto min-w-36 rounded-full border-0 bg-[#F3F1EA] px-4 text-sm shadow-none dark:bg-muted">
+              <SelectValue>{sortBy}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {hasFilters ? (
+            <button type="button" onClick={clearFilters} className="flex h-10 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-[oklch(0.45_0.12_39)] transition-colors hover:bg-primary/10 dark:text-primary">
+              <X aria-hidden="true" className="size-3.5" />
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-border/50 text-[13px] text-muted-foreground">
+                <th className="px-6 pt-5 pb-3 font-medium">Lead</th>
+                <th className="px-6 pt-5 pb-3 font-medium">Interest</th>
+                <th className="px-6 pt-5 pb-3 font-medium">Stage</th>
+                <th className="px-6 pt-5 pb-3 font-medium">Next step</th>
+                <th className="px-6 pt-5 pb-3 text-right font-medium">Value</th>
+                <th className="relative px-6 pt-5 pb-3">
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {isLoading ? (
+                [0, 1, 2].map((i) => (
+                  <tr key={i}>
+                    <td colSpan={6} className="px-6 py-4">
+                      <div className="h-10 animate-pulse rounded-xl bg-muted" />
+                    </td>
+                  </tr>
+                ))
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center">
+                    <p className="text-[15px] font-medium">{hasFilters ? "No leads match these filters" : "No leads yet"}</p>
+                    {hasFilters ? (
+                      <button type="button" onClick={clearFilters} className="mt-1 text-sm text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
+                        Clear filters
+                      </button>
+                    ) : (
+                      <Link href="/dashboard/leads/new" className="mt-1 inline-block text-sm text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
+                        Record the first enquiry
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((lead) => {
+                  const Icon = SOURCE_ICON[lead.source];
+                  const clientId = linkedClientId(lead);
+                  const isOpen = OPEN_STAGES.includes(lead.status);
+                  return (
+                    <tr key={lead.backendId} className="group cursor-pointer transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40" onClick={() => openLead(lead)}>
+                      <td className="px-6 py-4">
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#ECE9E0] text-xs font-semibold text-[#3D3929] dark:bg-muted dark:text-foreground">
+                            {initialsOf(lead.name)}
+                          </span>
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="flex items-center gap-2">
+                              <span className="truncate text-[15px] font-medium">
+                                <Highlight text={lead.name} query={searchQuery} />
+                              </span>
+                              {lead.priority === "Urgent" || lead.priority === "Priority" ? (
+                                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", lead.priority === "Urgent" ? "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300" : "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300")}>
+                                  <Flag aria-hidden="true" className="size-3" />
+                                  {PRIORITY_LABEL[lead.priority]}
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                              <Icon aria-hidden="true" className="size-3.5" />
+                              {lead.source} · {lead.date}
+                            </span>
+                          </span>
+                        </span>
+                      </td>
+                      <td className="max-w-sm px-6 py-4">
+                        <span className="flex flex-col gap-0.5">
+                          <span className="text-sm">
+                            <Highlight text={lead.interest || "—"} query={searchQuery} />
+                          </span>
+                          {lead.notes ? <span className="line-clamp-1 text-[13px] text-muted-foreground">{lead.notes}</span> : null}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                        <Select value={lead.status} onValueChange={(v) => void changeStage(lead, v as LeadStatus, "row")} disabled={rowBusy === lead.backendId}>
+                          <SelectTrigger aria-label={`Stage for ${lead.name}`} className={cn("h-8 w-auto gap-1.5 rounded-full border-0 px-3 text-[13px] font-medium shadow-none", STAGE_STYLE[lead.status].chip)}>
+                            {rowBusy === lead.backendId ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <span aria-hidden="true" className={cn("size-1.5 rounded-full", STAGE_STYLE[lead.status].dot)} />}
+                            <SelectValue>{lead.status}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STAGES.map((s) => (
+                              <SelectItem key={s} value={s}>
+                                {s === "Converted" && lead.status !== "Converted" ? "Converted (creates client)" : s}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="max-w-[240px] px-6 py-4 text-[13px]">
+                        {lead.status === "Converted" ? (
+                          clientId ? (
+                            <Link href={`/dashboard/clients/${clientId}`} onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 font-medium text-[#2D5A27] hover:underline dark:text-emerald-300">
+                              Client CL-{String(clientId).padStart(3, "0")}
+                              <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">Converted</span>
+                          )
+                        ) : lead.status === "Lost" ? (
+                          <span className="text-muted-foreground">Closed</span>
+                        ) : (
+                          <span className={cn("line-clamp-2", isOpen && !lead.nextStep && "text-muted-foreground")}>{lead.nextStep || "No next step set"}</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono tabular-nums">{lead.estimatedValue ? money(lead.estimatedValue) : <span className="text-muted-foreground">—</span>}</td>
+                      <td className="px-6 py-4 text-right">
+                        <span className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors group-hover:bg-[#30302E] group-hover:text-[#FAF9F5] dark:group-hover:bg-foreground dark:group-hover:text-background">
+                          <ChevronRight aria-hidden="true" className="size-4" />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        {!isLoading && leads.length > 0 ? (
+          <div className="border-t border-border/50 px-6 py-4 text-[13px] text-muted-foreground">
+            <span className="font-medium text-foreground tabular-nums">{filtered.length}</span> of <span className="tabular-nums">{leads.length}</span> leads
+          </div>
+        ) : null}
+      </div>
+
+      {/* Detail sheet */}
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="overflow-hidden border-l border-border/50 bg-card/95 p-0 backdrop-blur-3xl sm:max-w-md">
-          {selectedLead ? (
-            <div className="flex h-full flex-col">
-              <div className="relative h-48 shrink-0 bg-neutral-950 p-6 text-white">
-                <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/55 to-transparent" />
-                <div className="absolute inset-0 opacity-10">
-                  <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808014_1px,transparent_1px),linear-gradient(to_bottom,#80808014_1px,transparent_1px)] bg-size-[16px_16px]" />
-                </div>
-                <div className="relative z-10 flex h-full flex-col justify-end gap-3">
-                  <Badge className={cn("w-fit rounded-lg px-2 py-1 text-[9px] font-black uppercase tracking-widest", statusTone[detailForm.status])}>
-                    {detailForm.status}
-                  </Badge>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.22em] text-white/60">{selectedLead.id}</p>
-                    <h2 className="mt-2 text-3xl font-black tracking-tight">{selectedLead.name}</h2>
+        <SheetContent className="w-full gap-0 overflow-hidden border-l border-border/50 bg-white p-0 shadow-2xl sm:max-w-[640px] dark:bg-card [&_[data-slot=sheet-close]]:top-5 [&_[data-slot=sheet-close]]:right-5 [&_[data-slot=sheet-close]]:z-30 [&_[data-slot=sheet-close]]:flex [&_[data-slot=sheet-close]]:size-9 [&_[data-slot=sheet-close]]:items-center [&_[data-slot=sheet-close]]:justify-center [&_[data-slot=sheet-close]]:rounded-full [&_[data-slot=sheet-close]]:bg-white/10! [&_[data-slot=sheet-close]]:text-[#FAF9F5] [&_[data-slot=sheet-close]]:opacity-100 [&_[data-slot=sheet-close]]:ring-1 [&_[data-slot=sheet-close]]:ring-white/15">
+          {selected && form ? (
+            <div className="relative flex h-full flex-col">
+              <GlowPanel tone={selected.status === "Converted" ? "sage" : selected.status === "Lost" ? "ink" : "amber"} orb="60%" lineTop={0} className="shrink-0 rounded-none px-6 pt-6 pb-5 shadow-none ring-0 sm:px-7">
+                <div key={`head-${selected.backendId}`} className="flex flex-col gap-3 pr-12 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-4 motion-safe:duration-500 motion-safe:fill-mode-both">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[13px] font-medium text-[#FAF9F5] ring-1 ring-white/15">
+                      <span aria-hidden="true" className={cn("size-1.5 rounded-full", STAGE_STYLE[selected.status].dot)} />
+                      {selected.status}
+                    </span>
+                    <span className="font-mono text-xs text-[#B5B2A8]">{selected.id}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-white/70">
-                    <Mail className="h-3.5 w-3.5" />
-                    <span>{selectedLead.email}</span>
+                  <SheetTitle className="text-2xl leading-tight font-medium tracking-[-0.02em] text-[#FAF9F5]">{selected.name}</SheetTitle>
+                  <SheetDescription className="text-sm text-[#C9C6BC]">{selected.interest || "No interest recorded"}</SheetDescription>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-[#C9C6BC]">
+                    {selected.phone ? (
+                      <a href={`tel:${selected.phone}`} className="flex items-center gap-1.5 text-[#C9C6BC] hover:text-[#FAF9F5]">
+                        <Phone aria-hidden="true" className="size-3.5" />
+                        <span className="font-mono">{selected.phone}</span>
+                      </a>
+                    ) : null}
+                    {selected.email ? (
+                      <a href={`mailto:${selected.email}`} className="flex items-center gap-1.5 text-[#C9C6BC] hover:text-[#FAF9F5]">
+                        <Mail aria-hidden="true" className="size-3.5" />
+                        {selected.email}
+                      </a>
+                    ) : null}
+                    <span className="flex items-center gap-1.5">
+                      <MessageCircle aria-hidden="true" className="size-3.5" />
+                      Prefers {selected.preferredContact.toLowerCase()}
+                    </span>
+                  </div>
+                </div>
+              </GlowPanel>
+
+              <div className={cn("min-h-0 flex-1 overflow-y-auto", dirtyFields.length > 0 && "pb-24")}>
+                <div key={`body-${selected.backendId}`} className="flex flex-col gap-7 px-4 py-5 sm:px-6">
+                  {/* Stage */}
+                  <section className="flex flex-col gap-2.5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-100">
+                    <h3 className="px-1 text-[13px] font-medium">Stage</h3>
+                    <div role="radiogroup" aria-label="Lead stage" className="flex flex-wrap gap-1.5">
+                      {STAGES.map((stage) => {
+                        const active = selected.status === stage;
+                        return (
+                          <button
+                            key={stage}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            disabled={busy !== null}
+                            onClick={() => void changeStage(selected, stage, "sheet")}
+                            className={cn(
+                              "inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] transition-all disabled:opacity-50",
+                              active ? cn(STAGE_STYLE[stage].chip, "font-medium") : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted",
+                            )}
+                          >
+                            <span aria-hidden="true" className={cn("size-1.5 rounded-full", STAGE_STYLE[stage].dot, !active && "opacity-60")} />
+                            {stage}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selected.status !== "Converted" ? (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void changeStage(selected, "Converted", "sheet")}
+                        className="mt-1 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F1E4] px-4 py-3 text-left transition-colors hover:bg-[#DCEBD8] disabled:opacity-60 dark:bg-emerald-950/60 dark:hover:bg-emerald-950"
+                      >
+                        <span className="flex flex-col">
+                          <span className="text-sm font-medium text-[#2D5A27] dark:text-emerald-300">Convert to client</span>
+                          <span className="text-[13px] text-[#3F6B39] dark:text-emerald-400/80">Links an existing client with the same email or phone, or creates one.</span>
+                        </span>
+                        {busy === "convert" ? <Loader2 aria-hidden="true" className="size-4 animate-spin text-[#2D5A27]" /> : <ArrowUpRight aria-hidden="true" className="size-4 text-[#2D5A27] dark:text-emerald-300" />}
+                      </button>
+                    ) : linkedClientId(selected) ? (
+                      <Link href={`/dashboard/clients/${linkedClientId(selected)}`} className="mt-1 flex items-center justify-between gap-3 rounded-2xl bg-[#E7F1E4] px-4 py-3 text-sm font-medium text-[#2D5A27] transition-colors hover:bg-[#DCEBD8] dark:bg-emerald-950/60 dark:text-emerald-300">
+                        Open client CL-{String(linkedClientId(selected)).padStart(3, "0")}
+                        <ArrowUpRight aria-hidden="true" className="size-4" />
+                      </Link>
+                    ) : null}
+                  </section>
+
+                  {/* Properties */}
+                  <section className="flex flex-col gap-1 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-150">
+                    <h3 className="mb-1 px-1 text-[13px] font-medium">Details</h3>
+                    <PropertyRow icon={Flag} label="Priority">
+                      <div role="radiogroup" aria-label="Priority" className="flex flex-wrap gap-1.5 px-1.5 py-1">
+                        {PRIORITIES.map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            role="radio"
+                            aria-checked={form.priority === p}
+                            onClick={() => setForm({ ...form, priority: p })}
+                            className={cn(
+                              "h-8 rounded-full px-3 text-[13px] transition-colors",
+                              form.priority === p
+                                ? p === "Urgent"
+                                  ? "bg-[#F6E3E1] font-medium text-[#8A2C22] dark:bg-red-950 dark:text-red-300"
+                                  : p === "Priority"
+                                    ? "bg-[#F8EEDB] font-medium text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300"
+                                    : "bg-[#ECE9E0] font-medium text-foreground dark:bg-muted"
+                                : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted",
+                            )}
+                          >
+                            {PRIORITY_LABEL[p]}
+                          </button>
+                        ))}
+                      </div>
+                    </PropertyRow>
+                    <PropertyRow icon={Wallet} label={`Est. value (${currency})`} htmlFor="lead-value">
+                      <Input id="lead-value" inputMode="decimal" className={cn(GHOST_FIELD, "font-mono")} value={form.estimatedValue} onChange={(e) => setForm({ ...form, estimatedValue: e.target.value })} />
+                    </PropertyRow>
+                    {OPEN_STAGES.includes(selected.status) ? (
+                      <PropertyRow icon={CircleDot} label="Next step" htmlFor="lead-next">
+                        <Input id="lead-next" placeholder="e.g. Call back Thursday with pricing" className={GHOST_FIELD} value={form.nextStep} onChange={(e) => setForm({ ...form, nextStep: e.target.value })} />
+                      </PropertyRow>
+                    ) : null}
+                    <PropertyRow icon={Clock} label="Received">
+                      <div className="flex h-10 items-center px-3 text-sm">
+                        {selected.date} · via {selected.source}
+                      </div>
+                    </PropertyRow>
+                  </section>
+
+                  {/* Notes */}
+                  <section className="flex flex-col gap-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-200">
+                    <label htmlFor="lead-notes" className="px-1 text-[13px] font-medium">
+                      Notes
+                    </label>
+                    <Textarea
+                      id="lead-notes"
+                      className="min-h-28 resize-y rounded-xl border border-transparent bg-[#F7F6F1] px-3.5 py-3 text-sm leading-relaxed shadow-none transition-colors hover:bg-[#F3F1EA] focus-visible:border-border focus-visible:bg-white focus-visible:ring-0 dark:bg-muted/50 dark:focus-visible:bg-card"
+                      placeholder="What they need, context from the call, objections…"
+                      value={form.notes}
+                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                    />
+                  </section>
+
+                  <div className="flex items-center justify-between gap-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-[250ms]">
+                    <span className="text-xs text-muted-foreground">Updated {new Date(selected.updatedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</span>
+                    <DeleteConfirmDialog
+                      title={`Delete ${selected.name}`}
+                      description="This removes the lead from the pipeline. Any client already created from it is kept. This can't be undone."
+                      confirmLabel="Confirmation"
+                      triggerLabel="Delete lead"
+                      onConfirm={deleteLead}
+                      trigger={
+                        <button type="button" className="flex h-9 items-center gap-2 rounded-full px-3 text-[13px] font-medium text-[#8A2C22] transition-colors hover:bg-[#F6E3E1] dark:text-red-300 dark:hover:bg-red-950">
+                          <Trash2 aria-hidden="true" className="size-3.5" />
+                          {busy === "delete" ? "Deleting…" : "Delete lead"}
+                        </button>
+                      }
+                    />
                   </div>
                 </div>
               </div>
 
-              <div className="flex-1 space-y-6 overflow-y-auto p-6">
-                <SheetHeader className="space-y-2 text-left">
-                  <SheetTitle className="text-base font-black tracking-tight">Lead Detail Sheet</SheetTitle>
-                  <SheetDescription>
-                    Review inquiry context, move the lead through the pipeline, and keep the next action current.
-                  </SheetDescription>
-                </SheetHeader>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-2xl border border-border/50 bg-background/80 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Phone</p>
-                    <p className="mt-2 text-sm font-bold">{selectedLead.phone}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/50 bg-background/80 p-4">
-                    <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Source</p>
-                    <p className="mt-2 text-sm font-bold">{selectedLead.source}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/50 bg-background/80 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-primary">Pipeline Stage</p>
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    {pipelineStatuses.map((status) => (
-                      <Button
-                        key={status}
-                        type="button"
-                        variant={detailForm.status === status ? "default" : "outline"}
-                        className="h-10 rounded-xl text-[11px] font-black uppercase tracking-[0.16em]"
-                        disabled={isSaving || isDeleting || isConverting}
-                        onClick={() => void persistLeadChanges({ status })}
-                      >
-                        {isSaving && detailForm.status !== status ? null : isSaving && detailForm.status === status ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                        {status}
-                      </Button>
-                    ))}
+              {/* Floating save bar */}
+              <div
+                aria-hidden={dirtyFields.length === 0}
+                className={cn(
+                  "pointer-events-none absolute inset-x-4 bottom-4 z-20 origin-bottom transition-[transform,opacity] sm:inset-x-6 motion-reduce:transition-none",
+                  dirtyFields.length > 0 ? "translate-y-0 scale-100 opacity-100 duration-[420ms] ease-[cubic-bezier(0.34,1.4,0.64,1)]" : "translate-y-6 scale-[0.96] opacity-0 duration-200 ease-in",
+                )}
+              >
+                <div className={cn("flex items-center justify-between gap-3 rounded-full bg-[#1E1D1B] py-2 pr-2 pl-5 text-[#FAF9F5] shadow-[0_16px_40px_-12px_rgba(20,20,19,0.55)] ring-1 ring-white/10", dirtyFields.length > 0 && "pointer-events-auto")}>
+                  <span aria-live="polite" className="flex items-center gap-2 text-[13px]">
+                    <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                    {dirtyFields.length} unsaved change{dirtyFields.length === 1 ? "" : "s"}
+                  </span>
+                  <div className="flex gap-1.5">
+                    <button type="button" tabIndex={dirtyFields.length ? 0 : -1} onClick={() => setForm(formFor(selected))} className="h-9 rounded-full px-4 text-sm text-[#C9C6BC] transition-colors hover:bg-white/10 hover:text-[#FAF9F5]">
+                      Discard
+                    </button>
+                    <button type="button" tabIndex={dirtyFields.length ? 0 : -1} disabled={busy === "save"} onClick={() => void saveDetails()} className="h-9 rounded-full bg-[#FAF9F5] px-5 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-white disabled:opacity-50">
+                      {busy === "save" ? "Saving…" : "Save"}
+                    </button>
                   </div>
                 </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="lead-priority">Priority</Label>
-                    <Select
-                      value={detailForm.priority}
-                      onValueChange={(value) => setDetailForm((current) => ({
-                        ...current,
-                        priority: value as LeadRecord["priority"],
-                      }))}
-                    >
-                      <SelectTrigger id="lead-priority" className="h-11 rounded-xl border-border/60 bg-background">
-                        <SelectValue placeholder="Select priority" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {priorityOptions.map((priority) => (
-                          <SelectItem key={priority} value={priority}>{priority}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="lead-value">Estimated Value</Label>
-                    <Input
-                      id="lead-value"
-                      inputMode="decimal"
-                      className="h-11 rounded-xl border-border/60 bg-background"
-                      value={detailForm.estimatedValue}
-                      onChange={(event) => setDetailForm((current) => ({
-                        ...current,
-                        estimatedValue: event.target.value,
-                      }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-border/50 bg-background/80 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-primary">Inquiry Context</p>
-                  <p className="mt-3 text-sm font-semibold text-foreground">{selectedLead.interest}</p>
-                  <div className="mt-4 space-y-2">
-                    <Label htmlFor="lead-notes">Notes</Label>
-                    <Textarea
-                      id="lead-notes"
-                      className="min-h-28 rounded-2xl border-border/60 bg-background"
-                      value={detailForm.notes}
-                      onChange={(event) => setDetailForm((current) => ({
-                        ...current,
-                        notes: event.target.value,
-                      }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2 rounded-2xl border border-border/50 bg-background/80 p-5">
-                  <Label htmlFor="lead-next-step">Next Step</Label>
-                  <Input
-                    id="lead-next-step"
-                    className="h-11 rounded-xl border-border/60 bg-background"
-                    value={detailForm.nextStep}
-                    onChange={(event) => setDetailForm((current) => ({
-                      ...current,
-                      nextStep: event.target.value,
-                    }))}
-                  />
-                </div>
-
-                <div className="rounded-2xl border border-border/50 bg-background/80 p-5">
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Engagement Snapshot</p>
-                  <div className="mt-4 space-y-4">
-                    {[
-                      { label: "Intake recorded", meta: selectedLead.date },
-                      { label: "Preferred contact", meta: selectedLead.preferredContact },
-                      { label: "Last updated", meta: new Date(selectedLead.updatedAt).toLocaleString() },
-                    ].map((entry) => (
-                      <div key={entry.label} className="flex items-center justify-between gap-3 border-b border-border/40 pb-3 text-sm last:border-b-0 last:pb-0">
-                        <span className="font-semibold text-foreground">{entry.label}</span>
-                        <span className="text-right text-muted-foreground">{entry.meta}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    className="h-11 rounded-xl font-bold"
-                    onClick={() => void handleConvertToCase()}
-                    disabled={isSaving || isDeleting || isConverting}
-                  >
-                    {isConverting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Convert to Case
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-11 rounded-xl font-bold"
-                    onClick={() => void persistLeadChanges()}
-                    disabled={isSaving || isDeleting}
-                  >
-                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                    Save Changes
-                  </Button>
-                </div>
-
-                <Button
-                  variant="outline"
-                  className="h-11 w-full rounded-xl border-rose-500/30 font-bold text-rose-600 hover:bg-rose-500/8 hover:text-rose-700"
-                  onClick={() => void handleDeleteLead()}
-                  disabled={isSaving || isDeleting}
-                >
-                  {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                  Delete Lead
-                </Button>
               </div>
             </div>
           ) : null}

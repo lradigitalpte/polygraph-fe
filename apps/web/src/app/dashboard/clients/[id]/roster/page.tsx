@@ -2,268 +2,149 @@
 
 import * as React from "react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import {
-  ArrowUpDown,
-  ArrowRight,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Filter,
-  Loader2,
-  Mail,
-  Phone,
-  Plus,
-  Search,
-  Upload,
-  UserPlus,
-  X,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Calendar, CalendarCheck, Check, Download, Loader2, Mail, Phone, Search, Ticket, Upload, UserPlus, Users, X } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Segmented } from "@/components/dashboard/ui-kit";
 import { cn } from "@/lib/utils";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
-import { ExamineeBookingStatus } from "@/components/dashboard/examinee-booking-status";
 import { bulkCreateExaminees, fetchClientExaminees, type ExamineeRosterEntry } from "@/lib/clients";
 import { fetchPrepaidSlotSummary, type PrepaidSlotSummary } from "@/lib/prepaid-slots";
 import { formatOrganizationAccountLabel, isOrganizationClient } from "@/lib/client-types";
 import { formatClinicDateLabel } from "@/lib/clinic-time";
-import {
-  ENGLISH_PROFICIENCY_LEVELS,
-  createSubject,
-  formatSubjectCode,
-  formatSubjectName,
-} from "@/lib/subjects";
+import { ENGLISH_PROFICIENCY_LEVELS, createSubject, formatSubjectCode, formatSubjectName } from "@/lib/subjects";
+
+const CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+const PAGE_STEP = 25;
 
 const CSV_TEMPLATE = `first_name,last_name,email,phone,employee_ref
-Jane,Doe,jane@example.com,+1-555-0101,EMP-001
-John,Smith,john@example.com,+1-555-0102,EMP-002`;
+Jane,Doe,jane@example.com,+971501234567,EMP-001
+John,Smith,john@example.com,+971507654321,EMP-002`;
 
-function parseCsvRows(text: string) {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return [];
+type ImportRow = { first_name: string; last_name: string; email?: string; phone?: string; employee_ref?: string };
 
-  // 1. Locate the header row.
-  // We search for a line that contains "NAME" (case-insensitive) or "FIRST_NAME".
+/** Splits one CSV line, honouring quotes ("Doe, Jane" stays one cell; "" is a literal quote). */
+function splitCsvLine(line: string, sep: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cur += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) {
+      out.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+/**
+ * Reads pasted CSV (or tab-separated text copied from Excel). Finds the header row by
+ * its column names; without one, assumes the template's column order — and keeps the
+ * first line as data instead of dropping it.
+ */
+function parseCsvRows(text: string): { rows: ImportRow[]; skipped: number } {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length === 0) return { rows: [], skipped: 0 };
+  const sep = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
+  const norm = (h: string) => h.toLowerCase().replace(/[^a-z]/g, "");
+
   let headerIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const cols = lines[i].split(",").map((c) => c.trim().toLowerCase());
-    if (cols.includes("name") || cols.includes("first_name")) {
+  let headers: string[] = [];
+  for (let i = 0; i < Math.min(lines.length, 15); i++) {
+    const cols = splitCsvLine(lines[i], sep).map(norm);
+    if (cols.some((c) => ["name", "fullname", "firstname", "examinee", "employeename"].includes(c))) {
       headerIndex = i;
+      headers = cols;
       break;
     }
   }
 
-  // If no header found, fall back to default parser
-  if (headerIndex === -1) {
-    const firstLine = lines[0].toLowerCase().split(",").map((h) => h.trim());
-    const idx = (name: string) => firstLine.indexOf(name);
-    return lines.slice(1).map((line) => {
-      const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-      return {
-        first_name: cols[idx("first_name")] ?? cols[0] ?? "",
-        last_name: cols[idx("last_name")] ?? cols[1] ?? "",
-        email: cols[idx("email")] ?? "",
-        phone: cols[idx("phone")] ?? "",
-        employee_ref: cols[idx("employee_ref")] ?? "",
-      };
-    });
-  }
+  const find = (...names: string[]) => headers.findIndex((h) => names.includes(h));
+  const idx =
+    headerIndex === -1
+      ? { first: 0, last: 1, full: -1, email: 2, phone: 3, ref: 4 }
+      : {
+          first: find("firstname", "first", "givenname"),
+          last: find("lastname", "last", "surname", "familyname"),
+          full: find("name", "fullname", "examinee", "employeename"),
+          email: headers.findIndex((h) => h.includes("mail")),
+          phone: headers.findIndex((h) => h.includes("phone") || h.includes("mobile") || h === "tel"),
+          ref: find("employeeref", "ref", "refid", "employeeid", "staffid", "remark", "remarks"),
+        };
 
-  const headerLine = lines[headerIndex];
-  const headers = headerLine.split(",").map((h) => h.trim().toLowerCase());
-  
-  // Find column positions
-  const nameIdx = headers.indexOf("name");
-  const firstNameIdx = headers.indexOf("first_name");
-  const lastNameIdx = headers.indexOf("last_name");
-  const phoneIdx = headers.findIndex(h => h.includes("phone"));
-  const emailIdx = headers.findIndex(h => h.includes("mail") || h.includes("email"));
-  const remarkIdx = headers.indexOf("remark");
-  const empRefIdx = headers.indexOf("employee_ref");
-
-  const results: Array<{
-    first_name: string;
-    last_name: string;
-    email?: string;
-    phone?: string;
-    employee_ref?: string;
-  }> = [];
-
-  for (let i = headerIndex + 1; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const cols = rawLine.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-    
-    // Skip short lines
-    if (cols.length < 2) continue;
-    
-    let firstName = "";
-    let lastName = "";
-    
-    if (firstNameIdx !== -1) {
-      firstName = cols[firstNameIdx] ?? "";
-      lastName = cols[lastNameIdx] ?? "";
-    } else if (nameIdx !== -1) {
-      const fullName = cols[nameIdx] ?? "";
-      const parts = fullName.trim().split(/\s+/);
-      if (parts.length > 0 && parts[0]) {
-        firstName = parts[0];
-        lastName = parts.slice(1).join(" ") || "Subject";
-      }
+  const rows: ImportRow[] = [];
+  let skipped = 0;
+  for (const line of lines.slice(headerIndex + 1)) {
+    const cols = splitCsvLine(line, sep);
+    const at = (i: number) => (i >= 0 ? (cols[i] ?? "").trim() : "");
+    let first = at(idx.first);
+    let last = at(idx.last);
+    if (!first && !last && idx.full >= 0) {
+      const parts = at(idx.full).split(/\s+/).filter(Boolean);
+      first = parts[0] ?? "";
+      last = parts.slice(1).join(" ");
     }
-
-    // Skip if name is invalid or contains metadata/legends
-    if (!firstName || firstName.toLowerCase().includes("legend") || firstName.toLowerCase().includes("colour")) {
+    // Rows without a usable name (blank lines, section titles like "Legend") are skipped and counted.
+    if (!first || /^(legend|total|colou?r|note)/i.test(first)) {
+      skipped++;
       continue;
     }
-    
-    // Also skip separator rows that have dates
-    if (rawLine.toLowerCase().includes("january") || rawLine.toLowerCase().includes("february") || rawLine.toLowerCase().includes("march") || rawLine.toLowerCase().includes("april")) {
-      continue;
-    }
-
-    const phone = phoneIdx !== -1 ? cols[phoneIdx] : "";
-    
-    // If email column contains "SENT" or other status, ignore it
-    let email = emailIdx !== -1 ? cols[emailIdx] : "";
-    if (email && (email.toLowerCase() === "sent" || email.toLowerCase() === "-")) {
-      email = "";
-    }
-
-    // Remark or employee_ref
-    let ref = "";
-    if (empRefIdx !== -1) {
-      ref = cols[empRefIdx];
-    } else if (remarkIdx !== -1) {
-      ref = cols[remarkIdx];
-    }
-
-    results.push({
-      first_name: firstName,
-      last_name: lastName,
-      email: email || undefined,
-      phone: phone || undefined,
-      employee_ref: ref || undefined,
+    const email = at(idx.email);
+    rows.push({
+      first_name: first,
+      last_name: last,
+      email: looksLikeEmail(email) ? email : undefined,
+      phone: at(idx.phone) || undefined,
+      employee_ref: at(idx.ref) || undefined,
     });
   }
-
-  return results;
+  return { rows, skipped };
 }
 
-type BookingFilter = "all" | "booked" | "unbooked";
-type SessionFilter = "all" | "has_sessions" | "completed" | "none";
-type SortField = "name" | "last_session" | "sessions";
-type DatePreset = "all" | "today" | "week" | "month" | "custom";
-type SessionCountOp = "any" | "eq" | "gte" | "lte";
+type View = "all" | "unbooked" | "booked" | "never" | "unnamed";
+type SortKey = "name" | "recent" | "sessions";
 
-const BOOKING_FILTER_LABELS: Record<BookingFilter, string> = {
-  all: "All booking",
-  booked: "Exam booked",
-  unbooked: "Not booked",
-};
+const hasName = (e: ExamineeRosterEntry) => formatSubjectName(e.subject).trim() !== "";
+const isBooked = (e: ExamineeRosterEntry) => Boolean(e.next_scheduled_at) || (e.upcoming_count ?? 0) > 0;
+const ts = (iso?: string) => (iso ? new Date(iso).getTime() || 0 : 0);
+/** Latest thing that happened to this person: next booking, last session, or when they were added. */
+const lastActivity = (e: ExamineeRosterEntry) => Math.max(ts(e.next_scheduled_at), ts(e.last_scheduled_at), ts(e.subject.created_at));
+const nameKey = (e: ExamineeRosterEntry) => formatSubjectName(e.subject).trim().toLowerCase().replace(/\s+/g, " ");
 
-const SESSION_FILTER_LABELS: Record<SessionFilter, string> = {
-  all: "All sessions",
-  has_sessions: "Has sessions",
-  completed: "Has completed",
-  none: "No sessions",
-};
-
-const SESSION_COUNT_OP_LABELS: Record<SessionCountOp, string> = {
-  any: "Any count",
-  eq: "Exactly",
-  gte: "At least",
-  lte: "At most",
-};
-
-const PAGE_SIZE_OPTIONS = [10, 15, 25, 50] as const;
-
-function parseLocalDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const parts = dateStr.split("-");
-  if (parts.length !== 3) return null;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
-  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) return null;
-  return new Date(year, month, day);
-}
-
-function startOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function endOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function presetRange(preset: DatePreset): { from?: Date; to?: Date } {
-  if (preset === "all" || preset === "custom") return {};
-  const now = new Date();
-  const from = startOfDay(now);
-  const to = endOfDay(now);
-  if (preset === "today") return { from, to };
-  if (preset === "week") {
-    const weekStart = new Date(from);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    return { from: weekStart, to: endOfDay(weekEnd) };
-  }
-  if (preset === "month") {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return { from: monthStart, to: endOfDay(monthEnd) };
-  }
-  return {};
-}
-
-function matchesSessionCount(count: number, op: SessionCountOp, value: number): boolean {
-  if (op === "any") return true;
-  if (op === "eq") return count === value;
-  if (op === "gte") return count >= value;
-  return count <= value;
-}
-
-function formatLastSession(iso?: string) {
-  if (!iso) return "—";
-  return formatClinicDateLabel(iso) || "—";
-}
-
-function getInitials(name: string) {
+function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "—";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  if (parts.length === 0) return "?";
+  return parts.length === 1 ? parts[0].slice(0, 2).toUpperCase() : `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function SortHeader({ label, active, dir, onClick, className }: { label: string; active: boolean; dir: "asc" | "desc"; onClick: () => void; className?: string }) {
+  const Icon = !active ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th scope="col" aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"} className={cn("px-3 py-2.5 font-medium", className)}>
+      <button type="button" onClick={onClick} className={cn("inline-flex items-center gap-1 rounded-md transition-colors hover:text-foreground", active && "font-semibold text-foreground")}>
+        {label}
+        <Icon aria-hidden="true" className={cn("size-3.5", !active && "opacity-50")} />
+      </button>
+    </th>
+  );
 }
 
 export default function ExamineeRosterPage() {
@@ -271,39 +152,21 @@ export default function ExamineeRosterPage() {
   const router = useRouter();
   const clientId = Number(params.id);
   const { client } = useClientDetail();
-  const accountLabel = client
-    ? isOrganizationClient(client)
-      ? formatOrganizationAccountLabel(client)
-      : client.name
-    : "this account";
+  const accountLabel = client ? (isOrganizationClient(client) ? formatOrganizationAccountLabel(client) : client.name) : "this account";
+
   const [entries, setEntries] = React.useState<ExamineeRosterEntry[]>([]);
-  const [prepaidSummary, setPrepaidSummary] = React.useState<PrepaidSlotSummary | null>(null);
+  const [prepaid, setPrepaid] = React.useState<PrepaidSlotSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
-  const [bookingFilter, setBookingFilter] = React.useState<BookingFilter>("all");
-  const [sessionFilter, setSessionFilter] = React.useState<SessionFilter>("all");
-  const [datePreset, setDatePreset] = React.useState<DatePreset>("all");
-  const [dateFrom, setDateFrom] = React.useState("");
-  const [dateTo, setDateTo] = React.useState("");
-  const [sessionCountOp, setSessionCountOp] = React.useState<SessionCountOp>("any");
-  const [sessionCountValue, setSessionCountValue] = React.useState("");
-  const [sortField, setSortField] = React.useState<SortField>("name");
-  const [sortAsc, setSortAsc] = React.useState(true);
-  const [currentPage, setCurrentPage] = React.useState(1);
-  const [itemsPerPage, setItemsPerPage] = React.useState<number>(10);
+  const [view, setView] = React.useState<View>("all");
+  const [sortKey, setSortKey] = React.useState<SortKey>("recent");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
+  const [shown, setShown] = React.useState(PAGE_STEP);
   const [addOpen, setAddOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [importText, setImportText] = React.useState("");
-  const [form, setForm] = React.useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    employee_ref: "",
-    english_proficiency: "",
-    interpreter_required: false,
-  });
+  const [form, setForm] = React.useState({ first_name: "", last_name: "", email: "", phone: "", employee_ref: "", english_proficiency: "", interpreter_required: false });
 
   const load = React.useCallback(async () => {
     if (!Number.isFinite(clientId)) return;
@@ -323,210 +186,94 @@ export default function ExamineeRosterPage() {
 
   React.useEffect(() => {
     if (!Number.isFinite(clientId) || !client || !isOrganizationClient(client)) {
-      setPrepaidSummary(null);
+      setPrepaid(null);
       return;
     }
-    void fetchPrepaidSlotSummary(clientId)
-      .then(setPrepaidSummary)
-      .catch(() => setPrepaidSummary(null));
+    fetchPrepaidSlotSummary(clientId).then(setPrepaid).catch(() => setPrepaid(null));
   }, [clientId, client]);
 
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [search, bookingFilter, sessionFilter, datePreset, dateFrom, dateTo, sessionCountOp, sessionCountValue, sortField, sortAsc, itemsPerPage]);
+  React.useEffect(() => setShown(PAGE_STEP), [search, view, sortKey, sortDir]);
 
-  const lastSessionRange = React.useMemo(() => {
-    if (datePreset === "all") return {};
-    if (datePreset === "custom") {
-      const from = parseLocalDate(dateFrom);
-      const to = parseLocalDate(dateTo);
-      return {
-        from: from ? startOfDay(from) : undefined,
-        to: to ? endOfDay(to) : undefined,
-      };
-    }
-    return presetRange(datePreset);
-  }, [datePreset, dateFrom, dateTo]);
-
-  const sessionCountTarget = React.useMemo(() => {
-    const parsed = parseInt(sessionCountValue, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-  }, [sessionCountValue]);
-
-  const hasActiveFilters =
-    Boolean(search.trim()) ||
-    bookingFilter !== "all" ||
-    sessionFilter !== "all" ||
-    datePreset !== "all" ||
-    Boolean(dateFrom) ||
-    Boolean(dateTo) ||
-    sessionCountOp !== "any";
-
-  const clearFilters = () => {
-    setSearch("");
-    setBookingFilter("all");
-    setSessionFilter("all");
-    setDatePreset("all");
-    setDateFrom("");
-    setDateTo("");
-    setSessionCountOp("any");
-    setSessionCountValue("");
-  };
-
-  const filtered = React.useMemo(() => {
-    const s = search.toLowerCase().trim();
-    let rows = entries.filter((e) => {
-      const name = formatSubjectName(e.subject).toLowerCase();
-      const email = (e.subject.email ?? "").toLowerCase();
-      const phone = (e.subject.phone ?? "").toLowerCase();
-      const ref = (e.subject.employee_ref ?? "").toLowerCase();
-      const code = formatSubjectCode(e.subject.id).toLowerCase();
-      const matchesSearch =
-        !s ||
-        name.includes(s) ||
-        email.includes(s) ||
-        phone.includes(s) ||
-        ref.includes(s) ||
-        code.includes(s);
-
-      const isBooked = Boolean(e.next_scheduled_at) || (e.upcoming_count ?? 0) > 0;
-      const matchesBooking =
-        bookingFilter === "all" ||
-        (bookingFilter === "booked" && isBooked) ||
-        (bookingFilter === "unbooked" && !isBooked);
-
-      const matchesSession =
-        sessionFilter === "all" ||
-        (sessionFilter === "has_sessions" && e.session_count > 0) ||
-        (sessionFilter === "completed" && e.completed_count > 0) ||
-        (sessionFilter === "none" && e.session_count === 0);
-
-      let matchesLastSession = true;
-      if (datePreset !== "all") {
-        if (!e.last_scheduled_at) {
-          matchesLastSession = false;
-        } else {
-          const when = new Date(e.last_scheduled_at);
-          if (Number.isNaN(when.getTime())) {
-            matchesLastSession = false;
-          } else {
-            if (lastSessionRange.from && when < lastSessionRange.from) matchesLastSession = false;
-            if (lastSessionRange.to && when > lastSessionRange.to) matchesLastSession = false;
-          }
-        }
-      }
-
-      const matchesSessionCountFilter =
-        sessionCountOp === "any" ||
-        sessionCountTarget === null ||
-        matchesSessionCount(e.session_count, sessionCountOp, sessionCountTarget);
-
-      return matchesSearch && matchesBooking && matchesSession && matchesLastSession && matchesSessionCountFilter;
-    });
-
-    rows = [...rows].sort((a, b) => {
-      let cmp = 0;
-      if (sortField === "name") {
-        cmp = formatSubjectName(a.subject).localeCompare(formatSubjectName(b.subject));
-      } else if (sortField === "last_session") {
-        const aTime = a.last_scheduled_at ? new Date(a.last_scheduled_at).getTime() : 0;
-        const bTime = b.last_scheduled_at ? new Date(b.last_scheduled_at).getTime() : 0;
-        cmp = aTime - bTime;
-      } else {
-        cmp = a.session_count - b.session_count;
-      }
-      return sortAsc ? cmp : -cmp;
-    });
-
-    return rows;
-  }, [
-    entries,
-    search,
-    bookingFilter,
-    sessionFilter,
-    datePreset,
-    lastSessionRange,
-    sessionCountOp,
-    sessionCountTarget,
-    sortField,
-    sortAsc,
-  ]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
-
-  React.useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  const pageNumbers = React.useMemo(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-    const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
-    return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
-  }, [currentPage, totalPages]);
-  const paginated = filtered.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
+  const counts = React.useMemo(
+    () => ({
+      all: entries.length,
+      booked: entries.filter(isBooked).length,
+      unbooked: entries.filter((e) => !isBooked(e)).length,
+      never: entries.filter((e) => e.session_count === 0 && !isBooked(e)).length,
+      unnamed: entries.filter((e) => !hasName(e)).length,
+      tested: entries.filter((e) => e.completed_count > 0).length,
+    }),
+    [entries],
   );
 
-  const stats = React.useMemo(() => {
-    const booked = entries.filter(
-      (e) => Boolean(e.next_scheduled_at) || (e.upcoming_count ?? 0) > 0,
-    ).length;
-    const withHistory = entries.filter((e) => e.session_count > 0).length;
-    return { total: entries.length, booked, withHistory };
+  const filtered = React.useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const rows = entries.filter((e) => {
+      if (view === "booked" && !isBooked(e)) return false;
+      if (view === "unbooked" && isBooked(e)) return false;
+      if (view === "never" && (e.session_count > 0 || isBooked(e))) return false;
+      if (view === "unnamed" && hasName(e)) return false;
+      if (!q) return true;
+      return [formatSubjectName(e.subject), e.subject.email, e.subject.phone, e.subject.employee_ref, formatSubjectCode(e.subject.id)].some((v) => (v ?? "").toLowerCase().includes(q));
+    });
+    const dir = sortDir === "asc" ? 1 : -1;
+    return rows.sort((a, b) => {
+      if (sortKey === "name") {
+        // Unnamed records always last, whichever way the names run.
+        const an = formatSubjectName(a.subject);
+        const bn = formatSubjectName(b.subject);
+        if (!an !== !bn) return an ? -1 : 1;
+        return dir * an.localeCompare(bn, undefined, { sensitivity: "base" });
+      }
+      const diff = sortKey === "sessions" ? a.session_count - b.session_count : lastActivity(a) - lastActivity(b);
+      return dir * diff || b.subject.id - a.subject.id;
+    });
+  }, [entries, search, view, sortKey, sortDir]);
+
+  /** Names that appear on more than one record, so staff can spot double entries. */
+  const duplicateNames = React.useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const e of entries) {
+      const k = nameKey(e);
+      if (k) seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+    return new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k));
   }, [entries]);
 
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortAsc((v) => !v);
-    } else {
-      setSortField(field);
-      setSortAsc(field === "name");
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
     }
   };
 
+  const visible = filtered.slice(0, shown);
+  const parsed = React.useMemo(() => parseCsvRows(importText), [importText]);
+
   const handleExportCsv = () => {
-    const headers = ["Code", "First Name", "Last Name", "Email", "Phone", "Ref ID", "Sessions", "Completed", "Last Session", "Booking Status"];
-    const rows = filtered.map((entry) => {
-      const isBooked = Boolean(entry.next_scheduled_at) || (entry.upcoming_count ?? 0) > 0;
-      return [
-        formatSubjectCode(entry.subject.id),
-        entry.subject.first_name,
-        entry.subject.last_name,
-        entry.subject.email ?? "",
-        entry.subject.phone ?? "",
-        entry.subject.employee_ref ?? "",
-        String(entry.session_count),
-        String(entry.completed_count),
-        formatLastSession(entry.last_scheduled_at),
-        isBooked ? "Booked" : "Not booked",
-      ];
-    });
-    const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
+    const headers = ["Code", "First name", "Last name", "Email", "Phone", "Ref", "Sessions", "Completed", "Last session", "Booking"];
+    const rows = filtered.map((e) => [
+      formatSubjectCode(e.subject.id),
+      e.subject.first_name,
+      e.subject.last_name,
+      e.subject.email ?? "",
+      e.subject.phone ?? "",
+      e.subject.employee_ref ?? "",
+      String(e.session_count),
+      String(e.completed_count),
+      e.last_scheduled_at ? formatClinicDateLabel(e.last_scheduled_at) : "",
+      isBooked(e) ? "Booked" : "Not booked",
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `examinee-roster-${clientId}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `examinee-roster-${clientId}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Exported ${filtered.length} examinee(s)`);
+    toast.success(`Exported ${filtered.length} examinee${filtered.length === 1 ? "" : "s"}`);
   };
-
-  const resetForm = () =>
-    setForm({
-      first_name: "",
-      last_name: "",
-      email: "",
-      phone: "",
-      employee_ref: "",
-      english_proficiency: "",
-      interpreter_required: false,
-    });
 
   const handleAdd = async () => {
     if (!form.first_name.trim() || !form.last_name.trim()) {
@@ -547,7 +294,7 @@ export default function ExamineeRosterPage() {
       });
       toast.success("Examinee added");
       setAddOpen(false);
-      resetForm();
+      setForm({ first_name: "", last_name: "", email: "", phone: "", employee_ref: "", english_proficiency: "", interpreter_required: false });
       await load();
       router.push(`/dashboard/clients/${clientId}/examinees/${created.id}`);
     } catch (err) {
@@ -558,15 +305,14 @@ export default function ExamineeRosterPage() {
   };
 
   const handleImport = async () => {
-    const rows = parseCsvRows(importText);
-    if (rows.length === 0) {
-      toast.error("Paste CSV with a header row and at least one examinee");
+    if (parsed.rows.length === 0) {
+      toast.error("No examinees found in what you pasted");
       return;
     }
     setSaving(true);
     try {
-      const result = await bulkCreateExaminees(clientId, rows);
-      toast.success(`Imported ${result.created} examinee(s)`);
+      const result = await bulkCreateExaminees(clientId, parsed.rows);
+      toast.success(`Imported ${result.created} examinee${result.created === 1 ? "" : "s"}`);
       setImportOpen(false);
       setImportText("");
       await load();
@@ -578,8 +324,7 @@ export default function ExamineeRosterPage() {
   };
 
   const downloadTemplate = () => {
-    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([CSV_TEMPLATE], { type: "text/csv" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = "examinee-import-template.csv";
@@ -587,610 +332,377 @@ export default function ExamineeRosterPage() {
     URL.revokeObjectURL(url);
   };
 
+  const pill = "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-50 dark:hover:bg-muted";
+
   return (
-    <div className="space-y-6 pb-12">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-5 pb-12">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Examinee roster</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            People tested under {accountLabel}. Add or import, then book each person individually
-            — examiner availability is checked when you pick a time slot.
-          </p>
+          <h2 className="text-2xl font-semibold tracking-[-0.02em]">Examinee roster</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Everyone tested under {accountLabel}. Book each person individually; billing stays on the company account.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4" />
-            Import CSV
-          </Button>
-          <Button className="gap-2" onClick={() => setAddOpen(true)}>
-            <UserPlus className="h-4 w-4" />
-            Add examinee
-          </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button type="button" onClick={() => setImportOpen(true)} className={cn(pill, "h-10 px-4")}>
+            <Upload aria-hidden="true" className="size-4" /> Import
+          </button>
+          <button type="button" onClick={() => setAddOpen(true)} className="flex h-10 items-center gap-1.5 rounded-full bg-[#2B2A27] px-4 text-sm font-medium text-[#FAF9F5] transition-colors hover:bg-[#3A3935] dark:bg-foreground dark:text-background">
+            <UserPlus aria-hidden="true" className="size-4" /> Add examinee
+          </button>
         </div>
       </div>
 
-      {prepaidSummary && prepaidSummary.available > 0 ? (
-        <Card className="border-emerald-500/30 bg-emerald-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-emerald-900 dark:text-emerald-200">
-              {prepaidSummary.available} prepaid examination{prepaidSummary.available === 1 ? "" : "s"} available
-            </CardTitle>
-            <CardDescription>
-              {prepaidSummary.consumed} used of {prepaidSummary.total} on bulk invoice
-            </CardDescription>
-          </CardHeader>
-        </Card>
+      {/* Summary */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Examinees", value: counts.all, hint: `${counts.tested} tested`, icon: Users },
+          { label: "Booked", value: counts.booked, hint: "Have an upcoming session", icon: Calendar },
+          { label: "Never booked", value: counts.never, hint: "Waiting for a first session", icon: UserPlus },
+          prepaid && prepaid.total > 0
+            ? { label: "Prepaid slots", value: prepaid.available, hint: `free · ${prepaid.consumed} used of ${prepaid.total}`, icon: Ticket }
+            : { label: "Not booked", value: counts.unbooked, hint: "No upcoming session", icon: Calendar },
+        ].map((s) => (
+          <div key={s.label} className={cn(CARD, "p-4")}>
+            <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <s.icon aria-hidden="true" className="size-3.5" /> {s.label}
+            </p>
+            <p className="mt-1 text-2xl font-medium tracking-[-0.02em] tabular-nums">{loading ? "—" : s.value}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{s.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {counts.unnamed > 0 ? (
+        <div className="flex flex-col gap-3 rounded-2xl bg-[#F8EEDB] px-4 py-3 sm:flex-row sm:items-center dark:bg-amber-950/60">
+          <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-[#8A5A12] dark:text-amber-300" />
+          <p className="flex-1 text-[13px] text-[#5C3D0C] dark:text-amber-100">
+            {counts.unnamed} examinee record{counts.unnamed === 1 ? " has" : "s have"} no name, so they can&apos;t be told apart. Open each one to add the name, or delete it if it was created by mistake.
+          </p>
+          <button type="button" onClick={() => setView("unnamed")} className="h-9 shrink-0 rounded-full bg-white/70 px-3.5 text-[13px] font-medium text-[#5C3D0C] hover:bg-white dark:bg-black/20 dark:text-amber-100">
+            Show them
+          </button>
+        </div>
       ) : null}
 
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">How booking works for {accountLabel}</CardTitle>
-          <CardDescription>One appointment = one examinee + one time slot + one available examiner.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ol className="grid gap-3 sm:grid-cols-3 text-sm">
-            <li className="flex gap-3 rounded-xl border border-border/50 bg-background p-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                1
-              </span>
-              <div>
-                <p className="font-semibold">Add or import examinees</p>
-                <p className="text-xs text-muted-foreground mt-1">Name, email, phone for each person.</p>
-              </div>
-            </li>
-            <li className="flex gap-3 rounded-xl border border-border/50 bg-background p-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                2
-              </span>
-              <div>
-                <p className="font-semibold">Book per person</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Click <strong>Book session</strong> — billing stays under {accountLabel}.
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3 rounded-xl border border-border/50 bg-background p-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                3
-              </span>
-              <div>
-                <p className="font-semibold">Pick examiner & time</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Step 2 shows only slots when the examiner is free (calendar blocks apply).
-                </p>
-              </div>
-            </li>
-          </ol>
-          <Button
-            className="mt-4 gap-2"
-            render={<Link href={`/dashboard/calendar/book?clientId=${clientId}`} />}
-          >
-            Open booking wizard
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="border-border/50 bg-card/40">
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Total examinees</p>
-            <p className="text-2xl font-black mt-1">{stats.total}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 bg-card/40">
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Upcoming booked</p>
-            <p className="text-2xl font-black mt-1 text-emerald-600">{stats.booked}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50 bg-card/40">
-          <CardContent className="pt-5 pb-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">With session history</p>
-            <p className="text-2xl font-black mt-1">{stats.withHistory}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="space-y-3 rounded-[1.25rem] border border-border/50 bg-card/30 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-10 h-11 rounded-xl"
-              placeholder="Search name, email, phone, or ref..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+      {/* List */}
+      <section aria-label="Examinees" className={cn(CARD, "overflow-hidden")}>
+        <div className="flex flex-col gap-3 p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <Segmented<View>
+              label="Show"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "all", label: "All", count: counts.all },
+                { value: "never", label: "Never booked", count: counts.never },
+                { value: "booked", label: "Booked", count: counts.booked },
+                { value: "unbooked", label: "Not booked", count: counts.unbooked },
+                ...(counts.unnamed ? [{ value: "unnamed" as const, label: "No name", count: counts.unnamed }] : []),
+              ]}
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={bookingFilter} onValueChange={(v) => setBookingFilter(v as BookingFilter)}>
-              <SelectTrigger className="h-11 w-[160px] rounded-xl">
-                <Filter className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                <SelectValue>{BOOKING_FILTER_LABELS[bookingFilter]}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All booking</SelectItem>
-                <SelectItem value="booked">Exam booked</SelectItem>
-                <SelectItem value="unbooked">Not booked</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sessionFilter} onValueChange={(v) => setSessionFilter(v as SessionFilter)}>
-              <SelectTrigger className="h-11 w-[160px] rounded-xl">
-                <SelectValue>{SESSION_FILTER_LABELS[sessionFilter]}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sessions</SelectItem>
-                <SelectItem value="has_sessions">Has sessions</SelectItem>
-                <SelectItem value="completed">Has completed</SelectItem>
-                <SelectItem value="none">No sessions</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="outline" className="h-11 rounded-xl gap-2" onClick={handleExportCsv} disabled={filtered.length === 0}>
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
-            {hasActiveFilters && (
-              <Button variant="ghost" className="h-11 rounded-xl gap-1.5" onClick={clearFilters}>
-                <X className="h-3.5 w-3.5" />
-                Clear filters
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              Last session date
-            </Label>
-            <div className="flex flex-wrap items-center gap-2">
-              {(
-                [
-                  { value: "all", label: "All dates" },
-                  { value: "today", label: "Today" },
-                  { value: "week", label: "This week" },
-                  { value: "month", label: "This month" },
-                  { value: "custom", label: "Custom range" },
-                ] as const
-              ).map((preset) => (
-                <Button
-                  key={preset.value}
-                  type="button"
-                  variant={datePreset === preset.value ? "default" : "outline"}
-                  size="sm"
-                  className="rounded-xl h-9"
-                  onClick={() => setDatePreset(preset.value)}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1.5">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                Session count
-              </Label>
-              <Select value={sessionCountOp} onValueChange={(v) => setSessionCountOp(v as SessionCountOp)}>
-                <SelectTrigger className="h-10 w-[140px] rounded-xl">
-                  <SelectValue>{SESSION_COUNT_OP_LABELS[sessionCountOp]}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any count</SelectItem>
-                  <SelectItem value="eq">Exactly</SelectItem>
-                  <SelectItem value="gte">At least</SelectItem>
-                  <SelectItem value="lte">At most</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {sessionCountOp !== "any" && (
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Count
-                </Label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="h-10 w-24 rounded-xl"
-                  placeholder="0"
-                  value={sessionCountValue}
-                  onChange={(e) => setSessionCountValue(e.target.value)}
-                />
+            <div className="flex items-center gap-2">
+              <div className="relative w-full lg:w-64">
+                <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input aria-label="Search examinees" placeholder="Name, email, phone, ref or EXM code…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-10 rounded-full border-0 bg-[#F3F1EA] pr-9 pl-10 text-sm shadow-none dark:bg-muted" />
+                {search ? (
+                  <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card">
+                    <X aria-hidden="true" className="size-3.5" />
+                  </button>
+                ) : null}
               </div>
-            )}
+              <button type="button" onClick={handleExportCsv} disabled={filtered.length === 0} className={cn(pill, "h-10 shrink-0")} title="Download the examinees shown as a spreadsheet">
+                <Download aria-hidden="true" className="size-4" /> Export
+              </button>
+            </div>
           </div>
+          <p className="text-[13px] text-muted-foreground">
+            {sortKey === "recent"
+              ? sortDir === "desc"
+                ? "Most recent first — by latest session, booking or date added."
+                : "Oldest activity first."
+              : sortKey === "name"
+                ? `Sorted by name, ${sortDir === "asc" ? "A–Z" : "Z–A"}.`
+                : sortDir === "desc"
+                  ? "Most sessions first."
+                  : "Fewest sessions first."}{" "}
+            Click a column heading to change the order.
+          </p>
         </div>
 
-        {datePreset === "custom" && (
-          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/50 bg-background/60 p-3">
-            <div className="grid gap-1.5">
-              <Label className="text-xs text-muted-foreground">From</Label>
-              <Input
-                type="date"
-                className="h-10 w-40 rounded-lg"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="text-xs text-muted-foreground">To</Label>
-              <Input
-                type="date"
-                className="h-10 w-40 rounded-lg"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center border-t border-border/50 py-16 text-sm text-muted-foreground">
+            <Loader2 aria-hidden="true" className="mr-2 size-5 animate-spin" /> Loading roster…
           </div>
-        )}
-      </div>
-
-      <div className="rounded-[1.5rem] border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left border-collapse">
-            <thead>
-              <tr className="bg-muted/30 border-b border-border/50">
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
-                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("name")}>
-                    Examinee
-                    <ArrowUpDown className={cn("h-3 w-3", sortField === "name" ? "opacity-100" : "opacity-40")} />
-                  </button>
-                </th>
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Contact</th>
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Booking</th>
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
-                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("sessions")}>
-                    Sessions
-                    <ArrowUpDown className={cn("h-3 w-3", sortField === "sessions" ? "opacity-100" : "opacity-40")} />
-                  </button>
-                </th>
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
-                  <button type="button" className="inline-flex items-center gap-1.5 hover:text-foreground" onClick={() => toggleSort("last_session")}>
-                    Last session
-                    <ArrowUpDown className={cn("h-3 w-3", sortField === "last_session" ? "opacity-100" : "opacity-40")} />
-                  </button>
-                </th>
-                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/30">
-              {loading ? (
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 border-t border-border/50 px-6 py-14 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+              <Users aria-hidden="true" className="size-5 text-muted-foreground" />
+            </span>
+            <p className="max-w-sm text-sm text-muted-foreground">{entries.length === 0 ? "No examinees yet. Import the company's list or add people one at a time." : "No examinees match."}</p>
+            {entries.length === 0 ? (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setImportOpen(true)} className={pill}>
+                  <Upload aria-hidden="true" className="size-4" /> Import
+                </button>
+                <button type="button" onClick={() => setAddOpen(true)} className={pill}>
+                  <UserPlus aria-hidden="true" className="size-4" /> Add examinee
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setView("all");
+                }}
+                className={pill}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto border-t border-border/50">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-[#F7F6F1] text-left text-xs text-muted-foreground dark:bg-muted/40">
                 <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin inline mr-2" />
-                    Loading roster...
-                  </td>
+                  <SortHeader label="Examinee" active={sortKey === "name"} dir={sortDir} onClick={() => toggleSort("name")} className="pl-5" />
+                  <th scope="col" className="px-3 py-2.5 font-medium">Contact</th>
+                  <th scope="col" className="px-3 py-2.5 font-medium">Booking</th>
+                  <SortHeader label="Sessions" active={sortKey === "sessions"} dir={sortDir} onClick={() => toggleSort("sessions")} />
+                  <SortHeader label="Last session" active={sortKey === "recent"} dir={sortDir} onClick={() => toggleSort("recent")} />
+                  <th scope="col" className="px-5 py-2.5 text-right font-medium">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
-              ) : paginated.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
-                    <p className="text-muted-foreground mb-4">
-                      {hasActiveFilters
-                        ? "No examinees match your filters."
-                        : "No examinees yet. Import a CSV or add people one at a time."}
-                    </p>
-                    {!hasActiveFilters && (
-                      <div className="flex flex-wrap justify-center gap-2">
-                        <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
-                          <Upload className="h-4 w-4" />
-                          Import CSV
-                        </Button>
-                        <Button onClick={() => setAddOpen(true)} className="gap-2">
-                          <Plus className="h-4 w-4" />
-                          Add examinee
-                        </Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                paginated.map((entry) => {
-                  const name = formatSubjectName(entry.subject);
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {visible.map((e) => {
+                  const name = formatSubjectName(e.subject);
+                  const profile = `/dashboard/clients/${clientId}/examinees/${e.subject.id}` as Route;
+                  const booked = isBooked(e);
+                  const duplicate = name && duplicateNames.has(nameKey(e));
                   return (
-                    <tr key={entry.subject.id} className="hover:bg-primary/[0.02] transition-colors group">
-                      <td className="px-6 py-4">
-                        <Link
-                          href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`}
-                          className="flex items-center gap-3 min-w-[200px]"
-                        >
-                          <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xs font-black shrink-0">
-                            {getInitials(name)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-foreground group-hover:text-primary transition-colors truncate">
-                              {name}
-                            </p>
-                            <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
-                              {formatSubjectCode(entry.subject.id)}
-                              {entry.subject.employee_ref ? ` · ${entry.subject.employee_ref}` : ""}
-                            </p>
-                          </div>
+                    <tr key={e.subject.id} className="transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/30">
+                      <td className="py-3 pr-3 pl-5">
+                        <Link href={profile} className="group flex min-w-0 items-center gap-3">
+                          <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl text-xs font-semibold", name ? "bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary" : "bg-[#F8EEDB] text-[#8A5A12]")}>
+                            {initials(name)}
+                          </span>
+                          <span className="min-w-0">
+                            <span className={cn("block max-w-[260px] truncate font-medium group-hover:underline group-hover:underline-offset-4", !name && "text-[#8A5A12] italic dark:text-amber-300")}>
+                              {name || "Unnamed — add a name"}
+                            </span>
+                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <span className="font-mono">{formatSubjectCode(e.subject.id)}</span>
+                              {e.subject.employee_ref ? <span className="max-w-[140px] truncate">· {e.subject.employee_ref}</span> : null}
+                              {duplicate ? (
+                                <span title="Another examinee on this account has the same name — check it isn't a double entry." className="rounded-full bg-[#F8EEDB] px-1.5 text-[10px] font-semibold text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200">
+                                  Same name
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
                         </Link>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-1 min-w-[160px]">
-                          {entry.subject.email ? (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Mail className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                              <span className="truncate">{entry.subject.email}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/60">No email</span>
-                          )}
-                          {entry.subject.phone ? (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <Phone className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                              <span>{entry.subject.phone}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/60">No phone</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <ExamineeBookingStatus entry={entry} compact />
-                      </td>
-                      <td className="px-6 py-4">
-                        {entry.session_count > 0 ? (
-                          <Badge variant="secondary" className="text-[10px] font-bold">
-                            {entry.session_count} total
-                            {entry.completed_count > 0 ? ` · ${entry.completed_count} done` : ""}
-                          </Badge>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">
+                        {e.subject.email || e.subject.phone ? (
+                          <>
+                            {e.subject.email ? (
+                              <span className="flex max-w-[220px] items-center gap-1 truncate">
+                                <Mail aria-hidden="true" className="size-3 shrink-0" /> <span className="truncate">{e.subject.email}</span>
+                              </span>
+                            ) : null}
+                            {e.subject.phone ? (
+                              <span className="flex items-center gap-1 tabular-nums">
+                                <Phone aria-hidden="true" className="size-3 shrink-0" /> {e.subject.phone}
+                              </span>
+                            ) : null}
+                          </>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          "—"
                         )}
                       </td>
-                      <td className="px-6 py-4 text-xs text-muted-foreground whitespace-nowrap">
-                        {formatLastSession(entry.last_scheduled_at)}
+                      <td className="px-3 py-3">
+                        {booked ? (
+                          <span className="inline-flex flex-col">
+                            <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[#E7F1E4] px-2.5 py-0.5 text-xs font-medium text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300">
+                              <CalendarCheck aria-hidden="true" className="size-3" /> Booked
+                            </span>
+                            {e.next_scheduled_at ? <span className="mt-0.5 text-xs text-muted-foreground">{formatClinicDateLabel(e.next_scheduled_at)}</span> : null}
+                          </span>
+                        ) : e.session_count === 0 ? (
+                          <span className="inline-flex rounded-full bg-[#F8EEDB] px-2.5 py-0.5 text-xs font-medium text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200">Never booked</span>
+                        ) : (
+                          <span className="inline-flex rounded-full bg-[#ECE9E0] px-2.5 py-0.5 text-xs font-medium text-[#55534C] dark:bg-muted dark:text-muted-foreground">Not booked</span>
+                        )}
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="gap-1 rounded-lg h-8"
-                            render={
-                              <Link
-                                href={`/dashboard/calendar/book?clientId=${clientId}&subjectId=${entry.subject.id}`}
-                              />
-                            }
-                          >
-                            <Calendar className="h-3.5 w-3.5" />
-                            Book
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="rounded-lg h-8"
-                            render={<Link href={`/dashboard/clients/${clientId}/examinees/${entry.subject.id}`} />}
-                          >
-                            View
-                          </Button>
-                        </div>
+                      <td className="px-3 py-3 text-xs tabular-nums">
+                        {e.session_count > 0 ? (
+                          <>
+                            <span className="font-medium text-foreground">{e.completed_count}</span>
+                            <span className="text-muted-foreground"> of {e.session_count} done</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+                        {e.last_scheduled_at ? formatClinicDateLabel(e.last_scheduled_at) : <span title={`Added ${formatClinicDateLabel(e.subject.created_at)}`}>No sessions yet</span>}
+                      </td>
+                      <td className="py-3 pr-5 pl-3 text-right">
+                        <Link
+                          href={`/dashboard/calendar/book?clientId=${clientId}&subjectId=${e.subject.id}` as Route}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#2B2A27] px-3 text-[13px] font-medium text-[#FAF9F5] transition-colors hover:bg-[#3A3935] dark:bg-foreground dark:text-background"
+                        >
+                          <Calendar aria-hidden="true" className="size-3.5" /> Book
+                        </Link>
                       </td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {!loading && (
-          <div className="flex flex-col gap-4 px-6 py-4 border-t border-border/40 bg-muted/10 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                Showing{" "}
-                <span className="text-foreground">
-                  {filtered.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}–
-                  {Math.min(currentPage * itemsPerPage, filtered.length)}
-                </span>{" "}
-                of {filtered.length}
-                {filtered.length !== entries.length ? ` (${entries.length} total)` : ""}
-              </p>
-              <div className="flex items-center gap-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                  Per page
-                </Label>
-                <Select
-                  value={String(itemsPerPage)}
-                  onValueChange={(v) => setItemsPerPage(Number(v))}
-                >
-                  <SelectTrigger className="h-9 w-[88px] rounded-lg">
-                    <SelectValue>{itemsPerPage}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAGE_SIZE_OPTIONS.map((size) => (
-                      <SelectItem key={size} value={String(size)}>
-                        {size}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {filtered.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 px-3 rounded-xl"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  Previous
-                </Button>
-                <div className="flex items-center gap-1">
-                  {pageNumbers.map((page, index) => {
-                    const prev = pageNumbers[index - 1];
-                    const showEllipsis = prev !== undefined && page - prev > 1;
-                    return (
-                      <React.Fragment key={page}>
-                        {showEllipsis && (
-                          <span className="px-1 text-xs text-muted-foreground">…</span>
-                        )}
-                        <Button
-                          variant={currentPage === page ? "default" : "ghost"}
-                          size="sm"
-                          className={cn(
-                            "h-9 w-9 rounded-xl text-xs font-black",
-                            currentPage === page && "shadow-md shadow-primary/20",
-                          )}
-                          onClick={() => setCurrentPage(page)}
-                        >
-                          {page}
-                        </Button>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 px-3 rounded-xl"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  Next
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-            )}
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </div>
+        {filtered.length > visible.length ? (
+          <div className="flex flex-col items-center gap-2 border-t border-border/50 p-4">
+            <p className="text-xs text-muted-foreground">
+              Showing {visible.length} of {filtered.length}
+            </p>
+            <button type="button" onClick={() => setShown((n) => n + PAGE_STEP)} className={cn(pill, "h-10 px-5")}>
+              Show {Math.min(PAGE_STEP, filtered.length - visible.length)} more
+            </button>
+          </div>
+        ) : null}
+      </section>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-lg rounded-2xl max-h-[90vh] overflow-y-auto">
+      {/* Add */}
+      <Dialog open={addOpen} onOpenChange={(o) => !saving && setAddOpen(o)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-[26px] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Add examinee</DialogTitle>
-            <DialogDescription>
-              Register someone under {accountLabel}. You will book appointments for them one at a
-              time.
-            </DialogDescription>
+            <DialogDescription>Register someone under {accountLabel}. You&apos;ll book their sessions one at a time.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>First name *</Label>
-              <Input
-                className="h-11 rounded-xl"
-                value={form.first_name}
-                onChange={(e) => setForm((f) => ({ ...f, first_name: e.target.value }))}
-              />
+            {(
+              [
+                ["first_name", "First name", "text", true],
+                ["last_name", "Last name", "text", true],
+              ] as const
+            ).map(([key, label, type]) => (
+              <div key={key} className="grid gap-1.5">
+                <label htmlFor={`add-${key}`} className="px-1 text-[13px] font-medium">
+                  {label} <span className="text-destructive">*</span>
+                </label>
+                <Input id={`add-${key}`} type={type} className={FIELD} value={form[key]} onChange={(ev) => setForm((f) => ({ ...f, [key]: ev.target.value }))} />
+              </div>
+            ))}
+            <div className="grid gap-1.5 sm:col-span-2">
+              <label htmlFor="add-email" className="px-1 text-[13px] font-medium">Email</label>
+              <Input id="add-email" type="email" className={FIELD} value={form.email} onChange={(ev) => setForm((f) => ({ ...f, email: ev.target.value }))} />
             </div>
-            <div className="space-y-2">
-              <Label>Last name *</Label>
-              <Input
-                className="h-11 rounded-xl"
-                value={form.last_name}
-                onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))}
-              />
+            <div className="grid gap-1.5">
+              <label htmlFor="add-phone" className="px-1 text-[13px] font-medium">Phone</label>
+              <Input id="add-phone" type="tel" placeholder="+971 50 123 4567" className={FIELD} value={form.phone} onChange={(ev) => setForm((f) => ({ ...f, phone: ev.target.value }))} />
             </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label>Email</Label>
-              <Input
-                type="email"
-                className="h-11 rounded-xl"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              />
+            <div className="grid gap-1.5">
+              <label htmlFor="add-ref" className="px-1 text-[13px] font-medium">Employee / ref ID</label>
+              <Input id="add-ref" placeholder="EMP-001" className={FIELD} value={form.employee_ref} onChange={(ev) => setForm((f) => ({ ...f, employee_ref: ev.target.value }))} />
             </div>
-            <div className="space-y-2">
-              <Label>Phone</Label>
-              <Input
-                className="h-11 rounded-xl"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              />
+            <div className="grid gap-1.5 sm:col-span-2">
+              <span className="px-1 text-[13px] font-medium">English</span>
+              <div role="radiogroup" aria-label="English proficiency" className="flex flex-wrap gap-1.5">
+                {["", ...ENGLISH_PROFICIENCY_LEVELS].map((level) => {
+                  const on = form.english_proficiency === level;
+                  return (
+                    <button
+                      key={level || "unset"}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setForm((f) => ({ ...f, english_proficiency: level }))}
+                      className={cn("flex h-9 items-center gap-1 rounded-full px-3.5 text-[13px] font-medium transition-colors", on ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background" : "bg-[#F3F1EA] hover:bg-[#ECE9E0] dark:bg-muted")}
+                    >
+                      {on ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
+                      {level || "Not assessed"}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Employee / ref ID</Label>
-              <Input
-                className="h-11 rounded-xl"
-                placeholder="EMP-001"
-                value={form.employee_ref}
-                onChange={(e) => setForm((f) => ({ ...f, employee_ref: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>English proficiency</Label>
-              <Select
-                value={form.english_proficiency || "unset"}
-                onValueChange={(v) =>
-                  setForm((f) => ({ ...f, english_proficiency: v === "unset" ? "" : String(v) }))
-                }
-              >
-                <SelectTrigger className="h-11 rounded-xl">
-                  <SelectValue placeholder="Not assessed" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unset">Not assessed</SelectItem>
-                  {ENGLISH_PROFICIENCY_LEVELS.map((level) => (
-                    <SelectItem key={level} value={level}>
-                      {level}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 cursor-pointer">
-              <Checkbox
-                checked={form.interpreter_required}
-                onCheckedChange={(checked) =>
-                  setForm((f) => ({ ...f, interpreter_required: checked === true }))
-                }
-              />
-              <span>
-                <span className="block text-sm font-semibold">Interpreter required</span>
-                <span className="block text-xs font-normal text-muted-foreground">
-                  Flag if a translator must be booked for this examinee.
-                </span>
+            <label className="flex cursor-pointer items-center gap-4 rounded-2xl bg-[#F7F6F1] px-4 py-3 sm:col-span-2 dark:bg-muted/40">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Interpreter required</span>
+                <span className="block text-xs text-muted-foreground">Flag if a translator must be booked for this examinee.</span>
               </span>
-            </Label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.interpreter_required}
+                aria-label="Interpreter required"
+                onClick={() => setForm((f) => ({ ...f, interpreter_required: !f.interpreter_required }))}
+                className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", form.interpreter_required ? "bg-primary" : "bg-[#D6D2C6] dark:bg-muted-foreground/40")}
+              >
+                <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform", form.interpreter_required && "translate-x-5")} />
+              </button>
+            </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>
+            <Button variant="outline" className="rounded-full" onClick={() => setAddOpen(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={() => void handleAdd()} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Save & open profile
+            <Button className="rounded-full" onClick={() => void handleAdd()} disabled={saving || !form.first_name.trim() || !form.last_name.trim()}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save &amp; open profile
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="sm:max-w-xl rounded-2xl">
+      {/* Import with a preview */}
+      <Dialog open={importOpen} onOpenChange={(o) => !saving && setImportOpen(o)}>
+        <DialogContent className="max-h-[92vh] overflow-y-auto rounded-[26px] sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Import examinees (CSV)</DialogTitle>
-            <DialogDescription>
-              Paste CSV or download the template. Supports standard templates and custom layouts containing columns like Name, Phone, and Remark.
-            </DialogDescription>
+            <DialogTitle>Import examinees</DialogTitle>
+            <DialogDescription>Paste rows from the company&apos;s spreadsheet (CSV, or copy straight from Excel). A column called Name, or First name + Last name, is enough; Email, Phone and Ref are picked up when present.</DialogDescription>
           </DialogHeader>
-          <Button type="button" variant="outline" size="sm" className="gap-2 w-fit" onClick={downloadTemplate}>
-            <Download className="h-4 w-4" />
-            Download template
-          </Button>
-          <Textarea
-            className="min-h-[160px] font-mono text-xs rounded-xl"
-            placeholder={CSV_TEMPLATE}
-            value={importText}
-            onChange={(e) => setImportText(e.target.value)}
-          />
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" onClick={downloadTemplate} className={pill}>
+              <Download aria-hidden="true" className="size-4" /> Template
+            </button>
+            {importText.trim() ? (
+              <span className="text-[13px] text-muted-foreground">
+                <span className="font-medium text-foreground">{parsed.rows.length}</span> to import{parsed.skipped ? ` · ${parsed.skipped} row${parsed.skipped === 1 ? "" : "s"} skipped (no name)` : ""}
+              </span>
+            ) : null}
+          </div>
+          <Textarea className="min-h-36 rounded-2xl border-0 bg-[#F3F1EA] px-4 py-3 font-mono text-xs shadow-none dark:bg-muted" placeholder={CSV_TEMPLATE} value={importText} onChange={(e) => setImportText(e.target.value)} />
+          {parsed.rows.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl ring-1 ring-border/60">
+              <p className="bg-[#F7F6F1] px-4 py-2 text-xs font-medium text-muted-foreground dark:bg-muted/40">Preview — check the names landed in the right columns</p>
+              <ul className="max-h-56 divide-y divide-border/50 overflow-y-auto text-sm">
+                {parsed.rows.slice(0, 50).map((r, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-2">
+                    <span className="font-medium">
+                      {r.first_name} {r.last_name || <span className="text-[#8A5A12] italic">(no surname)</span>}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{[r.email, r.phone, r.employee_ref].filter(Boolean).join(" · ")}</span>
+                  </li>
+                ))}
+                {parsed.rows.length > 50 ? <li className="px-4 py-2 text-xs text-muted-foreground">…and {parsed.rows.length - 50} more</li> : null}
+              </ul>
+            </div>
+          ) : null}
+          {parsed.rows.some((r) => !r.last_name) ? (
+            <p className="text-xs text-muted-foreground">Rows without a surname are saved with the surname &ldquo;Record&rdquo; — fix them on the profile afterwards.</p>
+          ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setImportOpen(false)} disabled={saving}>
+            <Button variant="outline" className="rounded-full" onClick={() => setImportOpen(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={() => void handleImport()} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Import rows
+            <Button className="gap-2 rounded-full" onClick={() => void handleImport()} disabled={saving || parsed.rows.length === 0}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              Import {parsed.rows.length || ""} examinee{parsed.rows.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
         </DialogContent>

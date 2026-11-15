@@ -34,6 +34,9 @@ export type QuotationRecord = {
   stripe_checkout_session_id?: string;
   stripe_payment_intent_id?: string;
   stripe_payment_link_url?: string;
+  /** Short shareable pay link (…/pay/abc123) that always opens a live payment page. */
+  pay_link_url?: string;
+  pay_link_amount?: number;
   payment_history?: QuotationPaymentEntry[];
   prepaid_slots_minted?: boolean;
   /** Bank transfer details printed on the invoice (resolved by the API). */
@@ -109,8 +112,10 @@ export async function sendQuotationEmail(
     pass_processing_fee?: boolean;
     processing_fee_percent?: number;
     processing_fee_fixed?: number;
+    /** The client's agreements signing link, added to the email as a button. */
+    agreement_url?: string;
   }
-): Promise<{ payment_url?: string; stripe_checkout_session_id?: string }> {
+): Promise<{ payment_url?: string; stripe_url?: string }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/send-email`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -230,4 +235,33 @@ export async function syncQuotationStripePayment(id: number): Promise<void> {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || `Failed to sync Stripe payment (${response.status})`);
   }
+}
+
+export type PayLinkInput = {
+  charge_amount?: number;
+  pass_processing_fee?: boolean;
+  processing_fee_percent?: number;
+  processing_fee_fixed?: number;
+  customer_email?: string;
+};
+
+export type PayLinkResult = {
+  /** Short link to share with the client. */
+  pay_url: string;
+  stripe_url: string;
+  charge_amount: number;
+  currency: string;
+};
+
+/** Creates a shareable payment link for the invoice without sending any email. */
+export async function createQuotationPayLink(id: number, input: PayLinkInput): Promise<PayLinkResult> {
+  const response = await authenticatedFetch(`/api/quotations/${id}/pay-link`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || `Failed to create payment link (${response.status})`);
+  }
+  return response.json();
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
+import { GripVertical, ListChecks, Loader2, Pencil, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -21,221 +21,52 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Segmented } from "@/components/dashboard/ui-kit";
 import { fetchExamTypes, type ExamTypeRecord } from "@/lib/exam-booking";
 import {
   createQuestionTemplate,
-  deleteQuestionTemplate,
   fetchQuestionTemplates,
   updateQuestionTemplate,
   type QuestionCategory,
   type QuestionTemplateRecord,
 } from "@/lib/question-templates";
+import { cn } from "@/lib/utils";
 
-const CATEGORIES: { value: QuestionCategory; label: string }[] = [
-  { value: "relevant", label: "Relevant" },
-  { value: "comparison", label: "Comparison" },
-  { value: "irrelevant", label: "Irrelevant" },
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+
+const CATEGORIES: { value: QuestionCategory; label: string; hint: string }[] = [
+  { value: "relevant", label: "Relevant", hint: "About the issue being tested" },
+  { value: "comparison", label: "Comparison", hint: "Control questions to compare reactions against" },
+  { value: "irrelevant", label: "Irrelevant", hint: "Neutral baseline questions" },
 ];
 
-const MERGE_FIELD_HINT =
-  "Available placeholders: {{subject_name}}, {{client_name}}, {{exam_date}}";
+const CATEGORY_TONE: Record<QuestionCategory, string> = {
+  relevant: "bg-primary/12 text-[oklch(0.42_0.12_39)] dark:text-primary",
+  comparison: "bg-[#EFEBFE] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200",
+  irrelevant: "bg-[#ECE9E0] text-[#3D3929] dark:bg-muted dark:text-foreground",
+};
+
+const PLACEHOLDERS = [
+  { token: "{{subject_name}}", label: "Examinee name" },
+  { token: "{{client_name}}", label: "Client name" },
+  { token: "{{exam_date}}", label: "Exam date" },
+];
+
+/** Sentinel id for untagged questions (offered for every exam type). */
+const ANY = 0;
 
 type FormState = {
-  examTypeId: string;
+  examTypeId: number;
   category: QuestionCategory;
   text: string;
   active: boolean;
 };
 
-const emptyForm: FormState = {
-  examTypeId: "",
-  category: "relevant",
-  text: "",
-  active: true,
-};
-
 type DraftItem = FormState & { key: string };
-
-function ExamTypeField({
-  examTypes,
-  value,
-  onChange,
-}: {
-  examTypes: ExamTypeRecord[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label>Exam Type (optional)</Label>
-      <Select value={value || "any"} onValueChange={(v) => onChange(String(v) === "any" ? "" : String(v))}>
-        <SelectTrigger>
-          <SelectValue placeholder="Any exam type">
-            {examTypes.find((t) => String(t.id) === value)?.name ?? "Any exam type"}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="any">Any exam type</SelectItem>
-          {examTypes.map((type) => (
-            <SelectItem key={type.id} value={String(type.id)}>
-              {type.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <p className="text-xs text-muted-foreground">
-        Tagging is only a filter. An untagged question is offered for every booking.
-      </p>
-    </div>
-  );
-}
-
-function CategoryField({
-  value,
-  onChange,
-}: {
-  value: QuestionCategory;
-  onChange: (value: QuestionCategory) => void;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label>Category</Label>
-      <Select value={value} onValueChange={(v) => onChange(v as QuestionCategory)}>
-        <SelectTrigger>
-          <SelectValue>{CATEGORIES.find((c) => c.value === value)?.label}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {CATEGORIES.map((cat) => (
-            <SelectItem key={cat.value} value={cat.value}>
-              {cat.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function SortableTableRow({
-  id,
-  onEdit,
-  onDeactivate,
-  active,
-  children,
-}: {
-  id: string;
-  onEdit: () => void;
-  onDeactivate: () => void;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <TableRow ref={setNodeRef} style={style} className="cursor-pointer" onClick={onEdit}>
-      <TableCell className="w-8 pr-0">
-        <button
-          type="button"
-          className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-          aria-label="Drag to reorder"
-          onClick={(event) => event.stopPropagation()}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      </TableCell>
-      {children}
-      <TableCell className="w-20 text-right">
-        <div className="flex justify-end gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label="Edit question"
-            onClick={(event) => {
-              event.stopPropagation();
-              onEdit();
-            }}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          {active ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:text-destructive"
-              aria-label="Deactivate question"
-              onClick={(event) => {
-                event.stopPropagation();
-                onDeactivate();
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function DraftRow({ item, onRemove }: { item: DraftItem; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.key,
-  });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} className="flex items-start gap-3 rounded-lg border p-2 bg-card">
-      <button
-        type="button"
-        className="mt-1 shrink-0 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-        aria-label="Drag to reorder"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <div className="flex-1 space-y-1">
-        <Badge variant="outline" className="capitalize">
-          {item.category}
-        </Badge>
-        <p className="text-sm line-clamp-2">{item.text}</p>
-      </div>
-      <Button type="button" variant="ghost" size="icon" className="shrink-0" onClick={onRemove}>
-        <X className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-}
 
 export default function QuestionLibrarySettingsPage() {
   const [examTypes, setExamTypes] = React.useState<ExamTypeRecord[]>([]);
@@ -243,24 +74,27 @@ export default function QuestionLibrarySettingsPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
-  const [createOpen, setCreateOpen] = React.useState(false);
-  const [createForm, setCreateForm] = React.useState<FormState>(emptyForm);
-  const [draftItems, setDraftItems] = React.useState<DraftItem[]>([]);
-  const [creating, setCreating] = React.useState(false);
+  const [selected, setSelected] = React.useState<number>(ANY);
+  const [search, setSearch] = React.useState("");
+  const [categoryFilter, setCategoryFilter] = React.useState<"all" | QuestionCategory>("all");
+  const [showInactive, setShowInactive] = React.useState(true);
+  const [togglingId, setTogglingId] = React.useState<number | null>(null);
 
-  const [editOpen, setEditOpen] = React.useState(false);
-  const [editingTemplate, setEditingTemplate] = React.useState<QuestionTemplateRecord | null>(null);
-  const [editForm, setEditForm] = React.useState<FormState>(emptyForm);
-  const [savingEdit, setSavingEdit] = React.useState(false);
+  // One dialog for both adding (a batch) and editing (a single question).
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<QuestionTemplateRecord | null>(null);
+  const [form, setForm] = React.useState<FormState>({ examTypeId: ANY, category: "relevant", text: "", active: true });
+  const [drafts, setDrafts] = React.useState<DraftItem[]>([]);
+  const [saving, setSaving] = React.useState(false);
+  const textRef = React.useRef<HTMLTextAreaElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const load = React.useCallback(async () => {
     try {
-      setLoading(true);
       setError(null);
       const [types, tpls] = await Promise.all([fetchExamTypes(), fetchQuestionTemplates({ includeInactive: true })]);
       setExamTypes(types);
@@ -276,423 +110,713 @@ export default function QuestionLibrarySettingsPage() {
     void load();
   }, [load]);
 
-  const openCreate = () => {
-    setCreateForm({ ...emptyForm });
-    setDraftItems([]);
-    setCreateOpen(true);
+  const examTypeName = React.useCallback(
+    (id: number) => (id === ANY ? "Any exam type" : examTypes.find((t) => t.id === id)?.name || `Exam type #${id}`),
+    [examTypes],
+  );
+
+  const byGroup = React.useMemo(() => {
+    const groups = new Map<number, QuestionTemplateRecord[]>();
+    for (const t of templates) {
+      const key = t.exam_type_id ?? ANY;
+      groups.set(key, [...(groups.get(key) ?? []), t]);
+    }
+    for (const list of groups.values()) list.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+    return groups;
+  }, [templates]);
+
+  /** Left-hand list: "Any exam type" first, then types with questions, then the rest. */
+  const groupList = React.useMemo(() => {
+    const ids = new Set<number>([ANY, ...examTypes.map((t) => t.id), ...byGroup.keys()]);
+    return [...ids]
+      .map((id) => {
+        const items = byGroup.get(id) ?? [];
+        const active = items.filter((t) => t.active).length;
+        const archivedType = id !== ANY && examTypes.find((t) => t.id === id)?.active === false;
+        return { id, name: examTypeName(id), total: items.length, active, archivedType };
+      })
+      .sort((a, b) => {
+        if (a.id === ANY) return -1;
+        if (b.id === ANY) return 1;
+        if ((a.total > 0) !== (b.total > 0)) return a.total > 0 ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [byGroup, examTypes, examTypeName]);
+
+  // On first load, open the first group that actually has questions.
+  const pickedInitial = React.useRef(false);
+  React.useEffect(() => {
+    if (loading || pickedInitial.current) return;
+    pickedInitial.current = true;
+    const first = groupList.find((g) => g.total > 0);
+    if (first) setSelected(first.id);
+  }, [loading, groupList]);
+
+  const groupItems = byGroup.get(selected) ?? [];
+  const needle = search.trim().toLowerCase();
+  const filtering = needle !== "" || categoryFilter !== "all" || !showInactive;
+  const visibleItems = groupItems.filter(
+    (t) => (showInactive || t.active) && (categoryFilter === "all" || t.category === categoryFilter) && (!needle || t.text.toLowerCase().includes(needle)),
+  );
+  const categoryCounts = CATEGORIES.map((c) => ({ ...c, count: groupItems.filter((t) => t.category === c.value && t.active).length }));
+
+  /* ---------------- dialog ---------------- */
+
+  const openCreate = (examTypeId = selected) => {
+    setEditing(null);
+    setForm({ examTypeId, category: "relevant", text: "", active: true });
+    setDrafts([]);
+    setDialogOpen(true);
   };
 
-  const addDraftItem = () => {
-    if (!createForm.text.trim()) {
-      toast.error("Question text is required");
+  const openEdit = (template: QuestionTemplateRecord) => {
+    setEditing(template);
+    setForm({ examTypeId: template.exam_type_id ?? ANY, category: template.category, text: template.text, active: template.active });
+    setDrafts([]);
+    setDialogOpen(true);
+  };
+
+  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
+
+  const insertPlaceholder = (token: string) => {
+    const el = textRef.current;
+    if (!el) {
+      setField("text", `${form.text}${token}`);
       return;
     }
-    setDraftItems((current) => [
-      ...current,
-      { ...createForm, text: createForm.text.trim(), key: crypto.randomUUID() },
-    ]);
-    // Keep exam type/category since consecutive questions usually share them; only clear the text.
-    setCreateForm((current) => ({ ...current, text: "" }));
+    const start = el.selectionStart ?? form.text.length;
+    const end = el.selectionEnd ?? form.text.length;
+    const next = form.text.slice(0, start) + token + form.text.slice(end);
+    setField("text", next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + token.length, start + token.length);
+    });
   };
 
-  const removeDraftItem = (key: string) => {
-    setDraftItems((current) => current.filter((item) => item.key !== key));
+  const queueCurrent = () => {
+    if (!form.text.trim()) {
+      toast.error("Write the question first");
+      return;
+    }
+    setDrafts((current) => [...current, { ...form, text: form.text.trim(), key: crypto.randomUUID() }]);
+    // Consecutive questions usually share exam type and category; only clear the text.
+    setForm((current) => ({ ...current, text: "" }));
+    requestAnimationFrame(() => textRef.current?.focus());
   };
 
   const handleDraftDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    setDraftItems((current) => {
-      const oldIndex = current.findIndex((item) => item.key === active.id);
-      const newIndex = current.findIndex((item) => item.key === over.id);
-      if (oldIndex === -1 || newIndex === -1) return current;
-      return arrayMove(current, oldIndex, newIndex);
+    setDrafts((current) => {
+      const from = current.findIndex((d) => d.key === active.id);
+      const to = current.findIndex((d) => d.key === over.id);
+      return from === -1 || to === -1 ? current : arrayMove(current, from, to);
     });
   };
 
-  const pendingCount = draftItems.length + (createForm.text.trim() ? 1 : 0);
+  const pendingCount = drafts.length + (form.text.trim() ? 1 : 0);
 
-  const handleSaveAll = async () => {
-    // The question currently being composed is saved too, so "Save" always
-    // captures whatever is on screen without forcing an extra "Add" click.
-    const items = createForm.text.trim()
-      ? [...draftItems, { ...createForm, text: createForm.text.trim(), key: "__current__" }]
-      : draftItems;
+  const handleSave = async () => {
+    if (editing) {
+      if (!form.text.trim()) {
+        toast.error("Question text is required");
+        return;
+      }
+      setSaving(true);
+      try {
+        const updated = await updateQuestionTemplate(editing.id, {
+          exam_type_id: form.examTypeId || 0,
+          category: form.category,
+          text: form.text.trim(),
+          active: form.active,
+        });
+        setTemplates((current) => current.map((t) => (t.id === updated.id ? updated : t)));
+        toast.success("Question updated");
+        setDialogOpen(false);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to save question");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Adding: save the queue plus whatever is still in the box.
+    const items = form.text.trim() ? [...drafts, { ...form, text: form.text.trim(), key: "__current__" }] : drafts;
     if (items.length === 0) {
       toast.error("Add at least one question");
       return;
     }
-
-    setCreating(true);
+    setSaving(true);
+    const created: QuestionTemplateRecord[] = [];
     try {
-      const created: QuestionTemplateRecord[] = [];
       for (const item of items) {
-        const examTypeId = Number(item.examTypeId) || 0;
+        const examTypeId = item.examTypeId || 0;
         const nextSortOrder =
-          [...templates, ...created]
-            .filter((t) => (t.exam_type_id ?? 0) === examTypeId)
-            .reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
-        const record = await createQuestionTemplate({
-          exam_type_id: examTypeId,
-          category: item.category,
-          text: item.text,
-          sort_order: nextSortOrder,
-          active: item.active,
-        });
-        created.push(record);
+          [...templates, ...created].filter((t) => (t.exam_type_id ?? 0) === examTypeId).reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
+        created.push(
+          await createQuestionTemplate({ exam_type_id: examTypeId, category: item.category, text: item.text, sort_order: nextSortOrder, active: item.active }),
+        );
       }
-      setTemplates((current) => [...current, ...created]);
       toast.success(`Added ${created.length} question${created.length === 1 ? "" : "s"}`);
-      setCreateOpen(false);
-      setCreateForm({ ...emptyForm });
-      setDraftItems([]);
+      setDialogOpen(false);
+      setSelected(items[items.length - 1].examTypeId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save question templates");
+      toast.error(err instanceof Error ? err.message : "Failed to save questions");
     } finally {
-      setCreating(false);
+      // Keep whatever made it in, even if a later one failed.
+      if (created.length) setTemplates((current) => [...current, ...created]);
+      setSaving(false);
     }
   };
 
-  const openEdit = (template: QuestionTemplateRecord) => {
-    setEditingTemplate(template);
-    setEditForm({
-      examTypeId: template.exam_type_id ? String(template.exam_type_id) : "",
-      category: template.category,
-      text: template.text,
-      active: template.active,
-    });
-    setEditOpen(true);
-  };
+  /* ---------------- list actions ---------------- */
 
-  const handleSaveEdit = async () => {
-    if (!editingTemplate) return;
-    if (!editForm.text.trim()) {
-      toast.error("Question text is required");
-      return;
-    }
-
-    setSavingEdit(true);
+  const toggleActive = async (template: QuestionTemplateRecord) => {
+    setTogglingId(template.id);
     try {
-      const updated = await updateQuestionTemplate(editingTemplate.id, {
-        exam_type_id: Number(editForm.examTypeId) || 0,
-        category: editForm.category,
-        text: editForm.text.trim(),
-        active: editForm.active,
-      });
-      setTemplates((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      toast.success("Question template updated");
-      setEditOpen(false);
-      setEditingTemplate(null);
+      const updated = await updateQuestionTemplate(template.id, { active: !template.active });
+      setTemplates((current) => current.map((t) => (t.id === template.id ? { ...t, ...updated, active: !template.active } : t)));
+      toast.success(template.active ? "Question turned off — it won't be added to new sessions" : "Question turned back on");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save question template");
+      toast.error(err instanceof Error ? err.message : "Failed to update question");
     } finally {
-      setSavingEdit(false);
+      setTogglingId(null);
     }
   };
 
-  const handleDeactivateTemplate = async (template: QuestionTemplateRecord) => {
-    try {
-      await deleteQuestionTemplate(template.id);
-      setTemplates((current) =>
-        current.map((item) => (item.id === template.id ? { ...item, active: false } : item))
-      );
-      toast.success("Question template deactivated");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to deactivate question template");
-    }
-  };
-
-  const handleDeactivate = async () => {
-    if (!editingTemplate) return;
-    await handleDeactivateTemplate(editingTemplate);
-    setEditOpen(false);
-    setEditingTemplate(null);
-  };
-
-  // Untagged templates are grouped under the sentinel id 0.
-  const examTypeName = (id: number) =>
-    id === 0
-      ? "Any exam type"
-      : examTypes.find((t) => t.id === id)?.name || `Exam type #${id}`;
-
-  const groupedByExamType = React.useMemo(() => {
-    const groups = new Map<number, QuestionTemplateRecord[]>();
-    for (const template of templates) {
-      const key = template.exam_type_id ?? 0;
-      const list = groups.get(key) ?? [];
-      list.push(template);
-      groups.set(key, list);
-    }
-    for (const list of groups.values()) {
-      list.sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
-    }
-    return groups;
-  }, [templates]);
-
-  const handleDragEnd = async (examTypeId: number, items: QuestionTemplateRecord[], event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
+    const from = groupItems.findIndex((t) => String(t.id) === String(active.id));
+    const to = groupItems.findIndex((t) => String(t.id) === String(over.id));
+    if (from === -1 || to === -1) return;
 
-    const oldIndex = items.findIndex((t) => String(t.id) === String(active.id));
-    const newIndex = items.findIndex((t) => String(t.id) === String(over.id));
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const reordered = arrayMove(items, oldIndex, newIndex);
-    const withNewOrder = reordered.map((t, index) => ({ ...t, sort_order: index }));
-
-    // Optimistic update so the drag feels instant.
-    setTemplates((current) => {
-      const others = current.filter((t) => (t.exam_type_id ?? 0) !== examTypeId);
-      return [...others, ...withNewOrder];
-    });
-
+    const reordered = arrayMove(groupItems, from, to).map((t, index) => ({ ...t, sort_order: index }));
+    const changed = reordered.filter((t) => groupItems.find((g) => g.id === t.id)?.sort_order !== t.sort_order);
+    setTemplates((current) => [...current.filter((t) => (t.exam_type_id ?? ANY) !== selected), ...reordered]);
     try {
-      await Promise.all(
-        withNewOrder.map((t) => updateQuestionTemplate(t.id, { sort_order: t.sort_order }))
-      );
+      await Promise.all(changed.map((t) => updateQuestionTemplate(t.id, { sort_order: t.sort_order })));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save new order");
+      toast.error(err instanceof Error ? err.message : "Failed to save the new order");
       void load();
     }
   };
 
+  const selectedName = examTypeName(selected);
+  const canDrag = !filtering;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 pb-10">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h3 className="text-lg font-medium">Question Library</h3>
-          <p className="text-sm text-muted-foreground">
-            Default questions per exam type. Drag to reorder. Populating a session copies these in, so editing
-            here never changes a past exam&apos;s record.
+          <h1 className="text-2xl font-medium tracking-[-0.02em]">Question library</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Default questions for each exam type. Starting a session copies them in, so editing here never changes a past exam&apos;s record.
           </p>
         </div>
-        <Button className="gap-2" onClick={openCreate} disabled={examTypes.length === 0}>
-          <Plus className="h-4 w-4" />
-          Add Question
-        </Button>
+        <button
+          type="button"
+          onClick={() => openCreate()}
+          disabled={loading}
+          className="flex h-10 items-center gap-2 self-start rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-50 sm:self-auto dark:bg-[#ECE9E0] dark:text-[#1A1915] dark:hover:bg-white"
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          Add questions
+        </button>
       </div>
 
-      {loading ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-muted-foreground">Loading question templates...</CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-destructive">{error}</CardContent>
-        </Card>
-      ) : templates.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-muted-foreground">
-            No question templates yet. Add one for an exam type to get started.
-          </CardContent>
-        </Card>
+      {error ? (
+        <div className="flex flex-col items-center gap-3 rounded-[26px] bg-white px-6 py-12 text-center ring-1 ring-border/50 dark:bg-card">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void load();
+            }}
+            className="flex h-9 items-center rounded-full px-4 text-sm font-medium ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted"
+          >
+            Try again
+          </button>
+        </div>
       ) : (
-        <div className="space-y-6">
-          {Array.from(groupedByExamType.entries()).map(([examTypeId, items]) => (
-            <div key={examTypeId} className="space-y-2">
-              <div>
-                <h4 className="text-sm font-medium">{examTypeName(examTypeId)}</h4>
-                <p className="text-xs text-muted-foreground">
-                  {items.length} question template{items.length === 1 ? "" : "s"}
-                </p>
-              </div>
-              <div className="rounded-lg border">
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(event) => void handleDragEnd(examTypeId, items, event)}
-                >
-                  <SortableContext items={items.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-8" />
-                          <TableHead>Title</TableHead>
-                          <TableHead className="w-20" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {items.map((template) => (
-                          <SortableTableRow
-                            key={template.id}
-                            id={String(template.id)}
-                            onEdit={() => openEdit(template)}
-                            onDeactivate={() => void handleDeactivateTemplate(template)}
-                            active={template.active}
+        <div className="grid gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+          {/* Exam type picker — list on desktop, dropdown on mobile */}
+          <div className="lg:hidden">
+            <Select value={String(selected)} onValueChange={(v) => setSelected(Number(v))}>
+              <SelectTrigger aria-label="Exam type" className={cn(FIELD, "w-full bg-white dark:bg-card")}>
+                <SelectValue>{selectedName}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {groupList.map((g) => (
+                  <SelectItem key={g.id} value={String(g.id)}>
+                    {g.name} ({g.active})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <nav
+            aria-label="Exam types"
+            className="hidden max-h-[calc(100vh-12rem)] flex-col gap-0.5 self-start overflow-y-auto rounded-[26px] bg-white p-2 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 no-scrollbar lg:sticky lg:top-0 lg:flex dark:bg-card"
+          >
+            {loading
+              ? Array.from({ length: 7 }, (_, i) => <div key={i} aria-hidden="true" className="m-1 h-9 animate-pulse rounded-xl bg-[#F3F1EA] dark:bg-muted" />)
+              : groupList.map((g, index) => {
+                  const isActive = g.id === selected;
+                  const firstEmpty = g.total === 0 && index > 0 && groupList[index - 1].total > 0;
+                  return (
+                    <React.Fragment key={g.id}>
+                      {firstEmpty ? <span className="mt-2 mb-1 px-3 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/80 uppercase">No questions yet</span> : null}
+                      <button
+                        type="button"
+                        onClick={() => setSelected(g.id)}
+                        aria-current={isActive ? "true" : undefined}
+                        className={cn(
+                          "flex h-10 shrink-0 items-center justify-between gap-2 rounded-[13px] px-3 text-left text-[14px] transition-colors",
+                          isActive
+                            ? "bg-primary/12 font-medium text-[oklch(0.45_0.12_39)] dark:text-primary"
+                            : cn("hover:bg-[#F3F1EA] dark:hover:bg-muted", g.total === 0 ? "text-muted-foreground" : "text-[#3D3929] dark:text-foreground"),
+                        )}
+                      >
+                        <span className="truncate">
+                          {g.name}
+                          {g.archivedType ? <span className="ml-1 text-xs text-muted-foreground">(hidden)</span> : null}
+                        </span>
+                        {g.total > 0 ? (
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
+                              isActive ? "bg-white/70 dark:bg-background/40" : "bg-[#F3F1EA] dark:bg-muted",
+                            )}
                           >
-                            <TableCell className="whitespace-normal">
-                              <span className={template.active ? "" : "text-muted-foreground"}>
-                                {template.text}
-                              </span>
-                              {!template.active ? (
-                                <span className="ml-2 text-xs text-muted-foreground">(Inactive)</span>
-                              ) : null}
-                            </TableCell>
-                          </SortableTableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                            {g.active}
+                          </span>
+                        ) : null}
+                      </button>
+                      {g.id === ANY ? <span aria-hidden="true" className="mx-3 my-1.5 h-px bg-border/60" /> : null}
+                    </React.Fragment>
+                  );
+                })}
+          </nav>
+
+          {/* Questions for the selected exam type */}
+          <section aria-labelledby="group-title" className="flex min-w-0 flex-col gap-4 rounded-[26px] bg-white p-4 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-6 dark:bg-card">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <h2 id="group-title" className="truncate text-[17px] font-medium tracking-[-0.01em]">
+                  {selectedName}
+                </h2>
+                <p className="mt-0.5 text-[13px] text-muted-foreground">
+                  {selected === ANY ? "Offered for every exam type, alongside that type's own questions." : "Added when a session for this exam type is populated."}
+                </p>
+                {groupItems.length > 0 ? (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {categoryCounts.map((c) => (
+                      <span key={c.value} className={cn("rounded-full px-2 py-0.5 text-xs font-medium tabular-nums", CATEGORY_TONE[c.value])}>
+                        {c.count} {c.label.toLowerCase()}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => openCreate(selected)}
+                className="flex h-9 shrink-0 items-center gap-1.5 self-start rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+              >
+                <Plus aria-hidden="true" className="size-3.5" />
+                Add here
+              </button>
+            </div>
+
+            {groupItems.length > 0 ? (
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <Segmented
+                  label="Category"
+                  value={categoryFilter}
+                  onChange={setCategoryFilter}
+                  options={[{ value: "all", label: "All" }, ...CATEGORIES.map((c) => ({ value: c.value, label: c.label }))]}
+                  className="[&_button]:h-8 [&_button]:px-3 [&_button]:text-[13px]"
+                />
+                <div className="flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1 lg:w-60 lg:flex-initial">
+                    <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      aria-label="Search questions"
+                      placeholder="Search questions"
+                      className={cn(FIELD, "h-9 rounded-full pl-9 text-[13px]")}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    aria-pressed={!showInactive}
+                    onClick={() => setShowInactive((v) => !v)}
+                    className={cn(
+                      "h-9 shrink-0 rounded-full px-3 text-[13px] whitespace-nowrap transition-colors",
+                      !showInactive ? "bg-[#30302E] font-medium text-[#FAF9F5] dark:bg-[#ECE9E0] dark:text-[#1A1915]" : "ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted",
+                    )}
+                  >
+                    {showInactive ? "Hide turned-off" : "Show turned-off"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {loading ? (
+              <div aria-hidden="true" className="flex flex-col gap-2">
+                {Array.from({ length: 4 }, (_, i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-2xl bg-[#F7F6F1] dark:bg-muted/40" />
+                ))}
+              </div>
+            ) : groupItems.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-[#F7F6F1] px-6 py-12 text-center dark:bg-muted/40">
+                <span className="flex size-11 items-center justify-center rounded-full bg-white dark:bg-card">
+                  <ListChecks aria-hidden="true" className="size-5 text-muted-foreground" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium">No questions for {selectedName} yet</p>
+                  <p className="mt-1 text-[13px] text-muted-foreground">
+                    {selected === ANY ? "Questions here are offered for every exam type." : "Sessions of this type will only get the “Any exam type” questions."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openCreate(selected)}
+                  className="flex h-9 items-center gap-1.5 rounded-full bg-[#30302E] px-4 text-[13px] font-medium text-[#FAF9F5] dark:bg-[#ECE9E0] dark:text-[#1A1915]"
+                >
+                  <Plus aria-hidden="true" className="size-3.5" />
+                  Add the first question
+                </button>
+              </div>
+            ) : visibleItems.length === 0 ? (
+              <p className="rounded-2xl bg-[#F7F6F1] px-4 py-8 text-center text-sm text-muted-foreground dark:bg-muted/40">No questions match these filters.</p>
+            ) : (
+              <>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void handleDragEnd(e)}>
+                  <SortableContext items={visibleItems.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
+                    <ol className="flex flex-col gap-2">
+                      {visibleItems.map((t) => (
+                        <QuestionRow
+                          key={t.id}
+                          template={t}
+                          number={groupItems.indexOf(t) + 1}
+                          canDrag={canDrag}
+                          toggling={togglingId === t.id}
+                          onEdit={() => openEdit(t)}
+                          onToggle={() => void toggleActive(t)}
+                        />
+                      ))}
+                    </ol>
                   </SortableContext>
                 </DndContext>
-              </div>
-            </div>
-          ))}
+                <p className="px-1 text-xs text-muted-foreground">
+                  {canDrag ? "Drag the handle to change the order questions are added in." : "Clear the filters to reorder."}
+                </p>
+              </>
+            )}
+          </section>
         </div>
       )}
 
-      {/* Add Question: build up a batch of questions, reorder them, then save them all together. */}
-      <Dialog
-        open={createOpen}
-        onOpenChange={(next) => {
-          setCreateOpen(next);
-          if (!next) {
-            setCreateForm({ ...emptyForm });
-            setDraftItems([]);
-          }
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add Questions</DialogTitle>
-            <DialogDescription>{MERGE_FIELD_HINT}</DialogDescription>
-          </DialogHeader>
+      {/* Add / edit */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="flex max-h-[90vh] w-[calc(100%-2rem)] max-w-3xl flex-col gap-0 overflow-hidden rounded-[28px] p-0 sm:max-w-3xl sm:rounded-[28px] dark:bg-card">
+          <div className="flex shrink-0 items-start gap-4 border-b border-border/50 px-6 pt-6 pr-14 pb-5 sm:px-8 sm:pt-7">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#F3F1EA] text-[#3D3929] dark:bg-muted dark:text-foreground">
+              <ListChecks aria-hidden="true" className="size-5" />
+            </span>
+            <DialogHeader className="min-w-0 gap-1 text-left">
+              <DialogTitle className="text-xl font-medium tracking-[-0.01em]">{editing ? "Edit question" : "Add questions"}</DialogTitle>
+              <DialogDescription className="text-[13px]">
+                {editing ? "Changes apply to sessions populated from now on." : "Write a question, press Add to queue it, and save them all together."}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
-          <div className="space-y-4">
-            <ExamTypeField
-              examTypes={examTypes}
-              value={createForm.examTypeId}
-              onChange={(value) => setCreateForm((current) => ({ ...current, examTypeId: value }))}
-            />
-
-            <CategoryField
-              value={createForm.category}
-              onChange={(value) => setCreateForm((current) => ({ ...current, category: value }))}
-            />
-
-            <div className="grid gap-2">
-              <Label htmlFor="question-text">Question Text</Label>
-              <Textarea
-                id="question-text"
-                className="min-h-20"
-                value={createForm.text}
-                onChange={(event) => setCreateForm((current) => ({ ...current, text: event.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">{MERGE_FIELD_HINT}</p>
-            </div>
-
-            <label className="flex items-center gap-3 rounded-lg border p-3">
-              <Checkbox
-                checked={createForm.active}
-                onCheckedChange={(checked) =>
-                  setCreateForm((current) => ({ ...current, active: Boolean(checked) }))
-                }
-              />
-              <div>
-                <div className="text-sm font-medium">Active</div>
-                <div className="text-xs text-muted-foreground">
-                  Inactive templates stay in the library but won&apos;t be used to populate new sessions.
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8">
+            <div className="grid gap-5">
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <span className="px-1 text-[13px] font-medium">Exam type</span>
+                  <Select value={String(form.examTypeId)} onValueChange={(v) => setField("examTypeId", Number(v))}>
+                    <SelectTrigger aria-label="Exam type" className={cn(FIELD, "w-full")}>
+                      <SelectValue>{examTypeName(form.examTypeId)}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={String(ANY)}>Any exam type</SelectItem>
+                      {[...examTypes]
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((type) => (
+                          <SelectItem key={type.id} value={String(type.id)}>
+                            {type.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="px-1 text-xs text-muted-foreground">&ldquo;Any exam type&rdquo; questions are offered for every booking.</p>
+                </div>
+                <div className="grid content-start gap-1.5">
+                  <span className="px-1 text-[13px] font-medium">Category</span>
+                  <Segmented label="Category" value={form.category} onChange={(v) => setField("category", v)} options={CATEGORIES} className="w-fit" />
+                  <p className="px-1 text-xs text-muted-foreground">{CATEGORIES.find((c) => c.value === form.category)?.hint}</p>
                 </div>
               </div>
-            </label>
 
-            <Button type="button" variant="outline" className="w-full gap-2" onClick={addDraftItem}>
-              <Plus className="h-4 w-4" />
-              Add Another Question
-            </Button>
+              <div className="grid gap-1.5">
+                <label htmlFor="question-text" className="px-1 text-[13px] font-medium">
+                  Question
+                </label>
+                <Textarea
+                  id="question-text"
+                  ref={textRef}
+                  className="min-h-32 rounded-xl border-0 bg-[#F3F1EA] px-3.5 py-3 text-[15px] leading-relaxed shadow-none dark:bg-muted"
+                  placeholder="Did you take any money from {{client_name}}?"
+                  value={form.text}
+                  onChange={(e) => setField("text", e.target.value)}
+                  onKeyDown={(e) => {
+                    if (!editing && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      queueCurrent();
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap items-center gap-1.5 px-1">
+                  <span className="text-xs text-muted-foreground">Insert:</span>
+                  {PLACEHOLDERS.map((p) => (
+                    <button
+                      key={p.token}
+                      type="button"
+                      onClick={() => insertPlaceholder(p.token)}
+                      title={p.token}
+                      className="h-7 rounded-full px-2.5 text-xs ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            {draftItems.length > 0 ? (
-              <div className="space-y-2">
-                <Label>Queued questions ({draftItems.length})</Label>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDraftDragEnd}>
-                  <SortableContext items={draftItems.map((item) => item.key)} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-2">
-                      {draftItems.map((item) => (
-                        <DraftRow key={item.key} item={item} onRemove={() => removeDraftItem(item.key)} />
-                      ))}
+              <div className="flex items-start justify-between gap-4 rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/40">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">On</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">When off, it stays in the library but isn&apos;t added to new sessions.</p>
+                </div>
+                <Switch checked={form.active} onChange={() => setField("active", !form.active)} label="Question on" />
+              </div>
+
+              {!editing ? (
+                <div className="grid gap-2">
+                  <button
+                    type="button"
+                    onClick={queueCurrent}
+                    disabled={!form.text.trim()}
+                    className="flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-50 dark:hover:bg-muted"
+                  >
+                    <Plus aria-hidden="true" className="size-4" />
+                    Add to list and write another
+                    <kbd className="ml-1 hidden rounded bg-[#F3F1EA] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline dark:bg-muted">Ctrl ↵</kbd>
+                  </button>
+
+                  {drafts.length > 0 ? (
+                    <div className="grid gap-2 pt-2">
+                      <p className="px-1 text-[13px] font-medium">Queued · {drafts.length}</p>
+                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDraftDragEnd}>
+                        <SortableContext items={drafts.map((d) => d.key)} strategy={verticalListSortingStrategy}>
+                          <ol className="grid gap-2">
+                            {drafts.map((d, i) => (
+                              <DraftRow
+                                key={d.key}
+                                item={d}
+                                number={i + 1}
+                                examTypeName={d.examTypeId !== form.examTypeId ? examTypeName(d.examTypeId) : undefined}
+                                onRemove={() => setDrafts((current) => current.filter((x) => x.key !== d.key))}
+                              />
+                            ))}
+                          </ol>
+                        </SortableContext>
+                      </DndContext>
                     </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            ) : null}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSaveAll()} disabled={creating || pendingCount === 0}>
-              {creating
-                ? "Saving..."
-                : `Save ${pendingCount} Question${pendingCount === 1 ? "" : "s"}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Row click opens this: the full detail view/edit for one existing question. */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Question Template</DialogTitle>
-            <DialogDescription>{MERGE_FIELD_HINT}</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <ExamTypeField
-              examTypes={examTypes}
-              value={editForm.examTypeId}
-              onChange={(value) => setEditForm((current) => ({ ...current, examTypeId: value }))}
-            />
-
-            <CategoryField
-              value={editForm.category}
-              onChange={(value) => setEditForm((current) => ({ ...current, category: value }))}
-            />
-
-            <div className="grid gap-2">
-              <Label htmlFor="edit-question-text">Question Text</Label>
-              <Textarea
-                id="edit-question-text"
-                className="min-h-24"
-                value={editForm.text}
-                onChange={(event) => setEditForm((current) => ({ ...current, text: event.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">{MERGE_FIELD_HINT}</p>
-            </div>
-
-            <label className="flex items-center gap-3 rounded-lg border p-3">
-              <Checkbox
-                checked={editForm.active}
-                onCheckedChange={(checked) => setEditForm((current) => ({ ...current, active: Boolean(checked) }))}
-              />
-              <div>
-                <div className="text-sm font-medium">Active</div>
-                <div className="text-xs text-muted-foreground">
-                  Inactive templates stay in the library but won&apos;t be used to populate new sessions.
+                  ) : null}
                 </div>
-              </div>
-            </label>
+              ) : null}
+            </div>
           </div>
 
-          <DialogFooter className="sm:justify-between">
-            {editingTemplate?.active ? (
-              <Button variant="destructive" onClick={() => void handleDeactivate()}>
-                Deactivate
-              </Button>
-            ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => void handleSaveEdit()} disabled={savingEdit}>
-                {savingEdit ? "Saving..." : "Save Changes"}
-              </Button>
-            </div>
-          </DialogFooter>
+          <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-border/50 px-6 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-8">
+            <button
+              type="button"
+              onClick={() => setDialogOpen(false)}
+              className="flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving || (editing ? !form.text.trim() : pendingCount === 0)}
+              className="flex h-10 items-center justify-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-50 dark:bg-[#ECE9E0] dark:text-[#1A1915] dark:hover:bg-white"
+            >
+              {saving ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : null}
+              {saving ? "Saving…" : editing ? "Save changes" : `Save ${pendingCount || ""} question${pendingCount === 1 ? "" : "s"}`.replace("  ", " ")}
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function CategoryChip({ category }: { category: QuestionCategory }) {
+  return (
+    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", CATEGORY_TONE[category])}>
+      {CATEGORIES.find((c) => c.value === category)?.label ?? category}
+    </span>
+  );
+}
+
+/** Make {{placeholders}} visible in the list. */
+function QuestionText({ text, muted }: { text: string; muted?: boolean }) {
+  const parts = text.split(/(\{\{[a-z_]+\}\})/g);
+  return (
+    <p className={cn("text-[15px] leading-relaxed", muted && "text-muted-foreground")}>
+      {parts.map((part, i) =>
+        /^\{\{[a-z_]+\}\}$/.test(part) ? (
+          <span key={i} className="rounded-md bg-[#EFEBFE] px-1 py-px font-mono text-[12px] text-[#3B2E86] dark:bg-violet-950 dark:text-violet-200">
+            {PLACEHOLDERS.find((p) => p.token === part)?.label ?? part}
+          </span>
+        ) : (
+          <React.Fragment key={i}>{part}</React.Fragment>
+        ),
+      )}
+    </p>
+  );
+}
+
+function QuestionRow({
+  template,
+  number,
+  canDrag,
+  toggling,
+  onEdit,
+  onToggle,
+}: {
+  template: QuestionTemplateRecord;
+  number: number;
+  canDrag: boolean;
+  toggling: boolean;
+  onEdit: () => void;
+  onToggle: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: String(template.id), disabled: !canDrag });
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "group flex items-start gap-3 rounded-2xl bg-[#F7F6F1] p-3 pr-2 transition-shadow sm:p-4 sm:pr-3 dark:bg-muted/40",
+        isDragging && "relative z-10 shadow-lg ring-1 ring-border",
+        !template.active && "opacity-60",
+      )}
+    >
+      <button
+        type="button"
+        aria-label={`Drag question ${number} to reorder`}
+        disabled={!canDrag}
+        className="mt-0.5 flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground hover:bg-white hover:text-foreground active:cursor-grabbing disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent dark:hover:bg-card"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical aria-hidden="true" className="size-4" />
+      </button>
+      <span className="mt-1 w-5 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{number}</span>
+      <button type="button" onClick={onEdit} className="min-w-0 flex-1 text-left">
+        <QuestionText text={template.text} />
+        <span className="mt-1.5 flex flex-wrap items-center gap-2">
+          <CategoryChip category={template.category} />
+          {!template.active ? <span className="text-xs text-muted-foreground">Off — not added to new sessions</span> : null}
+        </span>
+      </button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Switch checked={template.active} disabled={toggling} onChange={onToggle} label={template.active ? "Turn question off" : "Turn question on"} />
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label={`Edit question ${number}`}
+          title="Edit"
+          className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white hover:text-foreground dark:hover:bg-card"
+        >
+          <Pencil aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function DraftRow({ item, number, examTypeName, onRemove }: { item: DraftItem; number: number; examTypeName?: string; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.key });
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn("flex items-start gap-2 rounded-2xl bg-[#F7F6F1] p-2.5 dark:bg-muted/40", isDragging && "relative z-10 shadow-lg")}
+    >
+      <button
+        type="button"
+        aria-label={`Drag queued question ${number}`}
+        className="mt-0.5 flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground hover:bg-white active:cursor-grabbing dark:hover:bg-card"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical aria-hidden="true" className="size-4" />
+      </button>
+      <div className="min-w-0 flex-1 py-0.5">
+        <QuestionText text={item.text} />
+        <span className="mt-1 flex flex-wrap items-center gap-2">
+          <CategoryChip category={item.category} />
+          {examTypeName ? <span className="text-xs text-muted-foreground">{examTypeName}</span> : null}
+          {!item.active ? <span className="text-xs text-muted-foreground">Off</span> : null}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove queued question ${number}`}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-white hover:text-foreground dark:hover:bg-card"
+      >
+        <X aria-hidden="true" className="size-4" />
+      </button>
+    </li>
+  );
+}
+
+function Switch({ checked, disabled, onChange, label }: { checked: boolean; disabled?: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onChange}
+      className={cn(
+        "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-wait disabled:opacity-60",
+        checked ? "bg-[#30302E] dark:bg-[#5FA86C]" : "bg-[#D9D5CA] dark:bg-zinc-600",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn("absolute top-0.5 left-0.5 block size-5 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-5" : "translate-x-0")}
+      />
+    </button>
   );
 }

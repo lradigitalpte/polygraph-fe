@@ -2,283 +2,307 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Route } from "next";
+import { ArrowRight, CalendarPlus, CheckCircle2, ClipboardCheck, Clock, FileCheck2, Loader2, Search, User, X } from "lucide-react";
+
 import { AppointmentDetailSheet } from "@/components/dashboard/appointment-detail-sheet";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
+import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { Segmented } from "@/components/dashboard/ui-kit";
+import { TablePager, usePager } from "@/components/dashboard/table-pager";
 import { isOrganizationClient } from "@/lib/client-types";
+import { CLINIC_TIMEZONE, formatClinicClock, formatClinicDateLabel } from "@/lib/clinic-time";
 import { formatAppointmentCode } from "@/lib/exam-documentation";
-import type { AppointmentRecord } from "@/lib/exam-booking";
+import { fetchExamTypes, type AppointmentRecord } from "@/lib/exam-booking";
 import { formatSubjectName } from "@/lib/subjects";
-import { formatClinicDateTime } from "@/lib/clinic-time";
-import {
-  Calendar,
-  ChevronRight,
-  Clock,
-  FileText,
-  Loader2,
-  User,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-function formatDateTime(iso: string) {
-  return formatClinicDateTime(iso) || iso;
+const CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+
+type ExamFilter = "upcoming" | "past" | "cancelled" | "all";
+
+/** Month / day / year of a session in clinic time, so a late-evening session never shows on the wrong day. */
+function clinicDateTile(iso: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: CLINIC_TIMEZONE, day: "numeric", month: "short", year: "numeric" }).formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return { month: get("month"), day: get("day"), year: get("year") };
 }
+
 
 function formatDuration(minutes: number) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
+  if (!minutes || minutes <= 0) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h${m ? ` ${m}m` : ""}` : `${m}m`;
 }
 
-function statusVariant(status: string): "default" | "secondary" | "outline" | "destructive" {
-  const normalized = status.toLowerCase();
-  if (normalized === "completed") return "default";
-  if (normalized === "confirmed") return "secondary";
-  if (normalized === "cancelled") return "destructive";
-  return "outline";
+const isCancelled = (a: AppointmentRecord) => ["cancelled", "canceled", "no_show", "no-show"].includes(a.status.toLowerCase());
+const isUpcoming = (a: AppointmentRecord) => !isCancelled(a) && a.status.toLowerCase() !== "completed" && new Date(a.scheduled_at).getTime() >= Date.now();
+
+const STATUS_STYLE: Record<string, string> = {
+  completed: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300",
+  confirmed: "bg-[#E8E4F7] text-[#4A3F8C] dark:bg-violet-950/60 dark:text-violet-200",
+  scheduled: "bg-[#E8E4F7] text-[#4A3F8C] dark:bg-violet-950/60 dark:text-violet-200",
+  pending: "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200",
+  in_progress: "bg-primary/15 text-[oklch(0.45_0.12_39)] dark:text-primary",
+};
+const NEUTRAL = "bg-[#ECE9E0] text-[#55534C] dark:bg-muted dark:text-muted-foreground";
+
+function Pill({ className, children }: { className: string; children: React.ReactNode }) {
+  return <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", className)}>{children}</span>;
 }
 
-function examTypeFromNotes(notes?: string): string | undefined {
-  if (!notes?.trim()) return undefined;
-  return notes.trim().split(/\n/)[0]?.trim() || undefined;
+function paymentPill(a: AppointmentRecord) {
+  if (isCancelled(a)) return null;
+  if (a.prepaid_slot_id) return <Pill className={NEUTRAL}>Prepaid</Pill>;
+  const status = (a.payment_status || "").toLowerCase();
+  if (status === "paid") return <Pill className="bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300">Paid</Pill>;
+  if (status === "partial") return <Pill className="bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200">Part paid</Pill>;
+  if ((a.exam_fee ?? 0) > 0) return <Pill className="bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200">Unpaid</Pill>;
+  return null;
 }
 
-function examineeLabel(appointment: AppointmentRecord): string {
-  if (appointment.subject) {
-    return formatSubjectName(appointment.subject);
-  }
-  return `Examinee #${appointment.subject_id}`;
+function examTypeOfRaw(a: AppointmentRecord, names: Record<number, string>) {
+  return (a.exam_type_id ? names[a.exam_type_id] : undefined) || (a.notes || "").trim().split("\n")[0].trim() || "Polygraph examination";
 }
-
-function AppointmentRow({
-  appointment,
-  clientId,
-  showExaminee,
-  onSelect,
-}: {
-  appointment: AppointmentRecord;
-  clientId: number;
-  showExaminee: boolean;
-  onSelect: () => void;
-}) {
-  const docHref = `/dashboard/clients/${clientId}/exams/${appointment.id}`;
-  const hasDoc = Boolean(appointment.exam_id);
-  const examType = examTypeFromNotes(appointment.notes);
-  const examinee = examineeLabel(appointment);
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "w-full text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border",
-        "hover:bg-muted/50 hover:border-primary/20 transition-all group cursor-pointer"
-      )}
-    >
-      <div className="flex items-start gap-3 min-w-0">
-        <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-          <FileText className="h-5 w-5" />
-        </div>
-        <div className="space-y-1.5 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold">{formatAppointmentCode(appointment.id)}</span>
-            {showExaminee && (
-              <>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-sm font-semibold text-foreground inline-flex items-center gap-1">
-                  <User className="h-3.5 w-3.5 text-primary shrink-0" />
-                  {examinee}
-                </span>
-              </>
-            )}
-            {hasDoc && (
-              <Badge variant="outline" className="text-[10px] h-5 border-primary/30 text-primary">
-                Documented
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              {formatDateTime(appointment.scheduled_at)}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {formatDuration(appointment.duration)}
-            </span>
-            {examType && <span className="font-medium text-foreground/80">{examType}</span>}
-          </div>
-        </div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0 self-center sm:self-auto">
-        <div className="flex flex-wrap gap-1.5 justify-end">
-          <Badge variant={statusVariant(appointment.status)} className="capitalize">
-            {appointment.status}
-          </Badge>
-          {appointment.payment_status && (
-            <Badge variant="outline">{appointment.payment_status}</Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden sm:inline-flex text-xs h-8"
-            render={
-              <Link href={docHref} onClick={(e) => e.stopPropagation()} />
-            }
-          >
-            {hasDoc ? "Open" : "Document"}
-          </Button>
-          <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function isUpcoming(a: AppointmentRecord): boolean {
-  const when = new Date(a.scheduled_at).getTime();
-  return when >= Date.now() && a.status.toLowerCase() !== "cancelled";
-}
-
-type ExamFilter = "all" | "upcoming" | "past";
 
 export default function ClientExamHistoryPage() {
   const { client, appointments, loading, error, refresh } = useClientDetail();
+  const { can } = useCurrentUser();
   const [selected, setSelected] = React.useState<AppointmentRecord | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
-  const [filter, setFilter] = React.useState<ExamFilter>("all");
+  const [filter, setFilter] = React.useState<ExamFilter | null>(null);
+  const [examTypeNames, setExamTypeNames] = React.useState<Record<number, string>>({});
+  const [query, setQuery] = React.useState("");
+  const listTopRef = React.useRef<HTMLElement>(null);
 
-  const openAppointment = (appointment: AppointmentRecord) => {
-    setSelected(appointment);
-    setSheetOpen(true);
-  };
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchExamTypes()
+      .then((types) => {
+        if (!cancelled) setExamTypeNames(Object.fromEntries(types.map((t) => [t.id, t.name])));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const groups = React.useMemo(() => {
+    const byTime = (a: AppointmentRecord) => new Date(a.scheduled_at).getTime();
+    const upcoming = appointments.filter(isUpcoming).sort((a, b) => byTime(a) - byTime(b)); // soonest first
+    const cancelled = appointments.filter(isCancelled).sort((a, b) => byTime(b) - byTime(a));
+    const past = appointments.filter((a) => !isUpcoming(a) && !isCancelled(a)).sort((a, b) => byTime(b) - byTime(a)); // newest first
+    const all = [...appointments].sort((a, b) => byTime(b) - byTime(a));
+    return { upcoming, past, cancelled, all };
+  }, [appointments]);
+
+  // Filter + search + paging (hooks must run before the early returns below).
+  const filterForList: ExamFilter = filter ?? (groups.upcoming.length > 0 ? "upcoming" : "past");
+  const q = query.trim().toLowerCase();
+  const matched = React.useMemo(() => {
+    const inFilter = groups[filterForList];
+    if (!q) return inFilter;
+    return inFilter.filter((a) =>
+      [examTypeOfRaw(a, examTypeNames), formatAppointmentCode(a.id), a.subject ? formatSubjectName(a.subject) : "", a.status, formatClinicDateLabel(a.scheduled_at)].some((v) => v.toLowerCase().includes(q)),
+    );
+  }, [groups, filterForList, q, examTypeNames]);
+  const pager = usePager(matched, [filterForList, q]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin mr-2" />
-        Loading exam history...
+        <Loader2 aria-hidden="true" className="mr-2 size-5 animate-spin" />
+        Loading exam history…
       </div>
     );
   }
 
   if (error || !client) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-destructive">
-        {error || "Client record not found."}
-      </div>
-    );
+    return <div className="rounded-[26px] bg-destructive/5 p-6 text-destructive ring-1 ring-destructive/20">{error || "Client record not found."}</div>;
   }
 
-  const upcoming = appointments.filter(isUpcoming);
-  const past = appointments.filter((a) => !isUpcoming(a));
-  const documented = appointments.filter((a) => a.exam_id).length;
-
-  const visible =
-    filter === "upcoming" ? upcoming : filter === "past" ? past : appointments;
-
+  // Open on Upcoming when there is something coming up, otherwise on Past.
+  const activeFilter: ExamFilter = filter ?? (groups.upcoming.length > 0 ? "upcoming" : "past");
+  const visible = pager.rows;
   const showExaminee = isOrganizationClient(client);
+  const documented = appointments.filter((a) => a.exam_id).length;
+  const completed = appointments.filter((a) => a.status.toLowerCase() === "completed").length;
+  const examTypeOf = (a: AppointmentRecord) => examTypeOfRaw(a, examTypeNames);
 
-  const emptyMessage =
-    filter === "upcoming"
-      ? "No upcoming sessions scheduled."
-      : filter === "past"
-        ? "No past sessions yet."
-        : "No appointments scheduled yet for this client.";
+  const emptyMessage: Record<ExamFilter, string> = {
+    upcoming: "Nothing scheduled.",
+    past: "No past sessions yet.",
+    cancelled: "No cancelled sessions.",
+    all: "No sessions yet.",
+  };
+
+  const open = (a: AppointmentRecord) => {
+    setSelected(a);
+    setSheetOpen(true);
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Exam History</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            {isOrganizationClient(client)
-              ? `All sessions billed to ${client.name}. Open an examinee profile for per-person history.`
-              : `Scheduled sessions for ${client.name}. Click a row to open documentation.`}
+          <h2 className="text-2xl font-semibold tracking-[-0.02em]">{showExaminee ? "All sessions" : "Exam history"}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {showExaminee ? `Every session billed to ${client.name}.` : `Every session for ${client.name}. Select one for booking details, or open its documentation.`}
           </p>
         </div>
-        <Button render={<Link href="/dashboard/calendar/book" />}>Schedule appointment</Button>
+        {can("appointment:create") ? (
+          <Link
+            href={`/dashboard/calendar/book?clientId=${client.id}` as Route}
+            className="flex h-10 shrink-0 items-center gap-2 self-start rounded-full bg-[#2B2A27] px-4 text-sm font-medium text-[#FAF9F5] transition-colors hover:bg-[#3A3935] sm:self-auto dark:bg-foreground dark:text-background"
+          >
+            <CalendarPlus aria-hidden="true" className="size-4" /> Book exam
+          </Link>
+        ) : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-border/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total sessions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{appointments.length}</div>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Upcoming</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{upcoming.length}</div>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              With documentation
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{documented}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-border/50">
-        <CardHeader className="gap-4">
-          <div>
-            <CardTitle>Sessions</CardTitle>
-            <CardDescription>
-              Each appointment can hold booking notes, examination documentation, phase logs, and
-              uploaded charts or reports.
-            </CardDescription>
+      {/* Summary */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Sessions", value: appointments.length - groups.cancelled.length, hint: groups.cancelled.length ? `${groups.cancelled.length} cancelled` : "None cancelled", icon: ClipboardCheck },
+          { label: "Upcoming", value: groups.upcoming.length, hint: groups.upcoming[0] ? `Next ${formatClinicDateLabel(groups.upcoming[0].scheduled_at)}` : "Nothing scheduled", icon: Clock },
+          { label: "Completed", value: completed, hint: "Sessions finished", icon: CheckCircle2 },
+          { label: "Documented", value: documented, hint: "With exam documentation", icon: FileCheck2 },
+        ].map((s) => (
+          <div key={s.label} className={cn(CARD, "p-4")}>
+            <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <s.icon aria-hidden="true" className="size-3.5" />
+              {s.label}
+            </p>
+            <p className="mt-1 text-2xl font-medium tracking-[-0.02em] tabular-nums">{s.value}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{s.hint}</p>
           </div>
-          <Tabs value={filter} onValueChange={(v) => setFilter(v as ExamFilter)}>
-            <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
-              <TabsTrigger value="all">All ({appointments.length})</TabsTrigger>
-              <TabsTrigger value="upcoming">Upcoming ({upcoming.length})</TabsTrigger>
-              <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {visible.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">{emptyMessage}</p>
-          ) : (
-            visible.map((appointment) => (
-              <AppointmentRow
-                key={appointment.id}
-                clientId={client.id}
-                showExaminee={showExaminee}
-                appointment={appointment}
-                onSelect={() => openAppointment(appointment)}
-              />
-            ))
-          )}
-        </CardContent>
-      </Card>
+        ))}
+      </div>
 
-      <AppointmentDetailSheet
-        clientId={client.id}
-        appointment={selected}
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        onUpdated={() => void refresh()}
-      />
+      {/* Sessions */}
+      <section ref={listTopRef} aria-labelledby="sessions-title" className={cn(CARD, "scroll-mt-4 overflow-hidden")}>
+        <div className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+            <h3 id="sessions-title" className="text-[15px] font-medium">
+              Sessions
+            </h3>
+            <div className="relative w-full sm:w-64">
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                aria-label="Search sessions"
+                placeholder={showExaminee ? "Examinee, APT code, type…" : "APT code, type, date…"}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="h-10 w-full rounded-full bg-[#F3F1EA] pr-9 pl-10 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-muted"
+              />
+              {query ? (
+                <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card">
+                  <X aria-hidden="true" className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <Segmented<ExamFilter>
+            label="Show sessions"
+            value={activeFilter}
+            onChange={setFilter}
+            options={[
+              { value: "upcoming", label: "Upcoming", count: groups.upcoming.length },
+              { value: "past", label: "Past", count: groups.past.length },
+              ...(groups.cancelled.length ? [{ value: "cancelled" as const, label: "Cancelled", count: groups.cancelled.length }] : []),
+              { value: "all", label: "All", count: appointments.length },
+            ]}
+          />
+        </div>
+
+        {visible.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 border-t border-border/50 px-6 py-14 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+              <ClipboardCheck aria-hidden="true" className="size-5 text-muted-foreground" />
+            </span>
+            <p className="text-sm text-muted-foreground">{q ? `No sessions match “${query.trim()}”.` : emptyMessage[activeFilter]}</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border/50 border-t border-border/50">
+            {visible.map((a) => {
+              const docHref = `/dashboard/clients/${client.id}/exams/${a.id}` as Route;
+              const hasDoc = Boolean(a.exam_id);
+              const date = clinicDateTile(a.scheduled_at);
+              const statusKey = a.status.toLowerCase().replace(/[\s-]+/g, "_");
+              return (
+                <li key={a.id} className={cn("flex items-center gap-3 px-3 py-2 sm:gap-4 sm:px-5", isCancelled(a) && "opacity-70")}>
+                  {/* Whole left part opens the booking sheet */}
+                  <button
+                    type="button"
+                    onClick={() => open(a)}
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-2xl p-2 text-left transition-colors hover:bg-[#F7F6F1] dark:hover:bg-muted/40"
+                  >
+                    <span className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-[#F7F6F1] py-2 dark:bg-muted/50">
+                      <span className="text-[11px] font-medium text-primary uppercase">{date.month}</span>
+                      <span className="text-xl leading-none font-semibold tabular-nums">{date.day}</span>
+                      <span className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{date.year}</span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{examTypeOf(a)}</span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="tabular-nums">{formatClinicClock(a.scheduled_at)}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{formatDuration(a.duration)}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-mono">{formatAppointmentCode(a.id)}</span>
+                        {showExaminee ? (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="inline-flex items-center gap-1 text-foreground/80">
+                              <User aria-hidden="true" className="size-3" />
+                              {a.subject ? formatSubjectName(a.subject) : `Examinee #${a.subject_id}`}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
+                      <span className="mt-1.5 flex flex-wrap gap-1.5">
+                        <Pill className={STATUS_STYLE[statusKey] ?? NEUTRAL}>
+                          <span className="capitalize">{a.status.replace(/[_-]+/g, " ")}</span>
+                        </Pill>
+                        {paymentPill(a)}
+                        {hasDoc ? (
+                          <Pill className="bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                            <FileCheck2 aria-hidden="true" className="size-3" /> Documented
+                          </Pill>
+                        ) : null}
+                      </span>
+                    </span>
+                  </button>
+                  {/* Separate link: never nested inside the row button */}
+                  <Link
+                    href={docHref}
+                    className="flex h-9 shrink-0 items-center gap-1 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+                  >
+                    <span className="hidden sm:inline">{hasDoc ? "Open" : "Document"}</span>
+                    <ArrowRight aria-hidden="true" className="size-3.5" />
+                    <span className="sr-only">{hasDoc ? `Open documentation for ${formatAppointmentCode(a.id)}` : `Document ${formatAppointmentCode(a.id)}`}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <TablePager
+          label="Sessions"
+          page={pager.page}
+          perPage={pager.perPage}
+          totalPages={pager.totalPages}
+          total={pager.total}
+          onPage={pager.setPage}
+          onPerPage={pager.setPerPage}
+          scrollTo={listTopRef}
+        />
+      </section>
+
+      <AppointmentDetailSheet clientId={client.id} appointment={selected} open={sheetOpen} onOpenChange={setSheetOpen} onUpdated={() => void refresh()} />
     </div>
   );
 }

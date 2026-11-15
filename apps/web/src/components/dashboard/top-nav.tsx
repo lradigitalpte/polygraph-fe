@@ -10,7 +10,6 @@ import {
   LogOut,
   Plus
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,17 +21,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "next-themes";
 import { authClient } from "@/lib/auth-client";
-import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { buttonVariants } from "@/components/ui/button";
+import { usePathname, useRouter } from "next/navigation";
 import { MobileNav } from "./mobile-nav";
 import { GlobalSearch } from "./global-search";
 import { useCurrentUser, userInitials, clearCurrentUserCache } from "./use-current-user";
 import { recordLogoutReason } from "@/lib/session-reliability";
 
+const PAGE_TITLES: Record<string, string> = {
+  exams: "Exams",
+  clients: "Clients",
+  intake: "Batch intake",
+  leads: "Leads",
+  calendar: "Calendar",
+  reminders: "Reminders",
+  payments: "Payments",
+  inventory: "Inventory",
+  reports: "Reports",
+  analytics: "Analytics",
+  settings: "Settings",
+  profile: "My profile",
+};
+
 export function TopNav() {
   const { setTheme, theme } = useTheme();
   const router = useRouter();
+  const pathname = usePathname();
   const { user, can } = useCurrentUser();
   const canViewAdmin = can("user:view");
   const displayName = user?.name ?? "User";
@@ -46,59 +59,67 @@ export function TopNav() {
     router.push("/login");
   };
 
+  const pageTitle = (() => {
+    const segment = pathname.replace(/^\/dashboard\/?/, "").split("/")[0];
+    if (!segment) return "Overview";
+    return PAGE_TITLES[segment] ?? segment.replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  })();
+  const onDashboard = pathname === "/dashboard";
+
+  const iconButton =
+    "relative flex size-11 items-center justify-center rounded-full bg-[#2B2A27] dark:bg-[#1B1B19] text-[#FAF9F5] shadow-[0_1px_2px_rgba(20,20,19,0.2)] ring-1 ring-white/[0.06] transition-colors hover:bg-[#3A3935]";
+
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-background/80 backdrop-blur-md px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 flex h-[76px] shrink-0 items-center gap-x-3 bg-[#F3F1EA]/85 px-4 backdrop-blur-md sm:gap-x-4 sm:px-6 lg:px-8 dark:bg-background/85">
       <MobileNav />
-      <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6 items-center">
-        <div className="flex flex-1 items-center">
+      <nav aria-label="Breadcrumb" className="hidden items-center gap-2 text-sm text-[#55534C] lg:flex dark:text-muted-foreground">
+        <span className="font-semibold text-foreground">Polygraph</span>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{pageTitle}</span>
+      </nav>
+      <div className="flex flex-1 items-center justify-end gap-x-2 sm:gap-x-3">
+        <div className="flex flex-1 justify-center lg:max-w-md">
           <GlobalSearch />
         </div>
-        
-        <div className="flex items-center gap-x-4 lg:gap-x-6">
-          <Button
-            size="sm"
-            className="hidden sm:flex rounded-full gap-2 font-semibold shadow-sm shadow-primary/20"
+
+        {!onDashboard && (
+          <button
+            type="button"
+            className="hidden h-11 items-center gap-2 rounded-full bg-[#30302E] pr-5 pl-2.5 text-sm font-semibold text-[#FAF9F5] shadow-[0_8px_20px_-10px_rgba(48,48,46,0.6)] transition-colors hover:bg-[#1F1F1D] sm:flex dark:bg-secondary dark:text-secondary-foreground"
             onClick={() => router.push("/dashboard/calendar/book")}
           >
-            <Plus className="h-4 w-4" />
-            New Exam
-          </Button>
+            <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[#1A1915]">
+              <Plus className="size-3.5" strokeWidth={3} aria-hidden="true" />
+            </span>
+            New exam
+          </button>
+        )}
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-full text-muted-foreground hover:text-foreground hover:bg-primary/5"
-            onClick={() => router.push("/dashboard/calendar")}
-            aria-label="Open calendar"
-          >
-            <Calendar className="h-5 w-5" />
-          </Button>
+        <button type="button" className={iconButton} onClick={() => router.push("/dashboard/calendar")} aria-label="Open calendar">
+          <Calendar className="size-[18px]" aria-hidden="true" />
+        </button>
 
-          <div className="relative">
-            <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-foreground hover:bg-primary/5">
-              <Bell className="h-5 w-5" />
-            </Button>
-            <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full bg-primary border-2 border-background" />
-          </div>
+        <button type="button" className={iconButton} aria-label="Notifications">
+          <Bell className="size-[18px]" aria-hidden="true" />
+          <span className="absolute top-2.5 right-3 size-2 rounded-full border-2 border-[#2B2A27] dark:border-[#1B1B19] bg-primary" />
+        </button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-full text-muted-foreground hover:text-foreground"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            <span className="sr-only">Toggle theme</span>
-          </Button>
-
-          <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-border" aria-hidden="true" />
+        <button
+          type="button"
+          className={iconButton}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          aria-label="Toggle theme"
+        >
+          <Sun className="size-[18px] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" aria-hidden="true" />
+          <Moon className="absolute size-[18px] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" aria-hidden="true" />
+        </button>
 
           <DropdownMenu>
-            <DropdownMenuTrigger className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "relative h-9 w-9 rounded-full overflow-hidden border border-border shadow-sm")}>
-                <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 to-primary/5 text-primary font-bold text-sm">
-                  {initials}
-                </div>
+            <DropdownMenuTrigger
+              aria-label={`Account menu for ${displayName}`}
+              className="flex size-11 items-center justify-center rounded-full bg-[#30302E] text-sm font-semibold text-[#FAF9F5] shadow-sm transition-opacity hover:opacity-90 dark:bg-secondary dark:text-secondary-foreground"
+            >
+              {initials}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 mt-2">
               <DropdownMenuGroup>
@@ -128,8 +149,7 @@ export function TopNav() {
                 <span>Log out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        </DropdownMenu>
       </div>
     </header>
   );

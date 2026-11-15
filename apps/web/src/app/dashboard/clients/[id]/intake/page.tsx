@@ -1,49 +1,52 @@
 "use client";
 
 import * as React from "react";
-import { useParams, useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Copy, Eye, FileText, Loader2, Mail, RefreshCcw, Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { useParams } from "next/navigation";
+import { toast } from "sonner";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Eye,
+  FileText,
+  Inbox,
+  Loader2,
+  Mail,
+  RefreshCcw,
+  Send,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { GlassStat, HeroAction, PageHero, Segmented } from "@/components/dashboard/ui-kit";
 import { useClientDetail } from "@/components/dashboard/client-detail-context";
 import { authenticatedFetch } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
+
+/* ------------------------------------------------------------------ */
+/* Types + API                                                        */
+/* ------------------------------------------------------------------ */
 
 type IntakeRequest = {
   id: number;
   token: string;
   recipient_email: string;
   recipient_name: string;
+  message?: string;
   status: string;
   expires_at: string;
   created_at: string;
   submitted_at?: string;
   agreed_at?: string;
+  sent_by_email?: string;
 };
 
 type SubmittedSubject = {
@@ -67,33 +70,30 @@ type IntakeSubmission = {
   subjects: SubmittedSubject[];
 };
 
+/** The request is saved even when the email fails; the API then returns a warning. */
 async function sendIntakeRequest(input: {
   client_id: number;
   recipient_email: string;
   recipient_name: string;
   message: string;
   expiry_days: number;
-}): Promise<IntakeRequest> {
-  const res = await authenticatedFetch("/api/intake-requests", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
-  return (data.intake_request ?? data) as IntakeRequest;
+}): Promise<{ request: IntakeRequest; warning?: string }> {
+  const res = await authenticatedFetch("/api/intake-requests", { method: "POST", body: JSON.stringify(input) });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? `Request failed (${res.status})`);
+  if (data?.intake_request) return { request: data.intake_request as IntakeRequest, warning: data.warning };
+  return { request: data as IntakeRequest };
 }
 
 async function fetchIntakeRequests(clientId: number): Promise<IntakeRequest[]> {
   const res = await authenticatedFetch(`/api/intake-requests?client_id=${clientId}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Failed to load intake requests");
-  return data as IntakeRequest[];
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? "Failed to load roster requests");
+  return (data ?? []) as IntakeRequest[];
 }
 
 async function resendIntakeRequest(id: number): Promise<void> {
-  const res = await authenticatedFetch(`/api/intake-requests/${id}/resend`, {
-    method: "POST",
-  });
+  const res = await authenticatedFetch(`/api/intake-requests/${id}/resend`, { method: "POST" });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error ?? `Failed to resend (${res.status})`);
@@ -102,125 +102,170 @@ async function resendIntakeRequest(id: number): Promise<void> {
 
 async function fetchIntakeSubmission(id: number): Promise<IntakeSubmission> {
   const res = await authenticatedFetch(`/api/intake-requests/${id}/submission`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Failed to load submission");
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? "Failed to load submission");
   return data as IntakeSubmission;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+const CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+const FIELD = "h-11 rounded-2xl border-0 bg-[#F7F6F1] ring-1 ring-black/[0.05] focus-visible:ring-2 focus-visible:ring-primary dark:bg-muted dark:ring-white/10";
+const PILL = "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-50 dark:hover:bg-muted";
+const EXPIRY_CHOICES = [3, 7, 14, 30] as const;
+const MAX_EXPIRY = 30;
+const EMAIL_RE = /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/;
+const PAGE = 8;
+
+type Status = "pending" | "submitted" | "expired";
+type Filter = "all" | Status;
+
 function intakeLink(token: string) {
-  // The public intake page lives on the frontend, not the API.
-  const base = typeof window !== "undefined" ? window.location.origin : "";
-  return `${base}/intake/${token}`;
+  // The public roster form lives on the frontend, not the API.
+  return `${typeof window !== "undefined" ? window.location.origin : ""}/intake/${token}`;
 }
 
-const HISTORY_PAGE_SIZES = [5, 10, 15] as const;
-const SUBMISSION_PAGE_SIZES = [10, 25, 50] as const;
+function isPlaceholderEmail(email: string) {
+  const e = email.trim().toLowerCase();
+  return e.endsWith("@import.local") || e.endsWith(".local") || e.endsWith("@example.com") || e.endsWith(".invalid");
+}
 
-function buildPageNumbers(currentPage: number, totalPages: number): number[] {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
+/** Pending links past their date can't be used, whatever the stored status says. */
+function effectiveStatus(req: IntakeRequest): Status {
+  if (req.status === "submitted") return "submitted";
+  if (req.status === "expired" || new Date(req.expires_at).getTime() < Date.now()) return "expired";
+  return "pending";
+}
+
+const fmtDate = (iso?: string) =>
+  iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—";
+const fmtDateTime = (iso?: string) =>
+  iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+
+function daysLeft(iso: string) {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
+
+function expiryDateFor(days: number) {
+  return fmtDate(new Date(Date.now() + days * 86_400_000).toISOString());
+}
+
+async function copyText(text: string, okMessage: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(okMessage);
+  } catch {
+    toast.error("Couldn't copy. Link: " + text);
   }
-  const pages = new Set<number>([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
-  return [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
 }
 
-export default function SendIntakePage() {
+const STATUS_CHIP: Record<Status, { label: string; className: string }> = {
+  pending: { label: "Waiting", className: "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200" },
+  submitted: { label: "Submitted", className: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300" },
+  expired: { label: "Expired", className: "bg-[#ECE9E0] text-[#55534C] dark:bg-muted dark:text-muted-foreground" },
+};
+
+/* ------------------------------------------------------------------ */
+/* Page                                                               */
+/* ------------------------------------------------------------------ */
+
+type Draft = { email: string; name: string; message: string; days: number };
+
+export default function RequestRosterPage() {
   const params = useParams();
-  const router = useRouter();
   const clientId = Number(params.id);
   const { client } = useClientDetail();
+  const formRef = React.useRef<HTMLDivElement>(null);
 
-  const [email, setEmail] = React.useState(client?.email ?? "");
-  const [name, setName] = React.useState(client?.contact_person ?? "");
-  const [message, setMessage] = React.useState("");
-  const [expiryDays, setExpiryDays] = React.useState("7");
+  const [draft, setDraft] = React.useState<Draft>({ email: "", name: "", message: "", days: 7 });
+  const [touched, setTouched] = React.useState(false);
+  const [prefilled, setPrefilled] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
   const [sending, setSending] = React.useState(false);
-  const [sent, setSent] = React.useState<IntakeRequest | null>(null);
+  const [result, setResult] = React.useState<{ request: IntakeRequest; warning?: string } | null>(null);
+
   const [history, setHistory] = React.useState<IntakeRequest[]>([]);
   const [loadingHistory, setLoadingHistory] = React.useState(true);
+  const [historyError, setHistoryError] = React.useState<string | null>(null);
+  const [filter, setFilter] = React.useState<Filter>("all");
+  const [shown, setShown] = React.useState(PAGE);
+  const [remindId, setRemindId] = React.useState<number | null>(null);
   const [resendingId, setResendingId] = React.useState<number | null>(null);
-  const [viewing, setViewing] = React.useState<IntakeSubmission | null>(null);
   const [loadingSubmissionId, setLoadingSubmissionId] = React.useState<number | null>(null);
-  const [historyPage, setHistoryPage] = React.useState(1);
-  const [historyPerPage, setHistoryPerPage] = React.useState<number>(5);
-  const [submissionPage, setSubmissionPage] = React.useState(1);
-  const [submissionPerPage, setSubmissionPerPage] = React.useState<number>(10);
+  const [viewing, setViewing] = React.useState<IntakeSubmission | null>(null);
 
-  // Pre-fill from client once loaded
+  // Pre-fill once from the client record (not on every client refresh, so typing isn't overwritten).
   React.useEffect(() => {
-    if (client) {
-      if (!email) setEmail(client.email ?? "");
-      if (!name) setName(client.contact_person ?? "");
+    if (!client || prefilled) return;
+    const email = client.email && !isPlaceholderEmail(client.email) ? client.email : "";
+    setDraft((d) => ({ ...d, email: d.email || email, name: d.name || (client.contact_person ?? "") }));
+    setPrefilled(true);
+  }, [client, prefilled]);
+
+  const loadHistory = React.useCallback(async () => {
+    setLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      setHistory(await fetchIntakeRequests(clientId));
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : "Failed to load roster requests");
+    } finally {
+      setLoadingHistory(false);
     }
-  }, [client]);
-
-  React.useEffect(() => {
-    fetchIntakeRequests(clientId)
-      .then(setHistory)
-      .catch(() => {/* silent */})
-      .finally(() => setLoadingHistory(false));
   }, [clientId]);
 
   React.useEffect(() => {
-    setHistoryPage(1);
-  }, [history.length, historyPerPage]);
+    void loadHistory();
+  }, [loadHistory]);
 
-  React.useEffect(() => {
-    setSubmissionPage(1);
-  }, [viewing?.id, submissionPerPage]);
-
-  const historyTotalPages = Math.max(1, Math.ceil(history.length / historyPerPage));
-  const historyPageNumbers = React.useMemo(
-    () => buildPageNumbers(historyPage, historyTotalPages),
-    [historyPage, historyTotalPages],
-  );
-  const paginatedHistory = history.slice(
-    (historyPage - 1) * historyPerPage,
-    historyPage * historyPerPage,
+  const withStatus = React.useMemo(() => history.map((r) => ({ ...r, eff: effectiveStatus(r) })), [history]);
+  const counts = React.useMemo(() => {
+    const c = { all: withStatus.length, pending: 0, submitted: 0, expired: 0 };
+    for (const r of withStatus) c[r.eff]++;
+    return c;
+  }, [withStatus]);
+  const filtered = filter === "all" ? withStatus : withStatus.filter((r) => r.eff === filter);
+  const openForSameEmail = withStatus.find(
+    (r) => r.eff === "pending" && r.recipient_email.toLowerCase() === draft.email.trim().toLowerCase(),
   );
 
-  React.useEffect(() => {
-    if (historyPage > historyTotalPages) {
-      setHistoryPage(historyTotalPages);
-    }
-  }, [historyPage, historyTotalPages]);
+  React.useEffect(() => setShown(PAGE), [filter]);
 
-  const submissionTotal = viewing?.subjects.length ?? 0;
-  const submissionTotalPages = Math.max(1, Math.ceil(submissionTotal / submissionPerPage));
-  const submissionPageNumbers = React.useMemo(
-    () => buildPageNumbers(submissionPage, submissionTotalPages),
-    [submissionPage, submissionTotalPages],
-  );
-  const paginatedSubjects = viewing
-    ? viewing.subjects.slice(
-        (submissionPage - 1) * submissionPerPage,
-        submissionPage * submissionPerPage,
-      )
-    : [];
+  const emailOk = EMAIL_RE.test(draft.email.trim());
+  const placeholder = isPlaceholderEmail(draft.email);
+  const canReview = emailOk && !placeholder && draft.days >= 1 && draft.days <= MAX_EXPIRY;
+  const orgName = client?.name ?? "this organisation";
 
-  React.useEffect(() => {
-    if (submissionPage > submissionTotalPages) {
-      setSubmissionPage(submissionTotalPages);
-    }
-  }, [submissionPage, submissionTotalPages]);
+  function set<K extends keyof Draft>(key: K, value: Draft[K]) {
+    setDraft((d) => ({ ...d, [key]: value }));
+  }
 
-  async function handleSend(e: React.FormEvent) {
+  function review(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) { toast.error("Recipient email is required"); return; }
+    setTouched(true);
+    if (!canReview) return;
+    setConfirming(true);
+  }
 
+  async function send() {
     setSending(true);
     try {
-      const req = await sendIntakeRequest({
+      const res = await sendIntakeRequest({
         client_id: clientId,
-        recipient_email: email.trim(),
-        recipient_name: name.trim(),
-        message: message.trim(),
-        expiry_days: Number(expiryDays) || 7,
+        recipient_email: draft.email.trim(),
+        recipient_name: draft.name.trim(),
+        message: draft.message.trim(),
+        expiry_days: draft.days,
       });
-      setSent(req);
-      toast.success("Roster request sent!");
-      setHistory((prev) => [req, ...prev]);
+      setResult(res);
+      setHistory((prev) => [res.request, ...prev]);
+      setConfirming(false);
+      setDraft((d) => ({ ...d, message: "" }));
+      setTouched(false);
+      if (res.warning) toast.warning("Link created, but the email didn't go out");
+      else toast.success(`Roster request emailed to ${res.request.recipient_email}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send roster request");
     } finally {
@@ -228,28 +273,24 @@ export default function SendIntakePage() {
     }
   }
 
-  function copyLink(token: string) {
-    void navigator.clipboard.writeText(intakeLink(token));
-    toast.success("Link copied to clipboard");
-  }
-
-  async function handleResend(id: number) {
+  async function remind(id: number) {
     setResendingId(id);
     try {
       await resendIntakeRequest(id);
-      toast.success("Reminder email sent");
+      toast.success("Reminder emailed");
+      setRemindId(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to resend");
+      void loadHistory();
     } finally {
       setResendingId(null);
     }
   }
 
-  async function handleView(id: number) {
+  async function view(id: number) {
     setLoadingSubmissionId(id);
     try {
-      const sub = await fetchIntakeSubmission(id);
-      setViewing(sub);
+      setViewing(await fetchIntakeSubmission(id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load submission");
     } finally {
@@ -257,473 +298,557 @@ export default function SendIntakePage() {
     }
   }
 
-  const statusColor: Record<string, string> = {
-    pending: "text-amber-600 bg-amber-50",
-    submitted: "text-green-700 bg-green-50",
-    expired: "text-muted-foreground bg-muted",
-  };
+  function sendAgain(req: IntakeRequest) {
+    setDraft({ email: req.recipient_email, name: req.recipient_name ?? "", message: req.message ?? "", days: 7 });
+    setResult(null);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <div className="space-y-6 pb-12">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Request examinee roster</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Email a secure link to <strong>{client?.name ?? "this organisation"}</strong> so they
-          can submit their list of people to be examined — without logging in.
-        </p>
-      </div>
+      <PageHero
+        tone="sage"
+        icon={Mail}
+        eyebrow="Examinee roster"
+        title={
+          <>
+            Request a <strong className="font-semibold">roster</strong>
+          </>
+        }
+        description={`Email ${orgName} a secure link where they list the people to be examined. No login needed — names land straight in the roster.`}
+        actions={
+          <HeroAction icon={Users} href={`/dashboard/clients/${clientId}/roster`}>
+            Open roster
+          </HeroAction>
+        }
+      >
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <GlassStat label="Requests sent" value={counts.all} loading={loadingHistory} accent="ink" icon={Send} />
+          <GlassStat label="Waiting" value={counts.pending} hint="Link open, not filled in" loading={loadingHistory} accent="amber" icon={Clock} />
+          <GlassStat label="Submitted" value={counts.submitted} hint="Ready to schedule" loading={loadingHistory} accent="sage" icon={CheckCircle2} />
+          <GlassStat label="Expired" value={counts.expired} hint="Send a new one if needed" loading={loadingHistory} accent="terracotta" icon={X} />
+        </div>
+      </PageHero>
 
-      {/* Pointer to the separate form-template sender */}
-      <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm">
-        <FileText className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-        <span className="text-muted-foreground">
-          Looking to send a <strong>consent, privacy, or intake questionnaire</strong> form? Those
-          are sent from the{" "}
-          <Link
-            href={`/dashboard/clients/${clientId}/documents`}
-            className="font-medium text-foreground underline underline-offset-2"
-          >
-            Document Vault
-          </Link>{" "}
-          using <strong>Send form link</strong>. This page only collects the examinee roster.
-        </span>
-      </div>
+      {result ? <SentBanner result={result} onClose={() => setResult(null)} /> : null}
 
-      {/* Success banner */}
-      {sent && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-5 pb-4 space-y-3">
-            <div className="flex items-center gap-2 text-green-700 font-semibold">
-              <CheckCircle2 className="h-5 w-5" />
-              Form sent to {sent.recipient_email}
-            </div>
-            <p className="text-sm text-green-800">
-              You can also copy the link below to share it manually.
-            </p>
-            <div className="flex items-center gap-2">
-              <Input
-                readOnly
-                value={intakeLink(sent.token)}
-                className="font-mono text-xs bg-white"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => copyLink(sent.token)}
-                title="Copy link"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
+        {/* ---------------- New request ---------------- */}
+        <div ref={formRef} className={cn(CARD, "scroll-mt-6 p-5 sm:p-7")}>
+          <h2 className="text-lg font-semibold tracking-[-0.01em]">New roster request</h2>
+          <p className="mt-1 text-sm text-muted-foreground">You&apos;ll check the email before it&apos;s sent.</p>
 
-      {/* Send form + history */}
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-      {/* Send form */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Mail className="h-4 w-4" /> New intake request
-          </CardTitle>
-          <CardDescription>
-            An email with the form link will be sent to the address below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSend} className="space-y-4">
+          <form onSubmit={review} className="mt-6 space-y-5" noValidate>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="email">Recipient email *</Label>
+                <Label htmlFor="email">Send to</Label>
                 <Input
                   id="email"
                   type="email"
+                  inputMode="email"
                   placeholder="hr@organisation.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  className={cn(FIELD, touched && (!emailOk || placeholder) && "ring-2 ring-destructive/60")}
+                  value={draft.email}
+                  onChange={(e) => set("email", e.target.value)}
+                  onBlur={() => draft.email && setTouched(true)}
+                  aria-invalid={touched && (!emailOk || placeholder) ? true : undefined}
+                  aria-describedby="email-hint"
                 />
+                <p id="email-hint" className="min-h-4 text-xs">
+                  {touched && !emailOk ? (
+                    <span className="text-destructive">Enter one valid email address.</span>
+                  ) : placeholder ? (
+                    <span className="text-destructive">This is a placeholder address — it can&apos;t receive email.</span>
+                  ) : null}
+                </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="name">Recipient name</Label>
-                <Input
-                  id="name"
-                  placeholder="HR Manager"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+                <Label htmlFor="name">
+                  Their name <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input id="name" placeholder="e.g. HR Manager" className={FIELD} value={draft.name} onChange={(e) => set("name", e.target.value)} />
               </div>
             </div>
 
+            {openForSameEmail ? (
+              <div className="flex items-start gap-2.5 rounded-2xl bg-[#F8EEDB] px-4 py-3 text-[13px] text-[#5C3D0C] dark:bg-amber-950/60 dark:text-amber-100">
+                <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {openForSameEmail.recipient_email} already has an open link (sent {fmtDate(openForSameEmail.created_at)}, open until{" "}
+                  {fmtDate(openForSameEmail.expires_at)}). A reminder may be better than a second link.
+                </span>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
-              <Label htmlFor="message">Custom message (optional)</Label>
+              <Label htmlFor="message">
+                Note to include <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
               <Textarea
                 id="message"
                 rows={3}
-                placeholder="Please fill in the details of all employees scheduled for examination on 20 June…"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
+                maxLength={1000}
+                placeholder="e.g. Please list everyone booked for examination on 20 June."
+                className="rounded-2xl border-0 bg-[#F7F6F1] ring-1 ring-black/[0.05] focus-visible:ring-2 focus-visible:ring-primary dark:bg-muted dark:ring-white/10"
+                value={draft.message}
+                onChange={(e) => set("message", e.target.value)}
               />
             </div>
 
-            <div className="space-y-1.5 w-40">
-              <Label htmlFor="expiry">Link expires after (days)</Label>
-              <Input
-                id="expiry"
-                type="number"
-                min={1}
-                max={30}
-                value={expiryDays}
-                onChange={(e) => setExpiryDays(e.target.value)}
-              />
+            <div className="space-y-2">
+              <Label>Link stays open for</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                {EXPIRY_CHOICES.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    aria-pressed={draft.days === d}
+                    onClick={() => set("days", d)}
+                    className={cn(
+                      "h-9 rounded-full px-4 text-[13px] font-medium ring-1 transition-colors",
+                      draft.days === d
+                        ? "bg-[#2B2A27] text-[#FAF9F5] ring-[#2B2A27] dark:bg-[#FAF9F5] dark:text-[#1A1915]"
+                        : "ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted",
+                    )}
+                  >
+                    {d} days
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">Open until {expiryDateFor(draft.days)}. A reminder doesn&apos;t extend this.</p>
             </div>
 
-            <div className="flex justify-end">
-              <Button type="submit" disabled={sending} className="gap-2">
-                {sending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
-                ) : (
-                  <><Send className="h-4 w-4" /> Send roster request</>
-                )}
-              </Button>
+            <div className="flex flex-col-reverse gap-3 border-t border-border/60 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <FileText aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  Consent or questionnaire forms are sent from the{" "}
+                  <Link href={`/dashboard/clients/${clientId}/documents`} className="font-medium text-foreground underline underline-offset-2">
+                    Document vault
+                  </Link>
+                  .
+                </span>
+              </p>
+              <button
+                type="submit"
+                className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition-[filter] hover:brightness-105 disabled:opacity-50"
+              >
+                <Eye aria-hidden="true" className="size-4" /> Review email
+              </button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Previous requests</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadingHistory ? (
-            <div className="flex justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : history.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No intake requests sent yet.
-            </p>
-          ) : (
-            <>
-            <ul className="divide-y divide-border text-sm">
-              {paginatedHistory.map((req) => (
-                <li key={req.id} className="py-3 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{req.recipient_email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Sent {new Date(req.created_at).toLocaleDateString("en-GB")} · Expires{" "}
-                      {new Date(req.expires_at).toLocaleDateString("en-GB")}
-                    </p>
-                    {req.status === "submitted" && req.agreed_at && (
-                      <p
-                        className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-green-700"
-                        title={`Declaration accepted ${new Date(req.agreed_at).toLocaleString("en-GB")}`}
-                      >
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                        Signed off {new Date(req.agreed_at).toLocaleDateString("en-GB")}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${statusColor[req.status] ?? "text-muted-foreground"}`}
-                    >
-                      {req.status}
-                    </span>
-                    {req.status === "pending" && (
-                      <>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => copyLink(req.token)}
-                          title="Copy link"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => void handleResend(req.id)}
-                          disabled={resendingId === req.id}
-                          title="Resend email"
-                        >
-                          {resendingId === req.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCcw className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </>
-                    )}
-                    {req.status === "submitted" && (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1.5"
-                          onClick={() => void handleView(req.id)}
-                          disabled={loadingSubmissionId === req.id}
-                          title="View submitted details"
-                        >
-                          {loadingSubmissionId === req.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Eye className="h-3.5 w-3.5" />
-                          )}
-                          View
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 gap-1.5"
-                          render={
-                            <Link href={`/dashboard/clients/${clientId}/intake/${req.id}`} />
-                          }
-                          title="Schedule appointments for submitted examinees"
-                        >
-                          <CalendarClock className="h-3.5 w-3.5" />
-                          Schedule
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+        {/* ---------------- History ---------------- */}
+        <div className={cn(CARD, "p-5 sm:p-7")}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold tracking-[-0.01em]">Sent requests</h2>
+            {history.length > 0 ? (
+              <Segmented<Filter>
+                label="Filter requests"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: "all", label: "All", count: counts.all },
+                  { value: "pending", label: "Waiting", count: counts.pending },
+                  { value: "submitted", label: "Submitted", count: counts.submitted },
+                  { value: "expired", label: "Expired", count: counts.expired },
+                ]}
+              />
+            ) : null}
+          </div>
 
-            <div className="mt-4 flex flex-col gap-3 border-t border-border/50 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                  Showing{" "}
-                  <span className="text-foreground">
-                    {(historyPage - 1) * historyPerPage + 1}–
-                    {Math.min(historyPage * historyPerPage, history.length)}
-                  </span>{" "}
-                  of {history.length}
+          <div className="mt-5">
+            {loadingHistory ? (
+              <div className="space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-[76px] animate-pulse rounded-2xl bg-[#F3F1EA] dark:bg-muted" />
+                ))}
+              </div>
+            ) : historyError ? (
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <p className="text-sm text-destructive">{historyError}</p>
+                <button type="button" className={PILL} onClick={() => void loadHistory()}>
+                  <RefreshCcw aria-hidden="true" className="size-3.5" /> Try again
+                </button>
+              </div>
+            ) : history.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-2xl bg-[#F7F6F1] px-6 py-12 text-center dark:bg-muted/40">
+                <span className="flex size-12 items-center justify-center rounded-full bg-white text-muted-foreground shadow-sm dark:bg-card">
+                  <Inbox aria-hidden="true" className="size-5" />
+                </span>
+                <p className="mt-1 font-medium">No requests sent yet</p>
+                <p className="max-w-xs text-sm text-muted-foreground">
+                  When {orgName} fills in the form, you&apos;ll see it here and can schedule everyone they listed.
                 </p>
-                <div className="flex items-center gap-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                    Per page
-                  </Label>
-                  <Select
-                    value={String(historyPerPage)}
-                    onValueChange={(v) => setHistoryPerPage(Number(v))}
-                  >
-                    <SelectTrigger className="h-8 w-[72px] rounded-lg">
-                      <SelectValue>{historyPerPage}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {HISTORY_PAGE_SIZES.map((size) => (
-                        <SelectItem key={size} value={String(size)}>
-                          {size}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-lg px-2.5"
-                  disabled={historyPage <= 1}
-                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                {historyPageNumbers.map((page, index) => {
-                  const prev = historyPageNumbers[index - 1];
-                  const showEllipsis = prev !== undefined && page - prev > 1;
-                  return (
-                    <React.Fragment key={page}>
-                      {showEllipsis && (
-                        <span className="px-1 text-xs text-muted-foreground">…</span>
-                      )}
-                      <Button
-                        variant={historyPage === page ? "default" : "ghost"}
-                        size="sm"
-                        className={cn("h-8 w-8 rounded-lg text-xs font-black")}
-                        onClick={() => setHistoryPage(page)}
-                      >
-                        {page}
-                      </Button>
-                    </React.Fragment>
-                  );
-                })}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-lg px-2.5"
-                  disabled={historyPage >= historyTotalPages}
-                  onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            ) : filtered.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">Nothing in this view.</p>
+            ) : (
+              <ul className="space-y-2.5">
+                {filtered.slice(0, shown).map((req) => (
+                  <RequestRow
+                    key={req.id}
+                    req={req}
+                    status={req.eff}
+                    clientId={clientId}
+                    reminding={remindId === req.id}
+                    resending={resendingId === req.id}
+                    loadingSubmission={loadingSubmissionId === req.id}
+                    onAskRemind={() => setRemindId(req.id)}
+                    onCancelRemind={() => setRemindId(null)}
+                    onRemind={() => void remind(req.id)}
+                    onView={() => void view(req.id)}
+                    onSendAgain={() => sendAgain(req)}
+                  />
+                ))}
+              </ul>
+            )}
+            {filtered.length > shown ? (
+              <button type="button" className={cn(PILL, "mx-auto mt-4")} onClick={() => setShown((s) => s + PAGE)}>
+                Show {Math.min(PAGE, filtered.length - shown)} more
+              </button>
+            ) : null}
+          </div>
+        </div>
       </div>
 
-      {/* Submitted details dialog */}
-      <Dialog open={viewing !== null} onOpenChange={(open) => !open && setViewing(null)}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+      {/* ---------------- Confirm send ---------------- */}
+      <Dialog open={confirming} onOpenChange={(open) => !sending && setConfirming(open)}>
+        <DialogContent className="max-w-lg rounded-[26px]">
           <DialogHeader>
-            <DialogTitle>Submitted examinees</DialogTitle>
-            <DialogDescription>
-              {viewing?.subjects.length ?? 0} examinee
-              {(viewing?.subjects.length ?? 0) === 1 ? "" : "s"} submitted for{" "}
-              {viewing?.client_name}.
-            </DialogDescription>
+            <DialogTitle>Send this roster request?</DialogTitle>
+            <DialogDescription>An email with a secure link goes out as soon as you confirm.</DialogDescription>
           </DialogHeader>
-
-          {viewing && (
-            <div className="space-y-4">
-              {/* Consent banner */}
-              <div className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-sm">
-                <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-green-600" />
-                <div className="text-green-800">
-                  {viewing.agreed_at ? (
-                    <>
-                      Declaration accepted on{" "}
-                      <strong>
-                        {new Date(viewing.agreed_at).toLocaleString("en-GB")}
-                      </strong>{" "}
-                      — the submitter confirmed the details are accurate and consented to the data
-                      being used for examinations.
-                    </>
-                  ) : (
-                    <>
-                      Submitted on{" "}
-                      <strong>
-                        {viewing.submitted_at
-                          ? new Date(viewing.submitted_at).toLocaleString("en-GB")
-                          : "—"}
-                      </strong>
-                      . No declaration timestamp was recorded for this submission.
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Examinees table */}
-              <div className="overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2 font-semibold">Name</th>
-                      <th className="px-3 py-2 font-semibold">Email</th>
-                      <th className="px-3 py-2 font-semibold">Phone</th>
-                      <th className="px-3 py-2 font-semibold">Ref / ID</th>
-                      <th className="px-3 py-2 font-semibold">Nationality</th>
-                      <th className="px-3 py-2 font-semibold">Gender</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {paginatedSubjects.map((s, i) => (
-                      <tr key={s.id ?? (submissionPage - 1) * submissionPerPage + i}>
-                        <td className="px-3 py-2 font-medium">
-                          {`${s.first_name ?? ""} ${s.last_name ?? ""}`.trim() || "—"}
-                        </td>
-                        <td className="px-3 py-2 text-muted-foreground">{s.email || "—"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{s.phone || "—"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{s.employee_ref || "—"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{s.nationality || "—"}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{s.gender || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {submissionTotal > submissionPerPage && (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                      Showing{" "}
-                      <span className="text-foreground">
-                        {(submissionPage - 1) * submissionPerPage + 1}–
-                        {Math.min(submissionPage * submissionPerPage, submissionTotal)}
-                      </span>{" "}
-                      of {submissionTotal} examinees
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
-                        Per page
-                      </Label>
-                      <Select
-                        value={String(submissionPerPage)}
-                        onValueChange={(v) => setSubmissionPerPage(Number(v))}
-                      >
-                        <SelectTrigger className="h-8 w-[72px] rounded-lg">
-                          <SelectValue>{submissionPerPage}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {SUBMISSION_PAGE_SIZES.map((size) => (
-                            <SelectItem key={size} value={String(size)}>
-                              {size}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 rounded-lg px-2.5"
-                      disabled={submissionPage <= 1}
-                      onClick={() => setSubmissionPage((p) => Math.max(1, p - 1))}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    {submissionPageNumbers.map((page, index) => {
-                      const prev = submissionPageNumbers[index - 1];
-                      const showEllipsis = prev !== undefined && page - prev > 1;
-                      return (
-                        <React.Fragment key={page}>
-                          {showEllipsis && (
-                            <span className="px-1 text-xs text-muted-foreground">…</span>
-                          )}
-                          <Button
-                            variant={submissionPage === page ? "default" : "ghost"}
-                            size="sm"
-                            className={cn("h-8 w-8 rounded-lg text-xs font-black")}
-                            onClick={() => setSubmissionPage(page)}
-                          >
-                            {page}
-                          </Button>
-                        </React.Fragment>
-                      );
-                    })}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 rounded-lg px-2.5"
-                      disabled={submissionPage >= submissionTotalPages}
-                      onClick={() => setSubmissionPage((p) => Math.min(submissionTotalPages, p + 1))}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
+          <dl className="divide-y divide-border/60 rounded-2xl bg-[#F7F6F1] px-4 text-sm dark:bg-muted/40">
+            <div className="flex justify-between gap-4 py-3">
+              <dt className="text-muted-foreground">To</dt>
+              <dd className="truncate text-right font-medium">
+                {draft.name.trim() ? `${draft.name.trim()} · ` : ""}
+                {draft.email.trim()}
+              </dd>
             </div>
-          )}
+            <div className="flex justify-between gap-4 py-3">
+              <dt className="text-muted-foreground">For</dt>
+              <dd className="text-right font-medium">{orgName}</dd>
+            </div>
+            <div className="flex justify-between gap-4 py-3">
+              <dt className="text-muted-foreground">Link open until</dt>
+              <dd className="text-right font-medium">
+                {expiryDateFor(draft.days)} <span className="font-normal text-muted-foreground">({draft.days} days)</span>
+              </dd>
+            </div>
+            {draft.message.trim() ? (
+              <div className="py-3">
+                <dt className="text-muted-foreground">Your note</dt>
+                <dd className="mt-1 whitespace-pre-wrap">{draft.message.trim()}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {openForSameEmail ? (
+            <p className="text-xs text-[#8A5A12] dark:text-amber-300">They already have an open link — this sends a second one.</p>
+          ) : null}
+          <DialogFooter className="gap-2">
+            <button type="button" className={PILL} onClick={() => setConfirming(false)} disabled={sending}>
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={sending}
+              className="flex h-9 items-center justify-center gap-2 rounded-full bg-primary px-4 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {sending ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Send aria-hidden="true" className="size-4" />}
+              {sending ? "Sending…" : "Send email"}
+            </button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SubmissionDialog viewing={viewing} onClose={() => setViewing(null)} clientId={clientId} />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Pieces                                                             */
+/* ------------------------------------------------------------------ */
+
+function SentBanner({ result, onClose }: { result: { request: IntakeRequest; warning?: string }; onClose: () => void }) {
+  const link = intakeLink(result.request.token);
+  const failed = Boolean(result.warning);
+  return (
+    <div
+      role="status"
+      className={cn(
+        "rounded-[26px] p-5 ring-1 sm:p-6",
+        failed
+          ? "bg-[#F8EEDB] text-[#5C3D0C] ring-[#E9D3A8] dark:bg-amber-950/60 dark:text-amber-100 dark:ring-amber-900"
+          : "bg-[#E7F1E4] text-[#2D5A27] ring-[#CFE3C9] dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-900",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          {failed ? <AlertTriangle aria-hidden="true" className="mt-0.5 size-5 shrink-0" /> : <CheckCircle2 aria-hidden="true" className="mt-0.5 size-5 shrink-0" />}
+          <div>
+            <p className="font-semibold">
+              {failed ? "The link was created, but the email didn't go out" : `Emailed to ${result.request.recipient_email}`}
+            </p>
+            <p className="mt-0.5 text-sm opacity-90">
+              {failed
+                ? "Copy the link below and send it yourself, or try a reminder later."
+                : `The link is open until ${fmtDate(result.request.expires_at)}. You can also share it yourself.`}
+            </p>
+          </div>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Dismiss" className="rounded-full p-1.5 hover:bg-black/5">
+          <X aria-hidden="true" className="size-4" />
+        </button>
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-full bg-white/70 px-4 py-2.5 font-mono text-xs dark:bg-black/30">{link}</code>
+        <button
+          type="button"
+          onClick={() => void copyText(link, "Link copied")}
+          className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#2B2A27] px-4 text-[13px] font-medium text-[#FAF9F5] hover:bg-[#3A3935]"
+        >
+          <Copy aria-hidden="true" className="size-3.5" /> Copy link
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RequestRow({
+  req,
+  status,
+  clientId,
+  reminding,
+  resending,
+  loadingSubmission,
+  onAskRemind,
+  onCancelRemind,
+  onRemind,
+  onView,
+  onSendAgain,
+}: {
+  req: IntakeRequest;
+  status: Status;
+  clientId: number;
+  reminding: boolean;
+  resending: boolean;
+  loadingSubmission: boolean;
+  onAskRemind: () => void;
+  onCancelRemind: () => void;
+  onRemind: () => void;
+  onView: () => void;
+  onSendAgain: () => void;
+}) {
+  const chip = STATUS_CHIP[status];
+  const left = daysLeft(req.expires_at);
+  let detail: React.ReactNode;
+  if (status === "submitted") {
+    detail = (
+      <>
+        Submitted {fmtDate(req.submitted_at)}
+        {req.agreed_at ? (
+          <span className="ml-2 inline-flex items-center gap-1 text-[#2D5A27] dark:text-emerald-300" title={`Declaration accepted ${fmtDateTime(req.agreed_at)}`}>
+            <ShieldCheck aria-hidden="true" className="size-3.5" /> Declaration signed
+          </span>
+        ) : null}
+      </>
+    );
+  } else if (status === "expired") {
+    detail = <>Sent {fmtDate(req.created_at)} · expired {fmtDate(req.expires_at)}</>;
+  } else {
+    detail = (
+      <>
+        Sent {fmtDate(req.created_at)} ·{" "}
+        <span className={cn(left <= 2 && "font-medium text-[#8A5A12] dark:text-amber-300")}>
+          {left <= 1 ? "expires within a day" : `${left} days left`}
+        </span>
+      </>
+    );
+  }
+
+  return (
+    <li className="rounded-2xl bg-[#F7F6F1] p-4 ring-1 ring-black/[0.03] dark:bg-muted/40 dark:ring-white/5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-medium">{req.recipient_name || req.recipient_email}</p>
+            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", chip.className)}>{chip.label}</span>
+          </div>
+          {req.recipient_name ? <p className="truncate text-xs text-muted-foreground">{req.recipient_email}</p> : null}
+          <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {status === "pending" && !reminding ? (
+            <>
+              <button type="button" className={cn(PILL, "bg-white dark:bg-card")} onClick={() => void copyText(intakeLink(req.token), "Link copied")}>
+                <Copy aria-hidden="true" className="size-3.5" /> Copy link
+              </button>
+              <button type="button" className={cn(PILL, "bg-white dark:bg-card")} onClick={onAskRemind}>
+                <RefreshCcw aria-hidden="true" className="size-3.5" /> Remind
+              </button>
+            </>
+          ) : null}
+          {status === "submitted" ? (
+            <>
+              <button type="button" className={cn(PILL, "bg-white dark:bg-card")} onClick={onView} disabled={loadingSubmission}>
+                {loadingSubmission ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Eye aria-hidden="true" className="size-3.5" />}
+                View
+              </button>
+              <Link
+                href={`/dashboard/clients/${clientId}/intake/${req.id}`}
+                className="flex h-9 items-center gap-1.5 rounded-full bg-[#2B2A27] px-3.5 text-[13px] font-medium text-[#FAF9F5] hover:bg-[#3A3935] dark:bg-[#FAF9F5] dark:text-[#1A1915]"
+              >
+                <CalendarClock aria-hidden="true" className="size-3.5" /> Schedule
+              </Link>
+            </>
+          ) : null}
+          {status === "expired" ? (
+            <button type="button" className={cn(PILL, "bg-white dark:bg-card")} onClick={onSendAgain}>
+              <Send aria-hidden="true" className="size-3.5" /> Send a new link
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {status === "pending" && reminding ? (
+        <div className="mt-3 flex flex-col gap-2 rounded-xl bg-white p-3 text-[13px] sm:flex-row sm:items-center sm:justify-between dark:bg-card">
+          <span>
+            Email a reminder to <strong className="font-medium">{req.recipient_email}</strong>? The link still closes {fmtDate(req.expires_at)}.
+          </span>
+          <span className="flex shrink-0 gap-1.5">
+            <button type="button" className={PILL} onClick={onCancelRemind} disabled={resending}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onRemind}
+              disabled={resending}
+              className="flex h-9 items-center gap-1.5 rounded-full bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {resending ? <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> : <Check aria-hidden="true" className="size-3.5" />}
+              Send reminder
+            </button>
+          </span>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+const SUB_PAGE = 25;
+
+function SubmissionDialog({ viewing, onClose, clientId }: { viewing: IntakeSubmission | null; onClose: () => void; clientId: number }) {
+  const [query, setQuery] = React.useState("");
+  const [shown, setShown] = React.useState(SUB_PAGE);
+
+  React.useEffect(() => {
+    setQuery("");
+    setShown(SUB_PAGE);
+  }, [viewing?.id]);
+
+  const subjects = viewing?.subjects ?? [];
+  const q = query.trim().toLowerCase();
+  const list = q
+    ? subjects.filter((s) =>
+        [s.first_name, s.last_name, s.email, s.phone, s.employee_ref].some((v) => (v ?? "").toLowerCase().includes(q)),
+      )
+    : subjects;
+
+  return (
+    <Dialog open={viewing !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto rounded-[26px]">
+        <DialogHeader>
+          <DialogTitle>Submitted examinees</DialogTitle>
+          <DialogDescription>
+            {subjects.length} {subjects.length === 1 ? "person" : "people"} listed by {viewing?.client_name}
+            {viewing?.submitted_at ? ` on ${fmtDate(viewing.submitted_at)}` : ""}.
+          </DialogDescription>
+        </DialogHeader>
+
+        {viewing ? (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2.5 rounded-2xl bg-[#E7F1E4] px-4 py-3 text-[13px] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-200">
+              <ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {viewing.agreed_at ? (
+                  <>
+                    Declaration accepted {fmtDateTime(viewing.agreed_at)}: the submitter confirmed the details are accurate and agreed to their use for examinations.
+                  </>
+                ) : (
+                  <>Submitted {fmtDateTime(viewing.submitted_at)}. No declaration time was recorded.</>
+                )}
+              </span>
+            </div>
+
+            {subjects.length > 8 ? (
+              <Input placeholder="Search name, email, phone or ref…" className={FIELD} value={query} onChange={(e) => setQuery(e.target.value)} />
+            ) : null}
+
+            <div className="overflow-x-auto rounded-2xl ring-1 ring-border/60">
+              <table className="w-full text-sm">
+                <thead className="bg-[#F7F6F1] text-left text-xs text-muted-foreground dark:bg-muted/40">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Name</th>
+                    <th className="px-4 py-2.5 font-medium">Contact</th>
+                    <th className="px-4 py-2.5 font-medium">Ref / ID</th>
+                    <th className="px-4 py-2.5 font-medium">Nationality</th>
+                    <th className="px-4 py-2.5 font-medium">Gender</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60">
+                  {list.slice(0, shown).map((s, i) => {
+                    const name = `${s.first_name ?? ""} ${s.last_name ?? ""}`.trim();
+                    return (
+                      <tr key={s.id ?? `row-${i}`}>
+                        <td className="px-4 py-2.5 font-medium">{name || <span className="text-muted-foreground italic">No name</span>}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">
+                          <div className="truncate">{s.email || "—"}</div>
+                          {s.phone ? <div className="text-xs">{s.phone}</div> : null}
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{s.employee_ref || "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{s.nationality || "—"}</td>
+                        <td className="px-4 py-2.5 text-muted-foreground capitalize">{s.gender || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                  {list.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                        No one matches “{query}”.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            {list.length > shown ? (
+              <button type="button" className={cn(PILL, "mx-auto")} onClick={() => setShown((n) => n + SUB_PAGE)}>
+                Show {Math.min(SUB_PAGE, list.length - shown)} more
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        <DialogFooter className="gap-2">
+          <button type="button" className={PILL} onClick={onClose}>
+            Close
+          </button>
+          {viewing ? (
+            <Link
+              href={`/dashboard/clients/${clientId}/intake/${viewing.id}`}
+              className="flex h-9 items-center justify-center gap-1.5 rounded-full bg-primary px-4 text-[13px] font-semibold text-primary-foreground"
+            >
+              <CalendarClock aria-hidden="true" className="size-3.5" /> Schedule these
+            </Link>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

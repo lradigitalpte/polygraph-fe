@@ -235,6 +235,8 @@ export type FinancialInvoice = {
   currency?: string;
   examinerName?: string;
   stripePaymentLinkUrl?: string;
+  /** Short shareable pay link; always opens a live payment page. */
+  payLinkUrl?: string;
 };
 
 export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInvoice {
@@ -280,6 +282,7 @@ export function mapLedgerEntryToInvoice(entry: AccountLedgerEntry): FinancialInv
     currency: entry.currency,
     examinerName: entry.examiner_name,
     stripePaymentLinkUrl: entry.stripe_payment_link_url,
+    payLinkUrl: entry.pay_link_url,
   };
 }
 

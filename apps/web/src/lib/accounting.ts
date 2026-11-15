@@ -144,6 +144,15 @@ export async function fetchExpenses(filters?: {
   return Array.isArray(data) ? data : [];
 }
 
+/**
+ * The API decodes `expense_date` into a Go time.Time, which only accepts full RFC 3339
+ * timestamps — a bare "2026-11-01" from a date input is rejected with a 400. Send the
+ * calendar day as UTC midnight, which is also how the backend buckets report periods.
+ */
+function toApiDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value;
+}
+
 export async function createExpense(input: {
   expense_date: string;
   vendor?: string;
@@ -165,7 +174,7 @@ export async function createExpense(input: {
 }): Promise<Expense> {
   const response = await authenticatedFetch("/api/accounting/expenses", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, expense_date: toApiDate(input.expense_date) }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -196,7 +205,7 @@ export async function updateExpense(
 ): Promise<Expense> {
   const response = await authenticatedFetch(`/api/accounting/expenses/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(input),
+    body: JSON.stringify(input.expense_date ? { ...input, expense_date: toApiDate(input.expense_date) } : input),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

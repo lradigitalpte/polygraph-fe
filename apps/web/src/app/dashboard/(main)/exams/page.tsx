@@ -3,24 +3,27 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  ArrowUpDown,
+  ArrowUpRight,
   Calendar as CalendarIcon,
   ChevronRight,
+  CircleDot,
   Clock,
   CreditCard,
   Download,
   FileText,
+  Lock,
   Plus,
   Search,
   ShieldCheck,
+  Tag,
+  Trash2,
   UserCheck,
+  UserRound,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,10 +41,12 @@ import {
 } from "@/lib/exam-booking";
 import { formatSubjectName } from "@/lib/subjects";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
+import { GHOST_FIELD, GlassStat, GlowPanel, PaymentPill, PropertyRow, Segmented, StatusPicker, StatusPill } from "@/components/dashboard/ui-kit";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { formatMoney, catalogPriceInCurrency, CATALOG_PRICE_CURRENCY } from "@/lib/client-account";
 import {
+  clinicDateKey,
   clinicDateTimeToISO,
   formatClinicClock,
   formatClinicDateLabel,
@@ -72,53 +77,38 @@ type LedgerRow = {
   reason: string;
   scheduledAt: string;
   duration: number;
+  /** Raw appointment notes as stored (first line = exam type label). */
+  notes: string;
+  examTypeId?: number;
+  /** Booking draws on a bulk (prepaid) invoice, which owns its fee. */
+  prepaid: boolean;
 };
 
 type DatePreset = "all" | "today" | "week" | "month" | "custom";
 type StatusFilter = "all" | "Pending" | "Confirmed" | "Completed" | "Cancelled";
 
-function parseLocalDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const parts = dateStr.split("-");
-  if (parts.length !== 3) return null;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
-  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
-  return new Date(year, month, day);
+/* Date ranges are clinic (Dubai) calendar days as YYYY-MM-DD keys, so filters
+   match what the clinic sees regardless of the viewer's own time zone.
+   Weeks run Monday–Sunday, as on the dashboard. */
+function shiftDateKey(key: string, days: number): string {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
-function startOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function endOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function presetRange(preset: DatePreset): { from?: Date; to?: Date } {
+function presetKeyRange(preset: DatePreset, dateFrom: string, dateTo: string): { from?: string; to?: string } {
   if (preset === "all") return {};
-  const now = new Date();
-  const from = startOfDay(now);
-  const to = endOfDay(now);
-  if (preset === "today") return { from, to };
+  if (preset === "custom") return { from: dateFrom || undefined, to: dateTo || undefined };
+  const today = clinicDateKey(new Date());
+  if (preset === "today") return { from: today, to: today };
   if (preset === "week") {
-    const weekStart = new Date(from);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    return { from: weekStart, to: endOfDay(weekEnd) };
+    const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+    const from = shiftDateKey(today, -((weekday + 6) % 7));
+    return { from, to: shiftDateKey(from, 6) };
   }
-  if (preset === "month") {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return { from: monthStart, to: endOfDay(monthEnd) };
-  }
-  return {};
+  const from = `${today.slice(0, 8)}01`;
+  const [year, month] = today.split("-").map(Number);
+  const nextMonth = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+  return { from, to: shiftDateKey(nextMonth, -1) };
 }
 
 const examinerColors = ["bg-blue-600", "bg-emerald-600", "bg-amber-600", "bg-purple-600", "bg-rose-600", "bg-cyan-600"];
@@ -191,7 +181,7 @@ export default function ExamsPage() {
         }
         if (org) setOrgSettings(org);
         setExaminers(examiners);
-        const mapped = mapRows(appointments, examiners);
+        const mapped = mapRows(appointments, examiners, examTypesList);
         setRows(mapped);
         setExamTypes(examTypesList);
       } catch (error) {
@@ -213,23 +203,12 @@ export default function ExamsPage() {
     let result = rows;
 
     if (datePreset !== "all") {
-      let from: Date | undefined;
-      let to: Date | undefined;
-      if (datePreset === "custom") {
-        const parsedFrom = parseLocalDate(dateFrom);
-        if (parsedFrom) from = startOfDay(parsedFrom);
-        const parsedTo = parseLocalDate(dateTo);
-        if (parsedTo) to = endOfDay(parsedTo);
-      } else {
-        const range = presetRange(datePreset);
-        from = range.from;
-        to = range.to;
-      }
+      const { from, to } = presetKeyRange(datePreset, dateFrom, dateTo);
       result = result.filter((row) => {
-        const when = new Date(row.scheduledAt);
-        if (Number.isNaN(when.getTime())) return false;
-        if (from && when < from) return false;
-        if (to && when > to) return false;
+        const key = clinicDateKey(row.scheduledAt);
+        if (!key) return false;
+        if (from && key < from) return false;
+        if (to && key > to) return false;
         return true;
       });
     }
@@ -269,20 +248,29 @@ export default function ExamsPage() {
   }, [filteredRows, currentPage, itemsPerPage]);
 
   const stats = React.useMemo(() => {
+    const todayKey = clinicDateKey(new Date());
+    const monthPrefix = todayKey.slice(0, 7);
     const pending = rows.filter((row) => row.status === "Pending").length;
-    const today = new Date().toDateString();
-    const confirmedToday = rows.filter((row) => row.status === "Confirmed" && new Date(`${row.dateLabel} ${row.timeLabel}`).toDateString() === today).length;
+    const confirmedToday = rows.filter(
+      (row) => row.status === "Confirmed" && clinicDateKey(row.scheduledAt) === todayKey,
+    ).length;
+    // Outstanding balance only: what is still owed on live bookings, net of
+    // anything already collected. Cancelled and fully paid bookings owe nothing.
     const receivable = rows
-      .filter((row) => row.payment !== "Paid")
-      .reduce((total, row) => total + row.amount, 0);
-    const completedMtd = rows.filter((row) => row.status === "Completed").length;
+      .filter((row) => row.status !== "Cancelled" && row.payment !== "Paid" && !row.prepaid)
+      .reduce((total, row) => total + Math.max(0, row.amount - row.collected), 0);
+    const completedMtd = rows.filter(
+      (row) => row.status === "Completed" && clinicDateKey(row.scheduledAt).startsWith(monthPrefix),
+    ).length;
 
     return { pending, confirmedToday, receivable, completedMtd };
   }, [rows]);
 
   const openDetails = (row: LedgerRow) => {
     setSelectedExam(row);
-    const matchedType = examTypes.find((et) => et.name === row.type);
+    const matchedType =
+      (row.examTypeId ? examTypes.find((et) => et.id === row.examTypeId) : undefined) ??
+      examTypes.find((et) => et.name === row.type);
     setEditExamType(matchedType || null);
     setEditPrice(String(row.amount));
     setEditExaminerId(String(row.examinerId));
@@ -298,73 +286,133 @@ export default function ExamsPage() {
     const examType = examTypes.find((item) => item.id === Number(examTypeId));
     if (!examType) return;
     setEditExamType(examType);
-    setEditPrice(String(catalogPriceInCurrency(examType.price, orgCurrency, orgSettings)));
+    // Suggest the catalog price for a new type, but never on a bulk-invoice booking
+    // (its fee is owned by that invoice) or below what has already been collected.
+    if (selectedExam && !selectedExam.prepaid) {
+      const catalog = catalogPriceInCurrency(examType.price, orgCurrency, orgSettings);
+      setEditPrice(String(Math.max(catalog, selectedExam.collected)));
+    }
   };
+
+  /** Only the fields that differ from the saved booking, plus any validation error. */
+  const pendingChanges = React.useMemo(() => {
+    if (!selectedExam) return { changes: {}, error: null as string | null, count: 0 };
+    const changes: Parameters<typeof updateAppointment>[1] = {};
+    let error: string | null = null;
+
+    if (!editExamType) error = "Select an exam type";
+    else if (!editExaminerId) error = "Select an examiner";
+    else if (!editDate || !editTime) error = "Pick a date and time";
+
+    const typeChanged = Boolean(editExamType && editExamType.name !== selectedExam.type);
+    if (editExamType && typeChanged) {
+      changes.exam_type_id = editExamType.id;
+      if (editExamType.duration && editExamType.duration !== selectedExam.duration) {
+        changes.duration = editExamType.duration;
+      }
+    }
+
+    if (editExaminerId && Number(editExaminerId) !== selectedExam.examinerId) {
+      changes.examiner_id = Number(editExaminerId);
+    }
+
+    if (editDate && editTime) {
+      const scheduledAt = clinicDateTimeToISO(editDate, editTime);
+      if (new Date(scheduledAt).getTime() !== new Date(selectedExam.scheduledAt).getTime()) {
+        changes.scheduled_at = scheduledAt;
+      }
+    }
+
+    // Notes hold "<exam type>\n\n<case notes>"; rewrite them only when either part
+    // the user can see actually changed (never just to reformat legacy notes).
+    const savedReason = selectedExam.reason === "No case background provided." ? "" : selectedExam.reason;
+    if (editExamType && (typeChanged || editReason.trim() !== savedReason.trim())) {
+      changes.notes = buildAppointmentNotes(editExamType.name, editReason);
+    }
+
+    const fee = parseFloat(editPrice);
+    if (Number.isNaN(fee) || fee < 0) {
+      error = error ?? "Enter a valid fee";
+    } else if (Math.abs(fee - selectedExam.amount) > 0.004) {
+      if (selectedExam.prepaid) error = error ?? "This exam is covered by a bulk invoice; change the fee on that invoice";
+      else if (fee + 0.005 < selectedExam.collected)
+        error = error ?? `The fee can't be lower than the ${formatMoney(selectedExam.collected, orgCurrency)} already collected`;
+      else changes.exam_fee = fee;
+    }
+
+    if (editStatus !== selectedExam.status.toLowerCase()) {
+      const start = changes.scheduled_at ?? selectedExam.scheduledAt;
+      if (editStatus === "completed" && new Date(start).getTime() > Date.now()) {
+        error = error ?? "An exam can't be marked completed before its scheduled start";
+      } else {
+        changes.status = editStatus;
+      }
+    }
+
+    const count = Object.keys(changes).length;
+    // Legacy bookings matched by name only: record the type id alongside a real
+    // save so reports and the dashboard see the right type from then on.
+    if (count > 0 && editExamType && !selectedExam.examTypeId && changes.exam_type_id === undefined) {
+      changes.exam_type_id = editExamType.id;
+    }
+    return { changes, error, count };
+  }, [selectedExam, editExamType, editExaminerId, editDate, editTime, editReason, editPrice, editStatus, orgCurrency]);
 
   const handleSaveExam = async () => {
     if (!selectedExam) return;
-    if (!editExamType) {
-      toast.error("Please select an exam type");
+    const { changes, error, count } = pendingChanges;
+    if (error) {
+      toast.error(error);
       return;
     }
-    if (!editExaminerId) {
-      toast.error("Please select an examiner");
-      return;
-    }
-    if (!editDate || !editTime) {
-      toast.error("Pick a date and time");
-      return;
-    }
-    const newPrice = parseFloat(editPrice);
-    if (isNaN(newPrice) || newPrice < 0) {
-      toast.error("Please enter a valid price");
+    if (count === 0) {
+      toast.message("No changes to save");
       return;
     }
 
-    const scheduledAt = clinicDateTimeToISO(editDate, editTime);
-    const notes = buildAppointmentNotes(editExamType.name, editReason);
     setSavingFields(true);
     try {
-      await updateAppointment(selectedExam.id, {
-        scheduled_at: scheduledAt,
-        duration: editExamType.duration,
-        examiner_id: Number(editExaminerId),
-        notes,
-        exam_fee: newPrice,
-        status: editStatus,
-      });
-
-      const examinerInfo = examinerDisplay(examiners, Number(editExaminerId));
-      const dateLabel = formatClinicDateLabel(scheduledAt);
-      const timeLabel = formatClinicClock(scheduledAt);
-      const parsedReason = parseNotes(notes).reason;
-
+      const saved = await updateAppointment(selectedExam.id, changes);
+      // Merge what the server decided (money, payment status, schedule) into the row;
+      // the response omits the examinee, so keep the display names we already have.
+      const examinerInfo = examinerDisplay(examiners, saved.examiner_id ?? selectedExam.examinerId);
+      const scheduledAt = saved.scheduled_at || changes.scheduled_at || selectedExam.scheduledAt;
+      const notes = saved.notes ?? changes.notes ?? selectedExam.notes;
+      const typeId = saved.exam_type_id ?? changes.exam_type_id ?? selectedExam.examTypeId;
       const updatedRow: LedgerRow = {
         ...selectedExam,
-        examinerId: Number(editExaminerId),
+        examinerId: saved.examiner_id ?? selectedExam.examinerId,
         examiner: examinerInfo.name,
         examinerInitials: examinerInfo.initials,
         examinerColor: examinerInfo.color,
-        type: editExamType.name,
-        amount: newPrice,
-        status: normalizeStatus(editStatus),
-        reason: parsedReason,
+        examTypeId: typeId ?? undefined,
+        type: (typeId && examTypes.find((et) => et.id === typeId)?.name) || parseNotes(notes).title,
+        amount: Number(saved.exam_fee ?? selectedExam.amount),
+        collected: Number(saved.collected_amount ?? selectedExam.collected),
+        payment: normalizePaymentStatus(saved.payment_status ?? selectedExam.payment),
+        status: normalizeStatus(saved.status ?? editStatus),
+        notes,
+        reason: parseNotes(notes).reason,
         scheduledAt,
-        dateLabel,
-        timeLabel,
-        duration: editExamType.duration,
+        dateLabel: formatClinicDateLabel(scheduledAt),
+        timeLabel: formatClinicClock(scheduledAt),
+        duration: Number(saved.duration || selectedExam.duration),
       };
 
-      setRows((current) =>
-        current.map((row) => (row.id === selectedExam.id ? updatedRow : row)),
-      );
+      setRows((current) => current.map((row) => (row.id === selectedExam.id ? updatedRow : row)));
       setSelectedExam(updatedRow);
-      toast.success("Exam updated");
+      setEditPrice(String(updatedRow.amount));
+      setEditStatus(updatedRow.status.toLowerCase());
+      toast.success(count === 1 ? "Change saved" : `${count} changes saved`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update exam");
     } finally {
       setSavingFields(false);
     }
+  };
+
+  const resetEdits = () => {
+    if (selectedExam) openDetails(selectedExam);
   };
 
   const handleDelete = async () => {
@@ -425,184 +473,170 @@ export default function ExamsPage() {
   };
 
   return (
-    <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 max-w-[1600px] mx-auto pb-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6">
-        <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-3">
-            <FileText className="h-7 w-7 sm:h-8 sm:w-8 text-primary" />
-            Polygraph Ledger
-          </h1>
-          <p className="text-muted-foreground text-xs sm:text-sm font-medium">
-            Master record of all scheduled and historical polygraph examinations.
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
-          <Button onClick={handleExportCSV} variant="outline" className="h-10 px-4 rounded-xl border-border/50 hover:bg-muted/50 transition-all font-semibold flex-1 sm:flex-initial text-xs">
-            <Download className="mr-2 h-4 w-4 text-muted-foreground" />
-            Export Data
-          </Button>
-          <Button className="h-10 px-5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 transition-all flex-1 sm:flex-initial text-xs" render={<Link href="/dashboard/calendar/book" />}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Record
-          </Button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-[1440px] space-y-5 pb-10">
+      <GlowPanel tone="terracotta" orb="72%" lineTop={40} className="p-5 sm:p-7">
+        <div className="flex flex-col gap-6 pt-6 sm:gap-8 sm:pt-8">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div className="flex max-w-2xl flex-col gap-2">
+              <span className="flex items-center gap-2 text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">
+                <FileText aria-hidden="true" className="size-4" />
+                Exams
+              </span>
+              <h1 className="text-3xl leading-[1.05] font-normal tracking-[-0.03em] sm:text-[44px]">
+                Polygraph <span className="font-semibold">Ledger</span>
+              </h1>
+              <p className="max-w-xl text-[15px] text-[#C9C6BC]">
+                Master record of every scheduled and historical polygraph examination.
+              </p>
+            </div>
+            <div className="flex w-full items-center gap-2.5 sm:w-auto">
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-white/[0.07] px-5 text-sm font-medium text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12] sm:flex-initial"
+              >
+                <Download aria-hidden="true" className="size-4" />
+                Export CSV
+              </button>
+              <Link
+                href="/dashboard/calendar/book"
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-[#FAF9F5] pr-5 pl-2.5 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-white sm:flex-initial"
+              >
+                <span className="bg-primary flex size-6 items-center justify-center rounded-full">
+                  <Plus aria-hidden="true" className="size-3.5" strokeWidth={3} />
+                </span>
+                New record
+              </Link>
+            </div>
+          </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-        {[
-          { label: "Pending Tests", value: String(stats.pending), icon: Clock, color: "text-amber-500" },
-          { label: "Confirmed Today", value: String(stats.confirmedToday), icon: UserCheck, color: "text-emerald-500" },
-          ...(canViewPayments
-            ? [{ label: "Accounts Receivable", value: formatMoney(stats.receivable, orgCurrency), icon: CreditCard, color: "text-rose-500" }]
-            : []),
-          { label: "Completed (MTD)", value: String(stats.completedMtd), icon: ShieldCheck, color: "text-blue-500" },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-border/40 shadow-sm bg-card/50 backdrop-blur-sm overflow-hidden group hover:border-primary/30 transition-all min-w-0">
-            <CardContent className="p-3 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
-              <div className={cn("p-2 sm:p-2.5 rounded-xl bg-background border border-border shadow-inner group-hover:scale-110 transition-transform shrink-0", stat.color)}>
-                <stat.icon className="h-4 w-4 sm:h-5 sm:w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[9px] sm:text-[10px] uppercase font-black tracking-wider text-muted-foreground leading-tight truncate">{stat.label}</p>
-                <p className="text-base sm:text-xl font-extrabold mt-0.5">{stat.value}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+          <div className={cn("grid grid-cols-2 gap-3", canViewPayments ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
+            <GlassStat label="Pending tests" value={stats.pending} hint="Awaiting confirmation" icon={Clock} accent="lavender" loading={loading} />
+            <GlassStat label="Confirmed today" value={stats.confirmedToday} hint="On today's calendar" icon={UserCheck} accent="sage" loading={loading} />
+            {canViewPayments ? (
+              <GlassStat
+                label="Accounts receivable"
+                value={formatMoney(stats.receivable, orgCurrency)}
+                hint="Outstanding balance"
+                icon={CreditCard}
+                accent="amber"
+                loading={loading}
+              />
+            ) : null}
+            <GlassStat label="Completed this month" value={stats.completedMtd} hint="Month to date" icon={ShieldCheck} accent="terracotta" loading={loading} />
+          </div>
+        </div>
+      </GlowPanel>
 
       <div className="space-y-4">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
-            <div className="relative w-full lg:max-w-md group">
-              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+        <div className="flex flex-col gap-3 rounded-[26px] bg-white p-3 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 sm:p-4 dark:bg-card">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative w-full xl:max-w-md">
+              <label htmlFor="exam-search" className="sr-only">
+                Search exams
+              </label>
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by ID, examinee, organization, or expert..."
-                className="h-11 pl-10 pr-4 rounded-xl bg-card border-border/50 focus:border-primary/50 focus:ring-primary/10 transition-all shadow-sm text-sm"
+                id="exam-search"
+                placeholder="Search by ID, examinee, organisation or examiner…"
+                className="h-11 rounded-full border-0 bg-[#F3F1EA] pr-4 pl-11 text-sm shadow-none dark:bg-muted"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
-              {(
-                [
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Segmented
+                label="Date range"
+                value={datePreset}
+                onChange={setDatePreset}
+                options={[
                   { value: "all", label: "All dates" },
                   { value: "today", label: "Today" },
                   { value: "week", label: "This week" },
                   { value: "month", label: "This month" },
                   { value: "custom", label: "Custom" },
-                ] as const
-              ).map((preset) => (
-                <Button
-                  key={preset.value}
-                  type="button"
-                  variant={datePreset === preset.value ? "default" : "outline"}
-                  size="sm"
-                  className="rounded-xl h-9 text-xs shrink-0"
-                  onClick={() => setDatePreset(preset.value)}
-                >
-                  {preset.label}
-                </Button>
-              ))}
-              {(datePreset !== "all" || dateFrom || dateTo) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-xl h-9 gap-1 text-xs shrink-0"
-                  onClick={() => {
-                    setDatePreset("all");
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Clear
-                </Button>
-              )}
+                ]}
+              />
             </div>
           </div>
+
+          <div className="flex flex-col gap-3 border-t border-border/50 pt-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="shrink-0 text-[13px] text-muted-foreground">Status</span>
+              <Segmented
+                label="Status"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "Pending", label: "Pending" },
+                  { value: "Confirmed", label: "Confirmed" },
+                  { value: "Completed", label: "Completed" },
+                  { value: "Cancelled", label: "Cancelled" },
+                ]}
+              />
+            </div>
+            {(datePreset !== "all" || dateFrom || dateTo || statusFilter !== "all" || searchQuery) && (
+              <button
+                type="button"
+                className="flex h-9 shrink-0 items-center gap-1.5 self-start rounded-full px-3 text-sm font-medium text-[oklch(0.45_0.12_39)] transition-colors hover:bg-primary/10 lg:self-auto dark:text-primary"
+                onClick={() => {
+                  setDatePreset("all");
+                  setDateFrom("");
+                  setDateTo("");
+                  setStatusFilter("all");
+                  setSearchQuery("");
+                }}
+              >
+                <X aria-hidden="true" className="size-3.5" />
+                Clear filters
+              </button>
+            )}
+          </div>
+
           {datePreset === "custom" && (
-            <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/50 bg-card/50 p-3">
-              <div className="grid gap-1.5 flex-1 sm:flex-initial">
-                <Label className="text-xs text-muted-foreground">From</Label>
+            <div className="flex flex-wrap items-end gap-3 rounded-[18px] bg-[#F7F6F1] p-3 dark:bg-muted/50">
+              <div className="grid flex-1 gap-1.5 sm:flex-initial">
+                <Label htmlFor="exam-date-from" className="text-xs text-muted-foreground">From</Label>
                 <Input
+                  id="exam-date-from"
                   type="date"
-                  className="h-10 w-full sm:w-40 rounded-lg text-xs"
+                  className="h-10 w-full rounded-full bg-white px-4 text-sm sm:w-44 dark:bg-card"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
                 />
               </div>
-              <div className="grid gap-1.5 flex-1 sm:flex-initial">
-                <Label className="text-xs text-muted-foreground">To</Label>
+              <div className="grid flex-1 gap-1.5 sm:flex-initial">
+                <Label htmlFor="exam-date-to" className="text-xs text-muted-foreground">To</Label>
                 <Input
+                  id="exam-date-to"
                   type="date"
-                  className="h-10 w-full sm:w-40 rounded-lg text-xs"
+                  className="h-10 w-full rounded-full bg-white px-4 text-sm sm:w-44 dark:bg-card"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
                 />
               </div>
             </div>
           )}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full no-scrollbar">
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mr-1 shrink-0">Status</span>
-            {(
-              [
-                { value: "all", label: "All" },
-                { value: "Pending", label: "Pending" },
-                { value: "Confirmed", label: "Confirmed" },
-                { value: "Completed", label: "Completed" },
-                { value: "Cancelled", label: "Cancelled" },
-              ] as const
-            ).map((option) => (
-              <Button
-                key={option.value}
-                type="button"
-                variant={statusFilter === option.value ? "default" : "outline"}
-                size="sm"
-                className="rounded-xl h-9 text-xs shrink-0"
-                onClick={() => setStatusFilter(option.value)}
-              >
-                {option.label}
-              </Button>
-            ))}
-            {statusFilter !== "all" && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="rounded-xl h-9 gap-1 text-xs shrink-0"
-                onClick={() => setStatusFilter("all")}
-              >
-                <X className="h-3.5 w-3.5" />
-                Clear
-              </Button>
-            )}
-          </div>
         </div>
 
-        <div className="rounded-2xl border border-border/50 bg-card/30 backdrop-blur-md overflow-hidden shadow-xl shadow-foreground/[0.02]">
+        <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left border-collapse">
               <thead>
-                <tr className="bg-muted/30 border-b border-border/50">
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">
-                    <div className="flex items-center gap-2">
-                      Exam ID / Examinee
-                      <ArrowUpDown className="h-3 w-3 opacity-50" />
-                    </div>
+                <tr className="border-b border-border/50 text-[13px] text-muted-foreground">
+                  <th className="px-6 pt-5 pb-3 font-medium">Exam / Examinee</th>
+                  <th className="px-6 pt-5 pb-3 font-medium">Examiner</th>
+                  <th className="px-6 pt-5 pb-3 font-medium">Type &amp; schedule</th>
+                  {canViewPayments && <th className="px-6 pt-5 pb-3 font-medium">Payment</th>}
+                  <th className="px-6 pt-5 pb-3 font-medium">Status</th>
+                  <th className="relative px-6 pt-5 pb-3">
+                    <span className="sr-only">Details</span>
                   </th>
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Assigned Expert</th>
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Type / Schedule</th>
-                  {canViewPayments && (
-                    <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Payment</th>
-                  )}
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status</th>
-                  <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/30">
+              <tbody className="divide-y divide-border/40">
                 {loading ? (
                   <tr>
                     <td className="px-6 py-8 text-sm text-muted-foreground" colSpan={canViewPayments ? 6 : 5}>Loading appointments...</td>
@@ -613,72 +647,55 @@ export default function ExamsPage() {
                   </tr>
                 ) : (
                   paginatedRows.map((row) => (
-                    <tr key={row.id} className="hover:bg-primary/[0.02] transition-colors group relative">
-                      <td className="px-6 py-5">
+                    <tr
+                      key={row.id}
+                      className="group cursor-pointer transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40"
+                      onClick={() => openDetails(row)}
+                    >
+                      <td className="px-6 py-4">
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] font-black text-primary uppercase tracking-tighter">{row.code}</span>
-                          <span className="font-extrabold text-foreground text-sm">{row.client}</span>
-                          {row.accountName && (
-                            <span className="text-[10px] font-medium text-muted-foreground">
-                              {row.accountName}
-                            </span>
-                          )}
+                          <span className="font-mono text-xs text-muted-foreground">{row.code}</span>
+                          <span className="text-[15px] font-medium text-foreground">{row.client}</span>
+                          {row.accountName && <span className="text-[13px] text-muted-foreground">{row.accountName}</span>}
                         </div>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-2.5">
-                          <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-[10px] text-white font-black", row.examinerColor)}>
+                          <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white", row.examinerColor)}>
                             {row.examinerInitials}
-                          </div>
-                          <span className="font-bold text-sm text-foreground/80">{row.examiner}</span>
+                          </span>
+                          <span className="text-sm">{row.examiner}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className="px-6 py-4">
                         <div className="flex flex-col gap-1">
-                          <span className="font-bold text-xs">{row.type}</span>
-                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium">
-                            <CalendarIcon className="h-3 w-3" />
-                            {row.dateLabel} • {row.timeLabel}
-                          </div>
+                          <span className="text-sm">{row.type}</span>
+                          <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                            <CalendarIcon aria-hidden="true" className="size-3.5" />
+                            {row.dateLabel} · <span className="font-mono">{row.timeLabel}</span>
+                          </span>
                         </div>
                       </td>
                       {canViewPayments && (
-                        <td className="px-6 py-5">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                              row.payment === "Paid" ? "bg-emerald-500/10 text-emerald-600" :
-                              row.payment === "Partial" ? "bg-amber-500/10 text-amber-600" :
-                              "bg-rose-500/10 text-rose-600",
-                            )}
-                          >
-                            {row.payment} • {formatMoney(row.amount, orgCurrency)}
-                          </Badge>
+                        <td className="px-6 py-4">
+                          <PaymentPill payment={row.payment} amount={formatMoney(row.amount, orgCurrency)} />
                         </td>
                       )}
-                      <td className="px-6 py-5">
-                        <Badge
-                          className={cn(
-                            "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] shadow-sm",
-                            row.status === "Confirmed" ? "bg-blue-500 text-white" :
-                            row.status === "Completed" ? "bg-emerald-500 text-white" :
-                            row.status === "Cancelled" ? "bg-rose-500 text-white" :
-                            "bg-amber-500 text-white",
-                          )}
-                        >
-                          {row.status}
-                        </Badge>
+                      <td className="px-6 py-4">
+                        <StatusPill status={row.status} />
                       </td>
-                      <td className="px-6 py-5 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-9 w-9 rounded-xl hover:bg-primary/10 hover:text-primary transition-colors"
-                          onClick={() => openDetails(row)}
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          aria-label={`Open ${row.code} details`}
+                          className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors group-hover:bg-[#30302E] group-hover:text-[#FAF9F5] dark:group-hover:bg-foreground dark:group-hover:text-background"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDetails(row);
+                          }}
                         >
-                          <ChevronRight className="h-5 w-5" />
-                        </Button>
+                          <ChevronRight aria-hidden="true" className="size-4" />
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -699,283 +716,406 @@ export default function ExamsPage() {
               </div>
             ) : (
               paginatedRows.map((row) => (
-                <div key={row.id} className="p-4 space-y-3 hover:bg-primary/[0.02] transition-colors">
+                <div key={row.id} className="space-y-3 p-4 transition-colors hover:bg-[#FAF9F5] dark:hover:bg-muted/40">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-black text-primary uppercase tracking-wider block">{row.code}</span>
-                      <h4 className="font-extrabold text-base text-foreground leading-tight">{row.client}</h4>
-                      {row.accountName && (
-                        <p className="text-xs text-muted-foreground mt-0.5 font-medium">{row.accountName}</p>
-                      )}
+                    <div className="min-w-0">
+                      <span className="block font-mono text-xs text-muted-foreground">{row.code}</span>
+                      <h4 className="text-base leading-tight font-medium text-foreground">{row.client}</h4>
+                      {row.accountName && <p className="mt-0.5 text-[13px] text-muted-foreground">{row.accountName}</p>}
                     </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <Badge
-                        className={cn(
-                          "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] shadow-sm",
-                          row.status === "Confirmed" ? "bg-blue-500 text-white" :
-                          row.status === "Completed" ? "bg-emerald-500 text-white" :
-                          row.status === "Cancelled" ? "bg-rose-500 text-white" :
-                          "bg-amber-500 text-white",
-                        )}
-                      >
-                        {row.status}
-                      </Badge>
+                    <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+                      <StatusPill status={row.status} />
                       {canViewPayments && (
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "rounded-lg px-2 py-0.5 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                            row.payment === "Paid" ? "bg-emerald-500/10 text-emerald-600" :
-                            row.payment === "Partial" ? "bg-amber-500/10 text-amber-600" :
-                            "bg-rose-500/10 text-rose-600",
-                          )}
-                        >
-                          {row.payment} • {formatMoney(row.amount, orgCurrency)}
-                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          <span className="font-mono text-foreground">{formatMoney(row.amount, orgCurrency)}</span> · {row.payment}
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground bg-muted/20 p-2.5 rounded-xl border border-border/30">
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Assigned Expert</span>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <div className={cn("w-5 h-5 rounded-md flex items-center justify-center text-[8px] text-white font-black shrink-0", row.examinerColor)}>
+                  <div className="grid grid-cols-2 gap-2 rounded-[18px] bg-[#F7F6F1] p-3 text-xs text-muted-foreground dark:bg-muted/40">
+                    <div className="min-w-0">
+                      <span className="block">Examiner</span>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white", row.examinerColor)}>
                           {row.examinerInitials}
-                        </div>
-                        <span className="font-bold text-foreground text-xs truncate">{row.examiner}</span>
+                        </span>
+                        <span className="truncate text-[13px] text-foreground">{row.examiner}</span>
                       </div>
                     </div>
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-wider block opacity-70">Schedule</span>
-                      <span className="font-bold text-foreground text-xs block truncate mt-0.5">{row.dateLabel} • {row.timeLabel}</span>
+                    <div className="min-w-0">
+                      <span className="block">Schedule</span>
+                      <span className="mt-1 block truncate text-[13px] text-foreground">
+                        {row.dateLabel} · <span className="font-mono">{row.timeLabel}</span>
+                      </span>
                     </div>
                   </div>
 
-                  <Button
-                    variant="outline"
-                    className="w-full h-10 rounded-xl text-xs font-bold gap-2 justify-between px-4 border-border/60 hover:bg-primary/5 hover:text-primary transition-all"
+                  <button
+                    type="button"
+                    className="flex h-11 w-full items-center justify-between rounded-full bg-[#30302E] px-5 text-sm font-medium text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground"
                     onClick={() => openDetails(row)}
                   >
-                    <span>View & Manage Details</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
+                    <span>View &amp; manage</span>
+                    <ChevronRight aria-hidden="true" className="size-4" />
+                  </button>
                 </div>
               ))
             )}
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-6 py-4 sm:py-5 bg-muted/10 border-t border-border/50 gap-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-              Showing <span className="text-foreground">{filteredRows.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredRows.length)}</span> of {filteredRows.length} Exams
+          <div className="flex flex-col items-center justify-between gap-3 border-t border-border/50 px-4 py-4 sm:flex-row sm:px-6">
+            <p className="text-[13px] text-muted-foreground">
+              Showing{" "}
+              <span className="font-medium text-foreground tabular-nums">
+                {filteredRows.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}–{Math.min(currentPage * itemsPerPage, filteredRows.length)}
+              </span>{" "}
+              of <span className="tabular-nums">{filteredRows.length}</span> exams
             </p>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="h-10 rounded-full bg-[#F3F1EA] px-4 text-sm font-medium transition-colors hover:bg-[#E9E6DD] disabled:pointer-events-none disabled:opacity-40 dark:bg-muted"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
               >
                 Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
+              </button>
+              <span className="px-2 text-[13px] text-muted-foreground tabular-nums">
+                {currentPage} / {Math.max(1, totalPages)}
+              </span>
+              <button
+                type="button"
+                className="h-10 rounded-full bg-[#30302E] px-4 text-sm font-medium text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:pointer-events-none disabled:opacity-40 dark:bg-secondary dark:text-secondary-foreground"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
+                disabled={currentPage >= totalPages}
               >
                 Next
-              </Button>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="sm:max-w-md bg-card/95 backdrop-blur-3xl border-l border-border/50 shadow-2xl p-0 overflow-hidden">
-          {selectedExam && (
-            <div className="h-full flex flex-col">
-              <div className="h-56 flex flex-col justify-end p-8 text-white relative bg-neutral-900">
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10" />
-                <div className="relative z-20 space-y-2">
-                  <Badge className="bg-primary/20 text-primary border-primary/30 text-[10px] font-black uppercase tracking-widest px-3 py-1">
-                    {selectedExam.status}
-                  </Badge>
-                  <h2 className="text-3xl font-black tracking-tighter leading-tight">{selectedExam.client}</h2>
-                  {selectedExam.accountName && (
-                    <p className="text-sm font-semibold text-white/70">{selectedExam.accountName}</p>
-                  )}
-                  <p className="text-xs font-bold text-white/60">{selectedExam.code} • {selectedExam.type}</p>
-                </div>
-              </div>
+        <SheetContent className="w-full gap-0 overflow-hidden border-l border-border/50 bg-white p-0 shadow-2xl sm:max-w-[720px] dark:bg-card [&_[data-slot=sheet-close]]:top-5 [&_[data-slot=sheet-close]]:right-5 [&_[data-slot=sheet-close]]:z-30 [&_[data-slot=sheet-close]]:flex [&_[data-slot=sheet-close]]:size-9 [&_[data-slot=sheet-close]]:items-center [&_[data-slot=sheet-close]]:justify-center [&_[data-slot=sheet-close]]:rounded-full [&_[data-slot=sheet-close]]:bg-white/10! [&_[data-slot=sheet-close]]:text-[#FAF9F5] [&_[data-slot=sheet-close]]:opacity-100 [&_[data-slot=sheet-close]]:ring-1 [&_[data-slot=sheet-close]]:ring-white/15 [&_[data-slot=sheet-close]]:backdrop-blur-md">
+          {selectedExam && (() => {
+            const settled = selectedExam.payment === "Paid";
+            const collected = settled ? selectedExam.amount : selectedExam.collected;
+            const balance = settled ? 0 : Math.max(0, selectedExam.amount - selectedExam.collected);
+            const paidShare = selectedExam.amount > 0 ? Math.min(100, (collected / selectedExam.amount) * 100) : 0;
+            const plannedStart = pendingChanges.changes.scheduled_at ?? selectedExam.scheduledAt;
+            const startsInFuture = new Date(plannedStart).getTime() > Date.now();
+            const { count: changeCount, error: changeError } = pendingChanges;
+            const showSaveBar = canManageAppointments && (changeCount > 0 || Boolean(changeError));
+            const sectionTitle = "px-1 text-[13px] font-medium text-foreground";
+            const linkRow =
+              "group flex h-12 items-center justify-between gap-3 rounded-xl px-3 text-sm transition-colors hover:bg-[#F7F6F1] dark:hover:bg-muted/60";
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {!canManageAppointments && (
-                  <>
-                    <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Schedule</p>
-                      <p className="mt-1 text-sm font-bold">{selectedExam.dateLabel} • {selectedExam.timeLabel}</p>
+            return (
+              <div className="relative flex h-full flex-col">
+                {/* Header */}
+                <GlowPanel
+                  tone={selectedExam.status === "Cancelled" ? "ink" : selectedExam.status === "Pending" ? "lavender" : "terracotta"}
+                  orb="62%"
+                  lineTop={0}
+                  className="shrink-0 rounded-none px-6 pt-6 pb-5 shadow-none ring-0 sm:px-7"
+                >
+                  <div key={`head-${selectedExam.id}`} className="flex flex-col gap-3 pr-12 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-4 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:delay-75 motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill status={selectedExam.status} onDark />
+                      <span className="font-mono text-xs text-[#B5B2A8]">{selectedExam.code}</span>
                     </div>
-
-                    <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Clinical Summary</p>
-                      <p className="mt-1 text-sm italic text-foreground/80">"{selectedExam.reason}"</p>
+                    <div className="flex flex-col gap-1">
+                      <h2 className="text-2xl leading-tight font-medium tracking-[-0.02em]">{selectedExam.client}</h2>
+                      <p className="text-sm text-[#C9C6BC]">
+                        {selectedExam.type}
+                        {selectedExam.accountName ? <span className="text-[#8E8B82]"> · {selectedExam.accountName}</span> : null}
+                      </p>
                     </div>
-                  </>
-                )}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-[#C9C6BC]">
+                      <span className="flex items-center gap-1.5">
+                        <CalendarIcon aria-hidden="true" className="size-3.5" />
+                        {selectedExam.dateLabel}
+                        <span className="font-mono text-[#FAF9F5]">{selectedExam.timeLabel}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Clock aria-hidden="true" className="size-3.5" />
+                        {selectedExam.duration} min
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className={cn("flex size-5 items-center justify-center rounded-full text-[9px] font-semibold text-white", selectedExam.examinerColor)}>
+                          {selectedExam.examinerInitials}
+                        </span>
+                        {selectedExam.examiner}
+                      </span>
+                    </div>
+                  </div>
+                </GlowPanel>
 
-                <div className="space-y-2 rounded-2xl border border-border/50 bg-card p-4">
-                  {selectedExam.subjectId ? (
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      render={
-                        <Link
-                          href={`/dashboard/clients/${selectedExam.clientId}/examinees/${selectedExam.subjectId}`}
+                {/* Body */}
+                <div className={cn("min-h-0 flex-1 overflow-y-auto", showSaveBar && "pb-24")}>
+                  <div key={`body-${selectedExam.id}`} className="flex flex-col gap-7 px-4 py-5 sm:px-6">
+                    {/* Payment strip */}
+                    {canViewPayments && (
+                      <section aria-label="Payment" className="flex flex-col gap-3 rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/50 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)] motion-safe:delay-100">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-mono text-xl tabular-nums">{formatMoney(collected, orgCurrency)}</span>
+                            <span className="text-[13px] text-muted-foreground">of {formatMoney(selectedExam.amount, orgCurrency)} collected</span>
+                          </div>
+                          <span
+                            className={cn(
+                              "text-[13px] font-medium",
+                              balance > 0 ? "text-[#8A2C22] dark:text-red-300" : "text-[#2D5A27] dark:text-emerald-300",
+                            )}
+                          >
+                            {balance > 0 ? `${formatMoney(balance, orgCurrency)} due` : "Settled"}
+                          </span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-[#E9E6DD] dark:bg-background">
+                          <div
+                            className={cn("h-full rounded-full transition-all", balance > 0 ? "bg-primary" : "bg-[#3F7A37] dark:bg-emerald-400")}
+                            style={{ width: `${paidShare}%` }}
+                          />
+                        </div>
+                        {selectedExam.prepaid && (
+                          <p className="text-xs text-muted-foreground">Covered by a bulk invoice. Its fee and payments are managed there.</p>
+                        )}
+                      </section>
+                    )}
+
+                    {/* Properties */}
+                    {canManageAppointments ? (
+                      <section className="flex flex-col gap-1 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)] motion-safe:delay-150">
+                        <h3 className={cn(sectionTitle, "mb-1")}>Details</h3>
+                        <PropertyRow icon={CalendarIcon} label="Date" htmlFor="edit-date">
+                          <Input id="edit-date" type="date" className={GHOST_FIELD} value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                        </PropertyRow>
+                        <PropertyRow icon={Clock} label="Start time" htmlFor="edit-time">
+                          <Input id="edit-time" type="time" className={cn(GHOST_FIELD, "font-mono")} value={editTime} onChange={(e) => setEditTime(e.target.value)} />
+                        </PropertyRow>
+                        <PropertyRow icon={UserRound} label="Examiner">
+                          <Select value={editExaminerId} onValueChange={(value) => setEditExaminerId(String(value))}>
+                            <SelectTrigger className={GHOST_FIELD} aria-label="Examiner">
+                              <SelectValue placeholder="Select examiner">
+                                {selectedEditExaminer ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className={cn("flex size-5 items-center justify-center rounded-full text-[9px] font-semibold text-white", examinerDisplay(examiners, selectedEditExaminer.id).color)}>
+                                      {examinerDisplay(examiners, selectedEditExaminer.id).initials}
+                                    </span>
+                                    {selectedEditExaminer.name}
+                                  </span>
+                                ) : undefined}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {examiners.map((examiner) => (
+                                <SelectItem key={examiner.id} value={String(examiner.id)}>
+                                  {examiner.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </PropertyRow>
+                        <PropertyRow icon={Tag} label="Exam type">
+                          <Select value={editExamType ? String(editExamType.id) : ""} onValueChange={(value) => handleExamTypeChange(String(value))}>
+                            <SelectTrigger className={GHOST_FIELD} aria-label="Exam type">
+                              <SelectValue placeholder="Select exam type">{editExamType?.name}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {examTypes.map((examType) => (
+                                <SelectItem key={examType.id} value={String(examType.id)}>
+                                  {examType.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </PropertyRow>
+                        <PropertyRow
+                          icon={CreditCard}
+                          label={`Fee (${orgCurrency})`}
+                          htmlFor="edit-fee"
+                          hint={
+                            selectedExam.prepaid
+                              ? "Locked: set by the bulk invoice"
+                              : selectedExam.collected > 0
+                                ? `Can't go below the ${formatMoney(selectedExam.collected, orgCurrency)} already collected`
+                                : undefined
+                          }
+                        >
+                          {selectedExam.prepaid ? (
+                            <div className="flex h-10 items-center gap-2 px-3 font-mono text-sm text-muted-foreground">
+                              <Lock aria-hidden="true" className="size-3.5" />
+                              {formatMoney(selectedExam.amount, orgCurrency)}
+                            </div>
+                          ) : (
+                            <Input
+                              id="edit-fee"
+                              type="number"
+                              min={selectedExam.collected || 0}
+                              step="0.01"
+                              inputMode="decimal"
+                              className={cn(GHOST_FIELD, "font-mono")}
+                              value={editPrice}
+                              onChange={(e) => setEditPrice(e.target.value)}
+                            />
+                          )}
+                        </PropertyRow>
+                        <PropertyRow
+                          icon={CircleDot}
+                          label="Status"
+                          hint={
+                            editStatus === "cancelled" && selectedExam.status !== "Cancelled"
+                              ? "Cancelling frees the slot; prepaid credit returns unless the booking was charged."
+                              : startsInFuture && selectedExam.status !== "Completed"
+                                ? "Completed becomes available once the exam has started."
+                                : undefined
+                          }
+                        >
+                          <StatusPicker
+                            label="Appointment status"
+                            value={editStatus as (typeof APPOINTMENT_STATUSES)[number]}
+                            onChange={(value) => setEditStatus(value)}
+                            options={APPOINTMENT_STATUSES.map((status) => ({
+                              value: status,
+                              label: status.charAt(0).toUpperCase() + status.slice(1),
+                              disabled: status === "completed" && startsInFuture && selectedExam.status !== "Completed",
+                            }))}
+                          />
+                        </PropertyRow>
+                      </section>
+                    ) : null}
+
+                    {/* Notes */}
+                    <section className="flex flex-col gap-2 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)] motion-safe:delay-200">
+                      <label htmlFor="edit-notes" className={sectionTitle}>
+                        Case notes
+                      </label>
+                      {canManageAppointments ? (
+                        <Textarea
+                          id="edit-notes"
+                          className="min-h-24 resize-y rounded-xl border border-transparent bg-[#F7F6F1] px-3.5 py-3 text-sm leading-relaxed shadow-none transition-colors hover:bg-[#F3F1EA] focus-visible:border-border focus-visible:bg-white focus-visible:ring-0 dark:bg-muted/50 dark:focus-visible:bg-card"
+                          placeholder="Reason for the exam, position applied for, referral context…"
+                          value={editReason}
+                          onChange={(e) => setEditReason(e.target.value)}
                         />
-                      }
-                    >
-                      Open examinee profile
-                    </Button>
-                  ) : null}
-                  <Button variant="outline" className="w-full" render={<Link href={`/dashboard/clients/${selectedExam.clientId}`} />}>
-                    Open billing account
-                  </Button>
-                  {canViewPayments && (
-                    <Button variant="outline" className="w-full" render={<Link href="/dashboard/payments" />}>
-                      Manage payment on Payments
-                    </Button>
-                  )}
+                      ) : (
+                        <p className="rounded-xl bg-[#F7F6F1] px-3.5 py-3 text-sm leading-relaxed text-foreground/80 dark:bg-muted/50">
+                          {selectedExam.reason || "No case notes recorded."}
+                        </p>
+                      )}
+                    </section>
+
+                    {/* Links */}
+                    <section className="flex flex-col gap-1 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)] motion-safe:delay-[250ms]">
+                      <h3 className={cn(sectionTitle, "mb-1")}>Related</h3>
+                      <div className="flex flex-col divide-y divide-border/50 rounded-2xl ring-1 ring-border/60">
+                        {selectedExam.subjectId ? (
+                          <Link href={`/dashboard/clients/${selectedExam.clientId}/examinees/${selectedExam.subjectId}`} className={linkRow}>
+                            <span className="flex items-center gap-3">
+                              <UserRound aria-hidden="true" className="size-4 text-muted-foreground" />
+                              Examinee profile
+                            </span>
+                            <ArrowUpRight aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                          </Link>
+                        ) : null}
+                        <Link href={`/dashboard/clients/${selectedExam.clientId}`} className={linkRow}>
+                          <span className="flex min-w-0 items-center gap-3">
+                            <FileText aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="truncate">Billing account{selectedExam.accountName ? ` · ${selectedExam.accountName}` : ""}</span>
+                          </span>
+                          <ArrowUpRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                        </Link>
+                        {canViewPayments && (
+                          <Link href="/dashboard/payments" className={linkRow}>
+                            <span className="flex items-center gap-3">
+                              <CreditCard aria-hidden="true" className="size-4 text-muted-foreground" />
+                              Payments
+                            </span>
+                            <ArrowUpRight aria-hidden="true" className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                          </Link>
+                        )}
+                      </div>
+                    </section>
+
+                    {canManageAppointments && (
+                      <div className="flex justify-start motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:fill-mode-both motion-safe:ease-[cubic-bezier(0.32,0.72,0,1)] motion-safe:delay-300">
+                        <DeleteConfirmDialog
+                          title={`Delete ${selectedExam.code}`}
+                          description="This permanently removes the appointment and frees its schedule slot. Prepaid credit is returned. This cannot be undone."
+                          confirmLabel="Confirmation"
+                          triggerLabel={deleting ? "Deleting..." : "Delete appointment"}
+                          onConfirm={handleDelete}
+                          trigger={
+                            <button
+                              type="button"
+                              className="flex h-9 items-center gap-2 rounded-full px-3 text-[13px] font-medium text-[#8A2C22] transition-colors hover:bg-[#F6E3E1] dark:text-red-300 dark:hover:bg-red-950"
+                            >
+                              <Trash2 aria-hidden="true" className="size-3.5" />
+                              {deleting ? "Deleting…" : "Delete appointment"}
+                            </button>
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {canManageAppointments && (
-                  <div className="space-y-4 rounded-2xl border border-border/50 bg-card p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Edit Exam</p>
-
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Assigned examiner</Label>
-                      <Select value={editExaminerId} onValueChange={(value) => setEditExaminerId(String(value))}>
-                        <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Select examiner">
-                            {selectedEditExaminer?.name}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {examiners.map((examiner) => (
-                            <SelectItem key={examiner.id} value={String(examiner.id)}>
-                              {examiner.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Exam type</Label>
-                      <Select
-                        value={editExamType ? String(editExamType.id) : ""}
-                        onValueChange={(value) => handleExamTypeChange(String(value))}
+                {/* Floating save bar — only when there is something to save */}
+                <div
+                  aria-hidden={!showSaveBar}
+                  className={cn(
+                    "pointer-events-none absolute inset-x-4 bottom-4 z-20 origin-bottom transition-[transform,opacity] sm:inset-x-6 motion-reduce:transition-none",
+                    showSaveBar
+                      ? "translate-y-0 scale-100 opacity-100 duration-[420ms] ease-[cubic-bezier(0.34,1.4,0.64,1)]"
+                      : "translate-y-6 scale-[0.96] opacity-0 duration-200 ease-in",
+                  )}
+                >
+                  <div className={cn("flex items-center justify-between gap-3 rounded-full bg-[#1E1D1B] py-2 pr-2 pl-5 text-[#FAF9F5] shadow-[0_16px_40px_-12px_rgba(20,20,19,0.55)] ring-1 ring-white/10", showSaveBar && "pointer-events-auto")}>
+                    <span aria-live="polite" className="min-w-0 truncate text-[13px]">
+                      {changeError ? (
+                        <span className="text-[#F2B8AE]">{changeError}</span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                          {changeCount} unsaved change{changeCount === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        tabIndex={showSaveBar ? 0 : -1}
+                        onClick={resetEdits}
+                        disabled={savingFields}
+                        className="h-9 rounded-full px-4 text-sm text-[#C9C6BC] transition-colors hover:bg-white/10 hover:text-[#FAF9F5]"
                       >
-                        <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Select exam type">
-                            {editExamType?.name}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {examTypes.map((examType) => (
-                            <SelectItem key={examType.id} value={String(examType.id)}>
-                              {examType.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        Discard
+                      </button>
+                      <button
+                        type="button"
+                        tabIndex={showSaveBar ? 0 : -1}
+                        onClick={() => void handleSaveExam()}
+                        disabled={changeCount === 0 || Boolean(changeError) || savingFields}
+                        className="h-9 rounded-full bg-[#FAF9F5] px-5 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-white disabled:opacity-40"
+                      >
+                        {savingFields ? "Saving…" : "Save"}
+                      </button>
                     </div>
-
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Fee ({orgCurrency})</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editPrice}
-                        onChange={(e) => setEditPrice(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid gap-1.5">
-                        <Label className="text-xs">Date</Label>
-                        <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-                      </div>
-                      <div className="grid gap-1.5">
-                        <Label className="text-xs">Time</Label>
-                        <Input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)} />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Status</Label>
-                      <Select value={editStatus} onValueChange={(value) => setEditStatus(String(value))}>
-                        <SelectTrigger className="h-10 rounded-lg">
-                          <SelectValue placeholder="Status">
-                            {editStatus ? editStatus.charAt(0).toUpperCase() + editStatus.slice(1) : undefined}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {APPOINTMENT_STATUSES.map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {status.charAt(0).toUpperCase() + status.slice(1)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Clinical summary</Label>
-                      <Textarea
-                        className="min-h-[88px] rounded-lg resize-none text-sm"
-                        placeholder="Reason for exam, position, referral context..."
-                        value={editReason}
-                        onChange={(e) => setEditReason(e.target.value)}
-                      />
-                    </div>
-
-                    <Button
-                      className="w-full gap-2"
-                      onClick={() => void handleSaveExam()}
-                      disabled={savingFields}
-                    >
-                      <CalendarIcon className="h-4 w-4" />
-                      {savingFields ? "Saving..." : "Save Changes"}
-                    </Button>
                   </div>
-                )}
-
-                {canManageAppointments && (
-                  <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-destructive mb-2">Danger Zone</p>
-                    <DeleteConfirmDialog
-                      title={`Delete ${selectedExam.code}`}
-                      description="This permanently removes the appointment and its schedule slot. This cannot be undone."
-                      confirmLabel="Confirmation"
-                      triggerLabel={deleting ? "Deleting..." : "Delete Appointment"}
-                      onConfirm={handleDelete}
-                    />
-                  </div>
-                )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): LedgerRow[] {
+function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[], examTypes: ExamTypeRecord[] = []): LedgerRow[] {
+  const typeNames = new Map(examTypes.map((type) => [type.id, type.name]));
   const examinerMap = new Map<number, { name: string; color: string }>();
   examiners.forEach((examiner, index) => {
     examinerMap.set(examiner.id, {
@@ -1025,7 +1165,11 @@ function mapRows(appointments: AppointmentRecord[], examiners: UserRecord[]): Le
       examiner: examiner?.name || `Examiner #${appointment.examiner_id}`,
       examinerInitials: initials(examiner?.name || `E${appointment.examiner_id}`),
       examinerColor: examiner?.color || "bg-slate-600",
-      type: parsed.title,
+      // The booked exam type is the source of truth; the notes' first line is a legacy label.
+      type: (appointment.exam_type_id && typeNames.get(appointment.exam_type_id)) || parsed.title,
+      examTypeId: appointment.exam_type_id ?? undefined,
+      prepaid: Boolean(appointment.prepaid_slot_id),
+      notes: appointment.notes || "",
       dateLabel: formatClinicDateLabel(date),
       timeLabel: formatClinicClock(date),
       amount: Number(appointment.exam_fee || 0),
@@ -1045,7 +1189,8 @@ function parseNotes(notes: string): { title: string; reason: string } {
     return { title: "Appointment", reason: "No case background provided." };
   }
   if (lines.length === 1) {
-    return { title: lines[0], reason: lines[0] };
+    // A single line is just the exam-type label: there are no case notes.
+    return { title: lines[0], reason: "" };
   }
   return { title: lines[0], reason: lines.slice(1).join(" ") };
 }

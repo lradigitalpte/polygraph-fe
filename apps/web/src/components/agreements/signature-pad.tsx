@@ -157,7 +157,7 @@ export function SignaturePad({ onChange, disabled, className }: SignaturePadProp
 
   return (
     <div className={cn("space-y-2", className)}>
-      <div className="relative overflow-hidden rounded-xl border-2 border-dashed border-border bg-white">
+      <div className="relative overflow-hidden rounded-2xl bg-white ring-1 ring-border/70 dark:ring-white/15">
         <canvas
           ref={canvasRef}
           aria-label="Signature pad. Draw your signature with a mouse, finger or stylus."
@@ -171,14 +171,18 @@ export function SignaturePad({ onChange, disabled, className }: SignaturePadProp
           onPointerLeave={finishStroke}
         />
         {!hasInk ? (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
-            Sign here
+          <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-zinc-400">
+            <span className="text-[15px] font-medium">Sign here</span>
+            <span className="text-xs">Use your finger, mouse or stylus</span>
           </span>
         ) : null}
-        <div className="pointer-events-none absolute bottom-10 left-6 right-6 border-b border-zinc-300" />
+        <div className="pointer-events-none absolute right-6 bottom-10 left-6 border-b border-zinc-300" />
+        <span aria-hidden="true" className="pointer-events-none absolute bottom-10 left-6 mb-1 text-lg leading-none text-zinc-300">
+          ×
+        </span>
       </div>
       <div className="flex justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={disabled || !hasInk}>
+        <Button type="button" variant="ghost" size="sm" className="rounded-full" onClick={clear} disabled={disabled || !hasInk}>
           <Eraser className="h-4 w-4 mr-1" /> Clear
         </Button>
       </div>

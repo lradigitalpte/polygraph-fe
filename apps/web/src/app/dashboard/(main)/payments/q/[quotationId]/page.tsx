@@ -15,23 +15,32 @@ import {
   Landmark,
   RefreshCw,
   Clock,
+  Link2,
+  FileSignature,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  fetchAgreementTemplates,
   fetchClientAgreementRequests,
   isAgreementRequestOpen,
+  sendClientAgreements,
+  type AgreementTemplate,
 } from "@/lib/agreements";
+import { isOrganizationClient } from "@/lib/client-types";
 import { deleteInvoice } from "@/lib/billing";
 import { fetchClient, type ClientRecord } from "@/lib/clients";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
@@ -44,6 +53,7 @@ import { BankAccountPicker } from "@/components/dashboard/bank-account-picker";
 import {
   approveQuotation,
   collectQuotationPayment,
+  createQuotationPayLink,
   fetchQuotation,
   mintPrepaidSlotsForQuotation,
   revokeQuotationSlot,
@@ -66,12 +76,21 @@ export default function InvoiceDetailPage() {
   const quotationId = Number(params.quotationId);
   const router = useRouter();
   const { can } = useCurrentUser();
+  const canSendTerms = can("agreement:send");
 
   const [quote, setQuote] = React.useState<QuotationRecord | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [orgSettings, setOrgSettings] = React.useState<OrganizationSettings | null>(null);
 
-  const [agreementLink, setAgreementLink] = React.useState("");
+  // Agreements signing link already open for this booking (reused rather than re-sent).
+  const [openTerms, setOpenTerms] = React.useState<{ link: string; titles: string[] } | null>(null);
+  const [includeTerms, setIncludeTerms] = React.useState(false);
+  const [termTemplates, setTermTemplates] = React.useState<AgreementTemplate[]>([]);
+  const [termSelection, setTermSelection] = React.useState<Record<number, boolean>>({});
+  const [termsBusy, setTermsBusy] = React.useState(false);
+  const [payLinkBusy, setPayLinkBusy] = React.useState(false);
+  const [confirmSendOpen, setConfirmSendOpen] = React.useState(false);
+  const [confirmRecord, setConfirmRecord] = React.useState(false);
   const [toEmail, setToEmail] = React.useState("");
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
@@ -163,17 +182,19 @@ export default function InvoiceDetailPage() {
         const paidNow = wholeMoneyAmount(Number(q.collected_amount || 0));
         const balance = Math.max(0, priced.total - paidNow);
         const charge = balance;
-        let link = "";
-        if (q.appointment_id && q.client_id) {
+        let terms: { link: string; titles: string[] } | null = null;
+        if (q.client_id) {
           try {
             const reqs = await fetchClientAgreementRequests(q.client_id);
+            // Newest open link for this booking (or, with no booking, one not tied to any),
+            // so a reload reuses it instead of creating a duplicate.
             const open = reqs.find(
               (r) =>
-                r.appointment_id === q.appointment_id &&
+                (r.appointment_id ?? null) === (q.appointment_id ?? null) &&
                 isAgreementRequestOpen(r) &&
                 Boolean(r.link),
             );
-            link = open?.link || "";
+            if (open?.link) terms = { link: open.link, titles: open.items.map((i) => i.title) };
           } catch {
             /* ignore */
           }
@@ -189,7 +210,8 @@ export default function InvoiceDetailPage() {
         setEditDiscount(String(priced.discountAmount));
         setEditVatRate(String(Number(q.vat_rate || org?.default_vat_rate || 5)));
         setEditIncludeVat(Number(q.vat_amount || 0) > 0 || Number(q.vat_rate || 0) > 0);
-        setAgreementLink(link);
+        setOpenTerms(terms);
+        setIncludeTerms(Boolean(terms));
         setToEmail(q.sent_to_email || q.client?.email || "");
         setSubject(`${q.code} — invoice & payment`);
         setChargeAmount(String(charge));
@@ -202,7 +224,7 @@ export default function InvoiceDetailPage() {
             totalAmount: priced.total,
             paidAmount: paidNow,
             chargeAmount: charge,
-            agreementLink: link || undefined,
+            includeAgreements: Boolean(terms),
             bankAccounts: q.bank_accounts,
           }),
         );
@@ -310,7 +332,7 @@ export default function InvoiceDetailPage() {
         chargeAmount: chargeForBody,
         checkoutPayTotal:
           passProcessingFee && gross > chargeForBody + 0.0001 ? gross : undefined,
-        agreementLink: agreementLink || undefined,
+        includeAgreements: includeTerms,
         bankAccounts: banks,
       }),
     );
@@ -320,7 +342,121 @@ export default function InvoiceDetailPage() {
     if (!quote) return;
     rebuildBody(chargeAmount);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when fee toggle or inputs change
-  }, [quote?.id, chargeAmount, passProcessingFee, effectiveFeePercent, effectiveFeeFixed, total, paid, balance]);
+  }, [quote?.id, chargeAmount, passProcessingFee, effectiveFeePercent, effectiveFeeFixed, total, paid, balance, includeTerms]);
+
+  // Active agreements to choose from, loaded once the client is known to sign online.
+  const termsAvailable = Boolean(quote?.client_id) && canSendTerms && !isOrganizationClient(billingClient);
+  React.useEffect(() => {
+    if (!termsAvailable) return;
+    let cancelled = false;
+    fetchAgreementTemplates()
+      .then((rows) => {
+        if (cancelled) return;
+        setTermTemplates(rows);
+        setTermSelection(Object.fromEntries(rows.map((t) => [t.id, true])));
+      })
+      .catch(() => {
+        if (!cancelled) setTermTemplates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [termsAvailable]);
+  const chosenTerms = termTemplates.filter((t) => termSelection[t.id]);
+
+  /** The client's signing link: the one already open for this booking, or a new one made without its own email. */
+  const ensureTermsLink = async (): Promise<string> => {
+    if (openTerms?.link) return openTerms.link;
+    if (!quote?.client_id) throw new Error("This invoice has no client to send agreements to");
+    if (chosenTerms.length === 0) throw new Error("Choose at least one agreement");
+    const res = await sendClientAgreements(quote.client_id, {
+      appointment_id: quote.appointment_id ?? undefined,
+      template_ids: chosenTerms.map((t) => t.id),
+      recipient_email: toEmail.trim() || undefined,
+      recipient_name: quote.client?.name || undefined,
+      skip_email: true,
+    });
+    const next = { link: res.link, titles: chosenTerms.map((t) => t.title) };
+    setOpenTerms(next);
+    return next.link;
+  };
+
+  const copyText = async (text: string, done: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(done);
+    } catch {
+      toast.error("Could not copy. Link: " + text);
+    }
+  };
+
+  const handleCopyTermsLink = async () => {
+    setTermsBusy(true);
+    try {
+      const link = await ensureTermsLink();
+      await copyText(link, "Agreements link copied — no email was sent");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create the agreements link");
+    } finally {
+      setTermsBusy(false);
+    }
+  };
+
+  /** Validates the amount box; returns the amount to request or null after showing why not. */
+  const requestedCharge = (): number | null => {
+    let charge = balance;
+    if (chargeAmount.trim() !== "") {
+      charge = Number(chargeAmount);
+      if (!Number.isFinite(charge) || charge <= 0) {
+        toast.error("Enter a valid amount greater than zero");
+        return null;
+      }
+      if (charge > balance + 0.0001) {
+        toast.error("The amount cannot be more than the remaining balance");
+        return null;
+      }
+    }
+    return charge;
+  };
+
+  const payLinkInput = (charge: number) => ({
+    charge_amount: charge,
+    pass_processing_fee: passProcessingFee,
+    ...(feePercentOverride.trim() !== "" ? { processing_fee_percent: Number(feePercentOverride) } : {}),
+    ...(feeFixedOverride.trim() !== "" ? { processing_fee_fixed: Number(feeFixedOverride) } : {}),
+    customer_email: toEmail.trim() || undefined,
+  });
+
+  /** Makes a pay link for the amount and fee settings above and copies it. No email. */
+  const handleCreatePayLink = async () => {
+    if (!quote) return;
+    const charge = requestedCharge();
+    if (charge == null) return;
+    setPayLinkBusy(true);
+    try {
+      const res = await createQuotationPayLink(quote.id, payLinkInput(charge));
+      await reload();
+      await copyText(res.pay_url, `Payment link for ${formatMoney(res.charge_amount, currency)} copied — no email was sent`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create the payment link");
+    } finally {
+      setPayLinkBusy(false);
+    }
+  };
+
+  const requestSend = () => {
+    if (!quote) return;
+    if (!toEmail.trim()) {
+      toast.error("Recipient email is required");
+      return;
+    }
+    if (balance > 0 && requestedCharge() == null) return;
+    if (includeTerms && !openTerms && chosenTerms.length === 0) {
+      toast.error("Choose at least one agreement, or untick “Add agreements to sign”");
+      return;
+    }
+    setConfirmSendOpen(true);
+  };
 
   const handleSend = async () => {
     if (!quote) return;
@@ -342,10 +478,12 @@ export default function InvoiceDetailPage() {
     }
     setSending(true);
     try {
+      const agreementUrl = includeTerms && termsAvailable ? await ensureTermsLink() : undefined;
       const result = await sendQuotationEmail(quote.id, {
         to_email: toEmail.trim(),
         subject: subject.trim(),
         body: body.trim(),
+        ...(agreementUrl ? { agreement_url: agreementUrl } : {}),
         ...(balance > 0
           ? {
               charge_amount: charge,
@@ -359,12 +497,10 @@ export default function InvoiceDetailPage() {
             }
           : {}),
       });
+      setConfirmSendOpen(false);
       await reload();
-      if (result?.payment_url) {
-        toast.success("Invoice emailed with PDF and payment link");
-      } else {
-        toast.success("Invoice emailed with PDF");
-      }
+      const parts = ["PDF", result?.payment_url ? "payment link" : "", agreementUrl ? "agreements link" : ""].filter(Boolean);
+      toast.success(`Invoice emailed with ${parts.join(", ").replace(/, ([^,]*)$/, " and $1")}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send email");
     } finally {
@@ -373,17 +509,12 @@ export default function InvoiceDetailPage() {
   };
 
   const handleCopyLink = async () => {
-    const url = quote?.stripe_payment_link_url;
-    if (!url) {
-      toast.error("No payment link yet — send the invoice email first");
+    const url = quote?.pay_link_url;
+    if (url) {
+      await copyText(url, "Payment link copied");
       return;
     }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Payment link copied");
-    } catch {
-      toast.error("Could not copy link");
-    }
+    await handleCreatePayLink();
   };
 
   const startEditingBanks = () => {
@@ -571,6 +702,17 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  // After a payment, the amount boxes follow the new balance instead of showing the old one.
+  const lastBalance = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (!quote) return;
+    if (lastBalance.current != null && lastBalance.current !== balance) {
+      setPaymentAmount(String(balance));
+      setChargeAmount(String(balance));
+    }
+    lastBalance.current = balance;
+  }, [quote, balance]);
+
   const handleRecordPayment = async () => {
     if (!quote) return;
     const amount = Number(paymentAmount);
@@ -578,6 +720,11 @@ export default function InvoiceDetailPage() {
       toast.error("Enter a valid payment amount");
       return;
     }
+    if (amount > balance + 0.0001) {
+      toast.error(`That's more than the balance of ${formatMoney(balance, currency)}`);
+      return;
+    }
+    setConfirmRecord(false);
     setRecording(true);
     try {
       if (quote.appointment_id) {
@@ -610,7 +757,12 @@ export default function InvoiceDetailPage() {
   );
   const fullyPaid = isInvoiceFullyPaid(total, paid);
 
-  const fieldLabel = "text-[10px] font-black uppercase tracking-widest text-muted-foreground";
+  const fieldLabel = "px-1 text-[13px] font-medium text-foreground";
+  const card = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+  const field = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+  const pill = "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors";
+  const recordAmount = Number(paymentAmount);
+  const recordValid = Number.isFinite(recordAmount) && recordAmount > 0 && recordAmount <= balance + 0.0001;
   const showSlots = (prepaidSlotsLocked || isCorporateQuote || (quote.status === "Completed" && balance <= 0)) &&
     !quote.appointment_id &&
     can("appointment:manage");
@@ -618,7 +770,7 @@ export default function InvoiceDetailPage() {
   const examCount = quote.line_quantity && quote.line_quantity > 0 ? quote.line_quantity : 1;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-20 px-4 sm:px-0">
+    <div className="space-y-8 max-w-[1440px] mx-auto pb-20 px-1">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4 min-w-0">
@@ -627,76 +779,79 @@ export default function InvoiceDetailPage() {
           </Button>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">
+              <h1 className="text-4xl leading-none font-semibold tracking-[-0.035em] sm:text-5xl">
                 {formatInvoiceDisplayNumber(quote.code, quote.id)}
               </h1>
               {quote.code && formatInvoiceDisplayNumber(quote.code, quote.id) !== quote.code ? (
                 <span className="text-xs text-muted-foreground font-normal">({quote.code})</span>
               ) : null}
-              <Badge variant="outline">{quote.status}</Badge>
+              <span className="bg-primary/15 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-medium text-[oklch(0.42_0.12_39)] dark:text-primary"><span aria-hidden="true" className="bg-primary size-1.5 rounded-full" />{quote.status}</span>
               {fullyPaid ? <InvoicePaidStamp size="sm" className="opacity-50" /> : null}
             </div>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-muted-foreground mt-2 truncate text-base">
               {quote.client?.name || `Client #${quote.client_id}`}
               {quote.sent_at ? ` · Emailed ${new Date(quote.sent_at).toLocaleDateString()}` : ""}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={handleDownloadPdf}>
+          <Button variant="outline" className="h-10 rounded-full px-4" onClick={handleDownloadPdf}>
             <Download className="h-4 w-4 mr-2" />
             PDF
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={() => void handleCopyLink()} disabled={!quote.stripe_payment_link_url}>
-            <Copy className="h-4 w-4 mr-2" />
+          <Button variant="outline" className="h-10 rounded-full px-4" onClick={() => void handleCopyLink()} disabled={payLinkBusy || (!quote.pay_link_url && balance <= 0)}>
+            {payLinkBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Copy className="h-4 w-4 mr-2" />}
             Copy pay link
           </Button>
         </div>
       </div>
 
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="border-border/50">
-          <CardContent className="p-4">
-            <p className={fieldLabel}>Total</p>
-            <p className="mt-1 text-lg font-bold tabular-nums">{formatMoney(total, currency)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50">
-          <CardContent className="p-4">
-            <p className={fieldLabel}>Paid</p>
-            <p className="mt-1 text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-              {formatMoney(paid, currency)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className={balance > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-border/50"}>
-          <CardContent className="p-4">
-            <p className={fieldLabel}>Balance due</p>
-            <p className="mt-1 text-lg font-black tabular-nums">{formatMoney(balance, currency)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/50">
-          <CardContent className="p-4">
-            <p className={fieldLabel}>{quote.appointment_id ? "Linked booking" : "Examinations"}</p>
-            <p className="mt-1 text-lg font-bold tabular-nums">
-              {quote.appointment_id ? "1 session" : examCount}
-            </p>
-            {!quote.appointment_id && prepaidSlotsLocked && invoicePrepaidStats ? (
-              <p className="text-xs text-muted-foreground">
-                {invoicePrepaidStats.available} free · {invoicePrepaidStats.consumed} used
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
+      {/* Summary */}
+      <div className="rounded-[30px] bg-[#2B2A27] p-8 text-[#FAF9F5] shadow-[0_20px_40px_-24px_rgba(20,20,19,0.6)] dark:bg-card dark:ring-1 dark:ring-border">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-semibold tracking-[0.1em] uppercase">Balance due</span>
+            <span className="text-[44px] leading-none font-medium tracking-[-0.03em] tabular-nums">
+              {formatMoney(balance, currency)}
+            </span>
+            <span className="text-sm text-[#C9C6BC]">
+              {fullyPaid ? "Paid in full" : `${total > 0 ? Math.round((paid / total) * 100) : 0}% collected`}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-end gap-6 sm:gap-8">
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-[#C9C6BC]">Total</span>
+              <span className="text-2xl font-medium tracking-[-0.02em] tabular-nums">{formatMoney(total, currency)}</span>
+            </div>
+            <span aria-hidden="true" className="hidden h-10 w-px bg-[#4A4944] sm:block" />
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-[#C9C6BC]">Paid</span>
+              <span className="text-primary text-2xl font-medium tracking-[-0.02em] tabular-nums">{formatMoney(paid, currency)}</span>
+            </div>
+            <span aria-hidden="true" className="hidden h-10 w-px bg-[#4A4944] sm:block" />
+            <div className="flex flex-col gap-1">
+              <span className="text-[13px] text-[#C9C6BC]">{quote.appointment_id ? "Linked booking" : "Examinations"}</span>
+              <span className="text-2xl font-medium tracking-[-0.02em] tabular-nums">
+                {quote.appointment_id ? "1 session" : examCount}
+              </span>
+              {!quote.appointment_id && prepaidSlotsLocked && invoicePrepaidStats ? (
+                <span className="text-xs text-[#C9C6BC]">
+                  {invoicePrepaidStats.available} free · {invoicePrepaidStats.consumed} used
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="mt-7 h-2 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="bg-primary h-full rounded-full transition-all" style={{ width: `${total > 0 ? Math.min(100, (paid / total) * 100) : 0}%` }} />
+        </div>
       </div>
-
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          {canEditPricing ? <TabsTrigger value="pricing">Edit pricing</TabsTrigger> : null}
-          <TabsTrigger value="email">Send email</TabsTrigger>
-          <TabsTrigger value="history">
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="h-auto w-full justify-start gap-2 overflow-x-auto rounded-none bg-transparent p-0">
+          <TabsTrigger value="overview" className="h-9 rounded-full border bg-card px-3.5 text-[13px] data-[active]:border-transparent data-[active]:bg-[#30302E] data-[active]:font-semibold data-[active]:text-[#FAF9F5] data-[active]:shadow-none dark:data-[active]:bg-foreground dark:data-[active]:text-background">Overview</TabsTrigger>
+          {canEditPricing ? <TabsTrigger value="pricing" className="h-9 rounded-full border bg-card px-3.5 text-[13px] data-[active]:border-transparent data-[active]:bg-[#30302E] data-[active]:font-semibold data-[active]:text-[#FAF9F5] data-[active]:shadow-none dark:data-[active]:bg-foreground dark:data-[active]:text-background">Edit pricing</TabsTrigger> : null}
+          <TabsTrigger value="email" className="h-9 rounded-full border bg-card px-3.5 text-[13px] data-[active]:border-transparent data-[active]:bg-[#30302E] data-[active]:font-semibold data-[active]:text-[#FAF9F5] data-[active]:shadow-none dark:data-[active]:bg-foreground dark:data-[active]:text-background">Send email</TabsTrigger>
+          <TabsTrigger value="history" className="h-9 rounded-full border bg-card px-3.5 text-[13px] data-[active]:border-transparent data-[active]:bg-[#30302E] data-[active]:font-semibold data-[active]:text-[#FAF9F5] data-[active]:shadow-none dark:data-[active]:bg-foreground dark:data-[active]:text-background">
             Payment history{paymentHistory.length > 0 ? ` (${paymentHistory.length})` : ""}
           </TabsTrigger>
         </TabsList>
@@ -704,56 +859,123 @@ export default function InvoiceDetailPage() {
         {/* Overview: what you do most — record payment, slots, next steps */}
         <TabsContent value="overview" className="outline-none">
           <div className="grid gap-6 lg:grid-cols-5">
-            <div className="lg:col-span-3 space-y-6">
-              <Card className="border-border/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Record payment</CardTitle>
-                  <CardDescription>Bank transfer, cash, or any payment received outside the pay link.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      className="h-11 rounded-xl"
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
-                    />
-                    <Button className="rounded-xl" onClick={() => void handleRecordPayment()} disabled={recording || balance <= 0}>
-                      {recording ? <Loader2 className="h-4 w-4 animate-spin" /> : "Record"}
-                    </Button>
+            <div className="space-y-6 lg:col-span-3">
+              {/* Record payment */}
+              <section aria-labelledby="record-title" className={cn(card, "overflow-hidden")}>
+                <div className="flex items-start gap-3 px-6 pt-6 pb-4">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+                    <DollarSign aria-hidden="true" className="size-[18px]" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 id="record-title" className="text-[15px] font-medium">Record payment</h2>
+                    <p className="text-[13px] text-muted-foreground">Bank transfer, cash, or anything received outside the pay link.</p>
                   </div>
-                  {quote.stripe_checkout_session_id && balance > 0 ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="rounded-xl"
-                      onClick={() => void handleSyncStripe()}
-                      disabled={syncingStripe}
-                    >
-                      {syncingStripe ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                      )}
-                      Client paid online? Sync card payment
-                    </Button>
-                  ) : null}
-                </CardContent>
-              </Card>
+                </div>
+                {balance <= 0 ? (
+                  <div className="mx-6 mb-6 flex items-center gap-3 rounded-2xl bg-[#E7F1E4] px-4 py-3.5 text-sm text-[#2D5A27] dark:bg-emerald-950/60 dark:text-emerald-200">
+                    <CheckCircle2 aria-hidden="true" className="size-5 shrink-0" />
+                    <span className="font-medium">Paid in full — nothing left to record.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3 px-6 pb-6">
+                    <div className="relative">
+                      <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-sm font-medium text-muted-foreground">{currency}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        inputMode="decimal"
+                        aria-label="Amount received"
+                        className="h-14 rounded-2xl border-0 bg-[#F3F1EA] pr-4 pl-16 text-xl font-medium tabular-nums shadow-none dark:bg-muted"
+                        value={paymentAmount}
+                        onChange={(e) => {
+                          setPaymentAmount(e.target.value);
+                          setConfirmRecord(false);
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { label: "Full balance", value: balance },
+                        ...(balance >= 2 ? [{ label: "Half", value: wholeMoneyAmount(balance / 2) }] : []),
+                      ].map((chip) => {
+                        const active = Number(paymentAmount) === chip.value;
+                        return (
+                          <button
+                            key={chip.label}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => {
+                              setPaymentAmount(String(chip.value));
+                              setConfirmRecord(false);
+                            }}
+                            className={cn(
+                              pill,
+                              active
+                                ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background"
+                                : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted",
+                            )}
+                          >
+                            {chip.label} · <span className="tabular-nums">{formatMoney(chip.value, currency)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {paymentAmount.trim() !== "" && Number(paymentAmount) > balance + 0.0001 ? (
+                      <p role="alert" className="px-1 text-[13px] text-destructive">That&apos;s more than the balance of {formatMoney(balance, currency)}.</p>
+                    ) : null}
+
+                    {confirmRecord ? (
+                      <div className="space-y-3 rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/50">
+                        <p className="text-sm">
+                          Record <span className="font-semibold tabular-nums">{formatMoney(recordAmount, currency)}</span> as received?
+                          {" "}
+                          {recordAmount + 0.0001 >= balance
+                            ? "This settles the invoice."
+                            : `${formatMoney(balance - recordAmount, currency)} will still be due.`}
+                        </p>
+                        <div className="flex gap-2">
+                          <Button variant="outline" className="h-10 flex-1 rounded-full" onClick={() => setConfirmRecord(false)} disabled={recording}>
+                            Cancel
+                          </Button>
+                          <Button className="h-10 flex-1 rounded-full" onClick={() => void handleRecordPayment()} disabled={recording}>
+                            {recording ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+                            Yes, record it
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button className="h-11 w-full rounded-full" onClick={() => setConfirmRecord(true)} disabled={recording || !recordValid}>
+                        Record payment
+                      </Button>
+                    )}
+
+                    {quote.stripe_checkout_session_id ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleSyncStripe()}
+                        disabled={syncingStripe}
+                        className="flex items-center gap-1.5 px-1 text-[13px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      >
+                        {syncingStripe ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                        Client paid online but it&apos;s not showing? Check the card payment
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+              </section>
 
               {showSlots ? (
-                <Card className={prepaidSlotsLocked ? "border-border/50" : "border-emerald-500/30 bg-emerald-500/5"}>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Examination slots</CardTitle>
+                <Card className={cn(card, "border-0", !prepaidSlotsLocked && "ring-[#5FA86C]/50")}>
+                  <CardHeader className="px-7 pt-7 pb-4">
+                    <CardTitle className="text-base font-semibold">Examination slots</CardTitle>
                     <CardDescription>
                       {prepaidSlotsLocked
                         ? "Staff book exams from the calendar against these slots."
                         : "This invoice has no slots yet. Create them so exams can be booked against it."}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3">
+                  <CardContent className="space-y-4 px-7 pb-7">
                     {prepaidSlotsLocked ? (
                       <>
                         <div className="grid grid-cols-3 gap-2 text-center">
@@ -762,7 +984,7 @@ export default function InvoiceDetailPage() {
                             { label: "Used", value: invoicePrepaidStats?.consumed },
                             { label: "Total", value: invoicePrepaidStats?.total ?? examCount },
                           ].map((s) => (
-                            <div key={s.label} className="rounded-xl bg-muted/30 py-2">
+                            <div key={s.label} className="rounded-2xl bg-[#F7F6F1] py-3 dark:bg-muted/50">
                               <p className="text-lg font-bold tabular-nums">{s.value ?? "—"}</p>
                               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.label}</p>
                             </div>
@@ -807,7 +1029,7 @@ export default function InvoiceDetailPage() {
                               type="number"
                               min={1}
                               step={1}
-                              className="h-11 rounded-xl"
+                              className={field}
                               value={mintSlotQuantity}
                               onChange={(e) => setMintSlotQuantity(e.target.value)}
                             />
@@ -818,13 +1040,13 @@ export default function InvoiceDetailPage() {
                               type="number"
                               min={0}
                               step={1}
-                              className="h-11 rounded-xl"
+                              className={field}
                               value={mintAlreadyUsed}
                               onChange={(e) => setMintAlreadyUsed(e.target.value)}
                             />
                           </div>
                         </div>
-                        <Button className="w-full rounded-xl" onClick={() => void handleMintPrepaidSlots()} disabled={mintingSlots}>
+                        <Button className="h-11 w-full rounded-full" onClick={() => void handleMintPrepaidSlots()} disabled={mintingSlots}>
                           {mintingSlots ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                           Create{" "}
                           {Math.max(0, (parseInt(mintSlotQuantity, 10) || 0) - (parseInt(mintAlreadyUsed, 10) || 0))} free
@@ -839,20 +1061,22 @@ export default function InvoiceDetailPage() {
               {(!["Approved", "Completed"].includes(quote.status) ||
                 (can("appointment:create") &&
                   !quote.prepaid_slots_minted &&
+                  !(isCorporateQuote && (quote.line_quantity ?? 1) > 1) &&
                   !((quote.line_quantity ?? 1) > 1 && quote.status === "Completed" && !quote.appointment_id))) ? (
                 <div className="flex flex-wrap gap-2">
                   {!["Approved", "Completed"].includes(quote.status) && (
-                    <Button variant="outline" className="rounded-xl" onClick={() => void handleApprove()} disabled={approving}>
+                    <Button variant="outline" className="h-10 rounded-full px-4" onClick={() => void handleApprove()} disabled={approving}>
                       {approving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                       Approve quotation
                     </Button>
                   )}
                   {can("appointment:create") &&
                     !quote.prepaid_slots_minted &&
+                    !(isCorporateQuote && (quote.line_quantity ?? 1) > 1) &&
                     !((quote.line_quantity ?? 1) > 1 && quote.status === "Completed" && !quote.appointment_id) && (
                       <Button
                         variant="secondary"
-                        className="rounded-xl"
+                        className="h-10 rounded-full px-4"
                         onClick={() => router.push(`/dashboard/calendar/book?clientId=${quote.client_id}&quotationId=${quote.id}`)}
                       >
                         <Calendar className="h-4 w-4 mr-2" />
@@ -863,101 +1087,110 @@ export default function InvoiceDetailPage() {
               ) : null}
             </div>
 
-            <div className="lg:col-span-2 space-y-6">
-              <Card className="border-border/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    Breakdown
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm">
+            <div className="space-y-6 lg:col-span-2">
+              {/* Breakdown */}
+              <section aria-labelledby="breakdown-title" className={cn(card, "p-6")}>
+                <h2 id="breakdown-title" className="text-[15px] font-medium">Breakdown</h2>
+                <dl className="mt-4 space-y-2.5 text-sm">
                   {displaySubtotal > 0 ? (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="tabular-nums">{formatMoney(displaySubtotal, currency)}</span>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Subtotal{examCount > 1 ? ` · ${examCount} exams` : ""}</dt>
+                      <dd className="tabular-nums">{formatMoney(displaySubtotal, currency)}</dd>
                     </div>
                   ) : null}
                   {displayDiscount > 0 ? (
-                    <div className="flex justify-between text-rose-600">
-                      <span>Discount</span>
-                      <span className="tabular-nums">-{formatMoney(displayDiscount, currency)}</span>
+                    <div className="flex justify-between gap-3 text-[#2D5A27] dark:text-emerald-300">
+                      <dt>Discount</dt>
+                      <dd className="tabular-nums">−{formatMoney(displayDiscount, currency)}</dd>
                     </div>
                   ) : null}
                   {displayVat > 0 ? (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">VAT ({displayVatRate}%)</span>
-                      <span className="tabular-nums">{formatMoney(displayVat, currency)}</span>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">VAT ({displayVatRate}%)</dt>
+                      <dd className="tabular-nums">{formatMoney(displayVat, currency)}</dd>
                     </div>
                   ) : null}
-                  <div className="flex justify-between border-t border-border/40 pt-2 font-bold">
-                    <span>Total</span>
-                    <span className="tabular-nums">{formatMoney(total, currency)}</span>
+                  <div className="flex justify-between gap-3 rounded-2xl bg-[#F7F6F1] px-4 py-3 font-semibold dark:bg-muted/50">
+                    <dt>Total</dt>
+                    <dd className="tabular-nums">{formatMoney(total, currency)}</dd>
                   </div>
-                </CardContent>
-              </Card>
+                  {paid > 0 ? (
+                    <div className="flex justify-between gap-3 px-4">
+                      <dt className="text-muted-foreground">Paid</dt>
+                      <dd className="text-[#2D5A27] tabular-nums dark:text-emerald-300">−{formatMoney(paid, currency)}</dd>
+                    </div>
+                  ) : null}
+                  {paid > 0 ? (
+                    <div className="flex justify-between gap-3 px-4 font-semibold">
+                      <dt>Balance due</dt>
+                      <dd className="tabular-nums">{formatMoney(balance, currency)}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </section>
 
-              <Card className="border-border/50">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Landmark className="h-4 w-4 text-primary" />
-                      Bank details
-                    </CardTitle>
-                    {can("appointment:manage") && !editingBanks ? (
-                      <Button variant="ghost" size="sm" className="h-7 rounded-lg" onClick={startEditingBanks}>
-                        Change
-                      </Button>
-                    ) : null}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+              {/* Bank details */}
+              <section aria-labelledby="bank-title" className={cn(card, "p-6")}>
+                <div className="flex items-center justify-between gap-3">
+                  <h2 id="bank-title" className="flex items-center gap-2 text-[15px] font-medium">
+                    <Landmark aria-hidden="true" className="size-4 text-muted-foreground" />
+                    Bank details
+                  </h2>
+                  {can("appointment:manage") && !editingBanks ? (
+                    <button type="button" onClick={startEditingBanks} className={cn(pill, "h-8 text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted")}>
+                      Change
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-4 space-y-4">
                   {editingBanks ? (
                     <>
                       <BankAccountPicker accounts={bankAccounts} currency={currency} value={bankSelection} onChange={setBankSelection} />
                       <div className="flex gap-2">
-                        <Button className="rounded-xl" onClick={() => void handleSaveBanks()} disabled={savingBanks}>
+                        <Button className="rounded-full" onClick={() => void handleSaveBanks()} disabled={savingBanks}>
                           {savingBanks ? "Saving…" : "Save"}
                         </Button>
-                        <Button variant="outline" className="rounded-xl" onClick={() => setEditingBanks(false)}>
+                        <Button variant="outline" className="rounded-full" onClick={() => setEditingBanks(false)}>
                           Cancel
                         </Button>
                       </div>
                     </>
                   ) : quote.bank_accounts?.length ? (
                     quote.bank_accounts.map((d, idx) => (
-                      <dl key={idx} className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                        <dt className="text-muted-foreground">Bank</dt>
-                        <dd className="font-semibold">
-                          {d.bank_name} · {d.currency}
-                        </dd>
-                        <dt className="text-muted-foreground">Name</dt>
-                        <dd className="wrap-break-word">{d.account_name}</dd>
-                        {d.account_number ? (
-                          <>
-                            <dt className="text-muted-foreground">Acc. no.</dt>
-                            <dd className="font-mono">{d.account_number}</dd>
-                          </>
-                        ) : null}
-                        {d.iban ? (
-                          <>
-                            <dt className="text-muted-foreground">IBAN</dt>
-                            <dd className="font-mono break-all">{d.iban}</dd>
-                          </>
-                        ) : null}
-                        {d.swift_code ? (
-                          <>
-                            <dt className="text-muted-foreground">SWIFT</dt>
-                            <dd className="font-mono">{d.swift_code}</dd>
-                          </>
-                        ) : null}
-                      </dl>
+                      <div key={idx} className="overflow-hidden rounded-2xl bg-[#F7F6F1] dark:bg-muted/50">
+                        <p className="border-b border-border/50 px-4 py-2.5 text-sm font-medium">
+                          {d.bank_name} <span className="font-normal text-muted-foreground">· {d.currency}</span>
+                        </p>
+                        <dl className="divide-y divide-border/50 text-sm">
+                          {[
+                            { label: "Name", value: d.account_name, mono: false },
+                            { label: "Account no.", value: d.account_number, mono: true },
+                            { label: "IBAN", value: d.iban, mono: true },
+                            { label: "SWIFT", value: d.swift_code, mono: true },
+                          ]
+                            .filter((row) => row.value)
+                            .map((row) => (
+                              <div key={row.label} className="group flex items-center gap-3 px-4 py-2.5">
+                                <dt className="w-24 shrink-0 text-[13px] text-muted-foreground">{row.label}</dt>
+                                <dd className={cn("min-w-0 flex-1 break-all", row.mono && "font-mono text-[13px]")}>{row.value}</dd>
+                                <button
+                                  type="button"
+                                  aria-label={`Copy ${row.label}`}
+                                  onClick={() => void copyText(String(row.value), `${row.label} copied`)}
+                                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white hover:text-foreground dark:hover:bg-card"
+                                >
+                                  <Copy aria-hidden="true" className="size-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                        </dl>
+                      </div>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">None. This invoice shows card payment only.</p>
+                    <p className="text-sm text-muted-foreground">None — this invoice shows card payment only.</p>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </section>
 
               {can("payment:manage") && (
                 <DeleteConfirmDialog
@@ -979,24 +1212,24 @@ export default function InvoiceDetailPage() {
         {/* Edit pricing */}
         {canEditPricing ? (
           <TabsContent value="pricing" className="outline-none">
-            <Card className="border-border/50 max-w-2xl">
+            <Card className="max-w-2xl rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/60 dark:bg-card">
               <CardHeader>
-                <CardTitle className="text-base">Edit pricing</CardTitle>
+                <CardTitle className="text-base font-semibold">Edit pricing</CardTitle>
                 <CardDescription>Adjust lines, discount and VAT before sending.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5 px-7 pb-7">
                 <div className="grid gap-1.5">
                   <Label className={fieldLabel}>Title</Label>
-                  <Input className="h-11 rounded-xl" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                  <Input className="h-11 rounded-2xl" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="grid gap-1.5">
                     <Label className={fieldLabel}>Qty</Label>
-                    <Input type="number" min={1} step={1} className="h-11 rounded-xl" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
+                    <Input type="number" min={1} step={1} className="h-11 rounded-2xl" value={editQuantity} onChange={(e) => setEditQuantity(e.target.value)} />
                   </div>
                   <div className="grid gap-1.5">
                     <Label className={fieldLabel}>Unit price</Label>
-                    <Input type="number" min={0} step="0.01" className="h-11 rounded-xl" value={editUnitPrice} onChange={(e) => setEditUnitPrice(e.target.value)} />
+                    <Input type="number" min={0} step="0.01" className="h-11 rounded-2xl" value={editUnitPrice} onChange={(e) => setEditUnitPrice(e.target.value)} />
                   </div>
                   <div className="grid gap-1.5">
                     <Label className={fieldLabel}>Subtotal</Label>
@@ -1006,7 +1239,7 @@ export default function InvoiceDetailPage() {
                 <div className="grid grid-cols-2 gap-3 items-end">
                   <div className="grid gap-1.5">
                     <Label className={fieldLabel}>Discount</Label>
-                    <Input type="number" min={0} step="0.01" className="h-11 rounded-xl" value={editDiscount} onChange={(e) => setEditDiscount(e.target.value)} />
+                    <Input type="number" min={0} step="0.01" className="h-11 rounded-2xl" value={editDiscount} onChange={(e) => setEditDiscount(e.target.value)} />
                   </div>
                   <div className="flex items-center gap-3 h-11">
                     <label className="flex items-center gap-2 text-sm font-semibold">
@@ -1067,43 +1300,79 @@ export default function InvoiceDetailPage() {
 
         {/* Send email */}
         <TabsContent value="email" className="outline-none">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Mail className="h-4 w-4 text-primary" />
-                Send invoice email
-              </CardTitle>
-              <CardDescription>Sends the PDF and a secure pay link for the amount below.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label className={fieldLabel}>To</Label>
-                  <Input type="email" className="h-11 rounded-xl" value={toEmail} onChange={(e) => setToEmail(e.target.value)} />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className={fieldLabel}>Subject</Label>
-                  <Input className="h-11 rounded-xl" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <div className="grid gap-6 lg:grid-cols-5">
+            {/* What goes out */}
+            <section aria-labelledby="send-title" className={cn(card, "space-y-5 p-6 lg:col-span-2")}>
+              <div className="flex items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+                  <Mail aria-hidden="true" className="size-[18px]" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="send-title" className="text-[15px] font-medium">Send or share</h2>
+                  <p className="text-[13px] text-muted-foreground">Email the invoice, or copy a link and share it yourself.</p>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="send-to" className={fieldLabel}>To</Label>
+                <Input id="send-to" type="email" className={field} value={toEmail} onChange={(e) => setToEmail(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="send-subject" className={fieldLabel}>Subject</Label>
+                <Input id="send-subject" className={field} value={subject} onChange={(e) => setSubject(e.target.value)} />
+              </div>
+              {balance > 0 ? (
                 <div className="grid gap-1.5">
-                  <Label className={fieldLabel}>Amount to request</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    className="h-11 rounded-xl"
-                    value={chargeAmount}
-                    onChange={(e) => {
-                      setChargeAmount(e.target.value);
-                      rebuildBody(e.target.value);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">A deposit (e.g. 30%) or the full balance.</p>
+                  <Label htmlFor="send-amount" className={fieldLabel}>Amount to request</Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-sm font-medium text-muted-foreground">{currency}</span>
+                    <Input
+                      id="send-amount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      inputMode="decimal"
+                      className={cn(field, "pl-14 tabular-nums")}
+                      value={chargeAmount}
+                      onChange={(e) => {
+                        setChargeAmount(e.target.value);
+                        rebuildBody(e.target.value);
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {[
+                      { label: "Full", value: balance },
+                      ...(balance >= 4 ? [{ label: "50%", value: wholeMoneyAmount(balance / 2) }] : []),
+                      ...(balance >= 10 ? [{ label: "30% deposit", value: wholeMoneyAmount(balance * 0.3) }] : []),
+                    ].map((chip) => {
+                      const active = Number(chargeAmount) === chip.value;
+                      return (
+                        <button
+                          key={chip.label}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => {
+                            setChargeAmount(String(chip.value));
+                            rebuildBody(String(chip.value));
+                          }}
+                          className={cn(
+                            pill,
+                            "h-8 px-3",
+                            active
+                              ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background"
+                              : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted",
+                          )}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                {balance > 0 ? (
-                  <div className="rounded-xl border border-border/40 p-3 space-y-2">
+              ) : null}
+              {balance > 0 ? (
+                  <div className="space-y-2 rounded-2xl bg-[#F7F6F1] p-3.5 dark:bg-muted/40">
                     <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
                       <Checkbox checked={passProcessingFee} onCheckedChange={(checked) => setPassProcessingFee(Boolean(checked))} />
                       Customer pays card fee
@@ -1117,7 +1386,7 @@ export default function InvoiceDetailPage() {
                             step="0.1"
                             aria-label="Fee percent"
                             placeholder={`${orgSettings?.stripe_card_fee_percent ?? 2.9} %`}
-                            className="h-9 rounded-lg"
+                            className="h-9 rounded-xl border-0 bg-white shadow-none dark:bg-card"
                             value={feePercentOverride}
                             onChange={(e) => setFeePercentOverride(e.target.value)}
                           />
@@ -1127,7 +1396,7 @@ export default function InvoiceDetailPage() {
                             step="0.01"
                             aria-label="Fixed fee"
                             placeholder={`${orgSettings?.stripe_card_fee_fixed ?? 1} ${currency}`}
-                            className="h-9 rounded-lg"
+                            className="h-9 rounded-xl border-0 bg-white shadow-none dark:bg-card"
                             value={feeFixedOverride}
                             onChange={(e) => setFeeFixedOverride(e.target.value)}
                           />
@@ -1143,38 +1412,184 @@ export default function InvoiceDetailPage() {
                     ) : null}
                   </div>
                 ) : null}
+              {/* Links: pay link and agreements, each usable without sending an email */}
+              <div className="divide-y divide-border/50 overflow-hidden rounded-2xl bg-[#F7F6F1] dark:bg-muted/40">
+                {balance > 0 ? (
+                  <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white dark:bg-card">
+                      <Link2 aria-hidden="true" className="size-[18px]" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">Payment link</p>
+                      {quote.pay_link_url ? (
+                        <p className="mt-0.5 flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
+                          <span className="truncate rounded-full bg-white px-2.5 py-0.5 font-mono text-[12px] text-foreground ring-1 ring-border/60 dark:bg-card" title={quote.pay_link_url}>
+                            {shortLink(quote.pay_link_url)}
+                          </span>
+                          {quote.pay_link_amount ? <span className="shrink-0">for {formatMoney(quote.pay_link_amount, currency)}</span> : null}
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-[13px] text-muted-foreground">Create a short link for the amount above and share it however you like.</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      {quote.pay_link_url ? (
+                        <Button variant="outline" size="sm" className="h-9 rounded-full" onClick={() => void copyText(quote.pay_link_url!, "Payment link copied")}>
+                          <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy
+                        </Button>
+                      ) : null}
+                      <Button variant={quote.pay_link_url ? "ghost" : "outline"} size="sm" className="h-9 rounded-full" onClick={() => void handleCreatePayLink()} disabled={payLinkBusy}>
+                        {payLinkBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Link2 className="mr-1.5 h-3.5 w-3.5" />}
+                        {quote.pay_link_url ? "New link for this amount" : "Create & copy link"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {termsAvailable ? (
+                  <div className="space-y-3 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white dark:bg-card">
+                        <FileSignature aria-hidden="true" className="size-[18px]" />
+                      </span>
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
+                        <Checkbox className="mt-0.5" checked={includeTerms} onCheckedChange={(checked) => setIncludeTerms(Boolean(checked))} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium">Add agreements to sign</span>
+                          <span className="block text-[13px] text-muted-foreground">
+                            {openTerms
+                              ? `${quote.appointment_id ? "Uses the link already open for this booking" : "Uses the link you already created"}: ${openTerms.titles.join(" · ")}`
+                              : "Adds a “Review & sign agreements” button to the email."}
+                          </span>
+                        </span>
+                      </label>
+                      <Button variant="outline" size="sm" className="h-9 shrink-0 rounded-full" onClick={() => void handleCopyTermsLink()} disabled={termsBusy || (!openTerms && chosenTerms.length === 0)}>
+                        {termsBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                        Copy agreements link
+                      </Button>
+                    </div>
+                    {!openTerms ? (
+                      termTemplates.length === 0 ? (
+                        <p className="pl-[52px] text-[13px] text-muted-foreground">No agreements are offered yet. Add them in Settings → Agreements.</p>
+                      ) : (
+                        <div role="group" aria-label="Agreements to include" className="flex flex-wrap gap-1.5 sm:pl-[52px]">
+                          {termTemplates.map((t) => {
+                            const on = Boolean(termSelection[t.id]);
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => setTermSelection((prev) => ({ ...prev, [t.id]: !on }))}
+                                className={
+                                  on
+                                    ? "flex h-8 items-center gap-1.5 rounded-full bg-[#2B2A27] px-3 text-[13px] font-medium text-[#FAF9F5] dark:bg-foreground dark:text-background"
+                                    : "flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted"
+                                }
+                              >
+                                {on ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
+                                {t.title}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
-              <div className="grid gap-1.5">
-                <Label className={fieldLabel}>Message</Label>
-                <Textarea className="min-h-70 rounded-xl" value={body} onChange={(e) => setBody(e.target.value)} />
+
+            </section>
+
+            {/* The message */}
+            <section aria-labelledby="message-title" className={cn(card, "flex flex-col p-6 lg:col-span-3")}>
+              <div className="flex items-center justify-between gap-3">
+                <h2 id="message-title" className="text-[15px] font-medium">Message</h2>
+                <span className="text-[13px] text-muted-foreground">PDF attached automatically</span>
               </div>
-              <Button className="w-full h-12 rounded-2xl font-black" onClick={() => void handleSend()} disabled={sending || !toEmail.trim()}>
+              <div className="mt-4 flex flex-1 flex-col overflow-hidden rounded-2xl bg-[#F7F6F1] dark:bg-muted/40">
+                <Textarea
+                  aria-labelledby="message-title"
+                  className="min-h-80 flex-1 resize-y rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-relaxed shadow-none focus-visible:ring-0 dark:bg-transparent"
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                />
+                {balance > 0 || (includeTerms && termsAvailable) ? (
+                  <div className="flex flex-wrap items-center justify-center gap-2 border-t border-border/50 px-5 py-4" aria-label="Buttons in the email">
+                    {balance > 0 ? (
+                      <span className="rounded-lg bg-[#c0392b] px-4 py-2 text-[13px] font-bold text-white">Pay invoice online</span>
+                    ) : null}
+                    {includeTerms && termsAvailable ? (
+                      <span className="rounded-lg bg-white px-4 py-2 text-[13px] font-bold text-[#1a1a1a] ring-1 ring-[#d4d4d4]">Review &amp; sign agreements</span>
+                    ) : null}
+                    <span className="w-full text-center text-[11px] text-muted-foreground">Buttons the client sees under your message</span>
+                  </div>
+                ) : null}
+              </div>
+              <Button className="mt-4 h-12 w-full rounded-full text-[15px] font-semibold" onClick={requestSend} disabled={sending || !toEmail.trim()}>
                 {sending ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Sending…
                   </>
                 ) : (
                   <>
-                    <Mail className="h-4 w-4 mr-2" />
-                    Send email with PDF &amp; pay link
+                    <Mail className="mr-2 h-4 w-4" />
+                    Review &amp; send email
                   </>
                 )}
               </Button>
-            </CardContent>
-          </Card>
+              <Dialog open={confirmSendOpen} onOpenChange={(next) => !sending && setConfirmSendOpen(next)}>
+                <DialogContent className="rounded-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Send this email now?</DialogTitle>
+                    <DialogDescription>Please check the details before the email goes out.</DialogDescription>
+                  </DialogHeader>
+                  <dl className="grid gap-3 rounded-xl bg-[#F7F6F1] p-4 text-sm dark:bg-muted/50">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">To</dt>
+                      <dd className="font-medium break-all">{toEmail.trim()}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Subject</dt>
+                      <dd className="font-medium">{subject.trim() || "(no subject)"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Includes</dt>
+                      <dd className="font-medium">
+                        Invoice PDF
+                        {balance > 0 ? ` · Pay button for ${formatMoney(feePreview?.gross ?? chargeNet, currency)}` : ""}
+                        {includeTerms && termsAvailable
+                          ? ` · Agreements to sign (${(openTerms?.titles ?? chosenTerms.map((t) => t.title)).join(", ")})`
+                          : ""}
+                      </dd>
+                    </div>
+                  </dl>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setConfirmSendOpen(false)} disabled={sending}>
+                      Cancel
+                    </Button>
+                    <Button onClick={() => void handleSend()} disabled={sending}>
+                      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                      {sending ? "Sending…" : "Send email"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </section>
+          </div>
         </TabsContent>
 
         {/* Payment history */}
         <TabsContent value="history" className="outline-none">
-          <Card className="border-border/50 max-w-2xl">
+          <Card className="max-w-2xl rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/60 dark:bg-card">
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
                 <Clock className="h-4 w-4 text-primary" />
                 Payment history
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4 px-7 pb-7">
               {paymentHistory.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   {paid > 0
@@ -1217,4 +1632,9 @@ export default function InvoiceDetailPage() {
       </Tabs>
     </div>
   );
+}
+
+/** "https://app.polygraph.ae/pay/k3j9xq2mpa" → "app.polygraph.ae/pay/k3j9xq2mpa". */
+function shortLink(url: string) {
+  return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
 }

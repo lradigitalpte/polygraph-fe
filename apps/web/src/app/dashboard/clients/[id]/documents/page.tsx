@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -14,18 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  DocumentVaultTabs,
-  type VaultDocument,
-} from "@/components/dashboard/document-vault-tabs";
+import { DocumentVaultTabs, VAULT_CARD, type VaultDocument } from "@/components/dashboard/document-vault-tabs";
+import { cn } from "@/lib/utils";
 import { DocumentSharesPanel } from "@/components/dashboard/document-shares-panel";
 import { FormRequestsPanel } from "@/components/dashboard/form-requests-panel";
 import { SendFormDialog } from "@/components/dashboard/send-form-dialog";
@@ -38,7 +28,7 @@ import { isOrganizationClient } from "@/lib/client-types";
 import { fetchClientFormRequests, type FormRequestRecord } from "@/lib/forms";
 import { fetchDocumentShares, type DocumentShareRecord } from "@/lib/document-shares";
 import { submitClientFormDocument, uploadClientDocument } from "@/lib/clients";
-import { Loader2, Send, Upload } from "lucide-react";
+import { Check, Loader2, PenLine, Send, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ClientDocumentsPage() {
@@ -101,15 +91,21 @@ export default function ClientDocumentsPage() {
     setSendOpen(true);
   };
 
+  const [dragging, setDragging] = React.useState(false);
+
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    await uploadFile(file);
+  };
+
+  const uploadFile = async (file: File) => {
     const thenSend = sendAfterUploadRef.current;
     sendAfterUploadRef.current = false;
     setUploading(true);
     try {
       const created = await uploadClientDocument(clientId, file, uploadType);
-      toast.success("File saved to vault");
+      toast.success(`${file.name} saved to the vault`);
       await refreshDocuments();
       if (thenSend) {
         setSendTarget({ documentId: created.id, documentName: created.name });
@@ -173,14 +169,18 @@ export default function ClientDocumentsPage() {
     form_data: d.form_data,
   }));
 
+  const chip = (active: boolean) =>
+    cn(
+      "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+      active ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background" : "bg-[#F3F1EA] text-[#3D3929] hover:bg-[#ECE9E0] dark:bg-muted dark:text-foreground",
+    );
+  const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Document Vault</h2>
-        <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
-          Send forms by email, collect completed answers, or upload files for {client.name}. Use the
-          tabs below — each step is separate so nothing overlaps.
-        </p>
+        <h2 className="text-2xl font-semibold tracking-[-0.02em]">Document vault</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Everything on file for {client.name}: forms they filled in, signed agreements and files your team uploaded.</p>
       </div>
 
       <DocumentVaultTabs
@@ -188,173 +188,146 @@ export default function ClientDocumentsPage() {
         documents={vaultDocs}
         pendingCount={pendingForms}
         onSendDocument={handleSendDocument}
-        sharesPanel={
-          <DocumentSharesPanel
-            shares={shares}
-            loading={sharesLoading}
-            onRefresh={() => void loadShares()}
-          />
-        }
+        sharesPanel={<DocumentSharesPanel shares={shares} loading={sharesLoading} onRefresh={() => void loadShares()} />}
         sendTab={
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-3">
-              <SendFormDialog
-                clientId={clientId}
-                clientName={client.name}
-                defaultEmail={client.email}
-                audience={isOrganizationClient(client) ? "corporate" : "individual"}
-                onSent={() => void handleFormSent()}
-                trigger={
-                  <Button size="lg" className="gap-2">
-                    <Send className="h-4 w-4" />
-                    Send form link by email
-                  </Button>
-                }
-              />
-            </div>
-            <FormRequestsPanel
-              requests={formRequests}
-              loading={requestsLoading}
-              onRefresh={() => void loadFormRequests()}
+          <div className="space-y-5">
+            <SendFormDialog
+              clientId={clientId}
+              clientName={client.name}
+              defaultEmail={client.email}
+              audience={isOrganizationClient(client) ? "corporate" : "individual"}
+              onSent={() => void handleFormSent()}
+              trigger={
+                <Button className="h-11 gap-2 rounded-full px-5">
+                  <Send className="h-4 w-4" />
+                  Send a form link
+                </Button>
+              }
             />
+            <FormRequestsPanel requests={formRequests} loading={requestsLoading} onRefresh={() => void loadFormRequests()} />
           </div>
         }
         uploadTab={
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Upload a file</CardTitle>
-              <CardDescription>
-                PDFs, scans, reports, or any document you already have on disk.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 max-w-md">
-              <div className="space-y-2">
-                <Label>Document type</Label>
-                <Select value={uploadType} onValueChange={(value) => setUploadType(String(value))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="upload">General file</SelectItem>
-                    <SelectItem value="consent_form">Consent (scan)</SelectItem>
-                    <SelectItem value="intake_form">Intake (scan)</SelectItem>
-                    <SelectItem value="report">Report</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+          <section className={cn(VAULT_CARD, "space-y-5 p-6")}>
+            <div>
+              <h3 className="text-[15px] font-medium">Upload a file</h3>
+              <p className="text-[13px] text-muted-foreground">PDFs, scans, photos or reports you already have.</p>
+            </div>
+            <div className="grid gap-1.5">
+              <span className="px-1 text-[13px] font-medium">What is it?</span>
+              <div role="radiogroup" aria-label="Document type" className="flex flex-wrap gap-1.5">
+                {[
+                  { value: "upload", label: "General file" },
+                  { value: "consent_form", label: "Consent (scan)" },
+                  { value: "intake_form", label: "Intake (scan)" },
+                  { value: "report", label: "Report" },
+                  { value: "other", label: "Other" },
+                ].map((t) => (
+                  <button key={t.value} type="button" role="radio" aria-checked={uploadType === t.value} onClick={() => setUploadType(t.value)} className={chip(uploadType === t.value)}>
+                    {uploadType === t.value ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  className="flex-1"
-                  disabled={uploading}
-                  onClick={() => {
-                    sendAfterUploadRef.current = false;
-                    fileInputRef.current?.click();
-                  }}
-                >
-                  {uploading ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Upload className="h-4 w-4 mr-2" />
-                  )}
-                  Choose file to upload
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 gap-2"
-                  disabled={uploading}
-                  onClick={() => {
-                    sendAfterUploadRef.current = true;
-                    fileInputRef.current?.click();
-                  }}
-                >
-                  <Send className="h-4 w-4" />
-                  Upload &amp; send
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                sendAfterUploadRef.current = false;
+                fileInputRef.current?.click();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) {
+                  sendAfterUploadRef.current = false;
+                  void uploadFile(file);
+                }
+              }}
+              className={cn(
+                "flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors disabled:opacity-60",
+                dragging ? "border-primary bg-primary/5" : "border-border bg-[#F7F6F1] hover:bg-[#F3F1EA] dark:bg-muted/40 dark:hover:bg-muted",
+              )}
+            >
+              {uploading ? <Loader2 aria-hidden="true" className="size-7 animate-spin text-muted-foreground" /> : <Upload aria-hidden="true" className="size-7 text-muted-foreground" />}
+              <span className="text-sm font-medium">{uploading ? "Uploading…" : dragging ? "Drop to upload" : "Drop a file here, or click to choose"}</span>
+              <span className="text-xs text-muted-foreground">It&apos;s saved to the vault straight away.</span>
+            </button>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                sendAfterUploadRef.current = true;
+                fileInputRef.current?.click();
+              }}
+              className="flex h-10 items-center gap-1.5 rounded-full px-4 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-60 dark:hover:bg-muted"
+            >
+              <Send aria-hidden="true" className="size-3.5" /> Upload, then send it to the client
+            </button>
+          </section>
         }
         manualTab={
           <Dialog open={formOpen} onOpenChange={setFormOpen}>
-            <DialogTrigger render={<Button variant="outline" />}>Open staff entry form</DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogTrigger render={<Button className="h-11 gap-2 rounded-full px-5" />}>
+              <PenLine className="h-4 w-4" /> Type in a paper form
+            </DialogTrigger>
+            <DialogContent className="max-w-lg rounded-[26px]">
               <form onSubmit={handleFormSubmit}>
                 <DialogHeader>
-                  <DialogTitle>Staff entry — paper form</DialogTitle>
-                  <DialogDescription>
-                    Type what is on a signed paper form. This does not email the client.
-                  </DialogDescription>
+                  <DialogTitle>Paper form</DialogTitle>
+                  <DialogDescription>Type what&apos;s on the signed paper form. Nothing is emailed to the client.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="form-name">Title on file</Label>
-                    <Input
-                      id="form-name"
-                      value={formName}
-                      onChange={(e) => setFormName(e.target.value)}
-                      required
-                    />
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="form-name" className="px-1 text-[13px] font-medium">Title on file</Label>
+                    <Input id="form-name" className={FIELD} value={formName} onChange={(e) => setFormName(e.target.value)} required />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Select value={formType} onValueChange={(value) => setFormType(String(value))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="intake_form">Intake</SelectItem>
-                        <SelectItem value="consent_form">Consent</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="grid gap-1.5">
+                    <span className="px-1 text-[13px] font-medium">Category</span>
+                    <div role="radiogroup" aria-label="Category" className="flex flex-wrap gap-1.5">
+                      {[
+                        { value: "intake_form", label: "Intake" },
+                        { value: "consent_form", label: "Consent" },
+                        { value: "other", label: "Other" },
+                      ].map((t) => (
+                        <button key={t.value} type="button" role="radio" aria-checked={formType === t.value} onClick={() => setFormType(t.value)} className={chip(formType === t.value)}>
+                          {formType === t.value ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : null}
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="full-name">Full name</Label>
-                    <Input
-                      id="full-name"
-                      value={formFields.full_name}
-                      onChange={(e) =>
-                        setFormFields((f) => ({ ...f, full_name: e.target.value }))
-                      }
-                    />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="full-name" className="px-1 text-[13px] font-medium">Full name</Label>
+                      <Input id="full-name" className={FIELD} value={formFields.full_name} onChange={(e) => setFormFields((f) => ({ ...f, full_name: e.target.value }))} />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="id-number" className="px-1 text-[13px] font-medium">ID number</Label>
+                      <Input id="id-number" className={FIELD} value={formFields.id_number} onChange={(e) => setFormFields((f) => ({ ...f, id_number: e.target.value }))} />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="id-number">ID number</Label>
-                    <Input
-                      id="id-number"
-                      value={formFields.id_number}
-                      onChange={(e) =>
-                        setFormFields((f) => ({ ...f, id_number: e.target.value }))
-                      }
-                    />
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="reason" className="px-1 text-[13px] font-medium">Reason for exam</Label>
+                    <Textarea id="reason" className="rounded-xl border-0 bg-[#F3F1EA] shadow-none dark:bg-muted" value={formFields.reason_for_exam} onChange={(e) => setFormFields((f) => ({ ...f, reason_for_exam: e.target.value }))} />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reason">Reason for exam</Label>
-                    <Textarea
-                      id="reason"
-                      value={formFields.reason_for_exam}
-                      onChange={(e) =>
-                        setFormFields((f) => ({ ...f, reason_for_exam: e.target.value }))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="notes">Notes</Label>
-                    <Textarea
-                      id="notes"
-                      value={formFields.additional_notes}
-                      onChange={(e) =>
-                        setFormFields((f) => ({ ...f, additional_notes: e.target.value }))
-                      }
-                    />
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="notes" className="px-1 text-[13px] font-medium">Notes</Label>
+                    <Textarea id="notes" className="rounded-xl border-0 bg-[#F3F1EA] shadow-none dark:bg-muted" value={formFields.additional_notes} onChange={(e) => setFormFields((f) => ({ ...f, additional_notes: e.target.value }))} />
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={savingForm}>
-                    {savingForm && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Save to Received
+                  <Button type="submit" className="rounded-full" disabled={savingForm}>
+                    {savingForm && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save to vault
                   </Button>
                 </DialogFooter>
               </form>

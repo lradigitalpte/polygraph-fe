@@ -7,6 +7,10 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
   Calendar as CalendarIcon,
+  Check,
+  Tag,
+  UserRound,
+  Users,
   Clock,
   CreditCard,
   History,
@@ -69,6 +73,7 @@ import {
   generateBookingTimeSlots,
 } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
+import { GlowPanel, SearchResultOption, SearchResults, displayEmail } from "@/components/dashboard/ui-kit";
 
 const paymentTypes = ["Bank Transfer", "Credit Card", "Cash"];
 
@@ -702,51 +707,115 @@ function BookAppointmentPageContent() {
   const selectedSubjectLabel = useClientAsSubject ? formData.clientName || "Not selected" : formData.subjectName || "Not selected";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 px-3 pb-12 sm:space-y-6 sm:px-4 sm:pb-20 lg:px-0">
-      <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-muted/50 sm:h-10 sm:w-10" onClick={() => router.back()}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              {convertQuotationId ? "Convert Quotation to Booking" : "Book New Exam"}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {convertQuotationId
-                ? "Schedule this quoted service — the quote becomes its invoice."
-                : "Clinical scheduling & intake."}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Step {step} of 4 — {STEP_LABELS[step - 1]}
-          </p>
-          <div className="flex items-center gap-2">
-            {[1, 2, 3, 4].map((item) => (
-              <div
-                key={item}
-                className={cn(
-                  "h-2 rounded-full transition-all duration-300",
-                  step === item ? "w-8 bg-primary" : "w-2 bg-muted-foreground/20",
+    <div className="mx-auto max-w-[1280px] space-y-5 pb-12 sm:pb-20">
+      <GlowPanel tone="terracotta" orb="78%" lineTop={0} className="px-5 pt-6 pb-5 sm:px-7 sm:pt-7">
+        <div className="flex flex-col gap-6">
+          <div className="flex items-start gap-4">
+            <button
+              type="button"
+              aria-label="Go back"
+              onClick={() => router.back()}
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/15"
+            >
+              <ArrowLeft aria-hidden="true" className="size-4" />
+            </button>
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="text-[13px] font-medium tracking-[0.1em] text-[#C9C6BC] uppercase">Calendar</span>
+              <h1 className="text-2xl leading-tight font-normal tracking-[-0.03em] sm:text-[34px]">
+                {convertQuotationId ? (
+                  <>
+                    Convert quote to <span className="font-semibold">booking</span>
+                  </>
+                ) : (
+                  <>
+                    Book a new <span className="font-semibold">exam</span>
+                  </>
                 )}
-              />
-            ))}
+              </h1>
+              <p className="text-sm text-[#C9C6BC]">
+                {convertQuotationId
+                  ? "Schedule this quoted service. The quote becomes its invoice."
+                  : "Pick who is being tested, assign an examiner and a time, then confirm."}
+              </p>
+            </div>
           </div>
+
+          {/* Stepper */}
+          <ol aria-label="Booking progress" className="grid grid-cols-4 gap-2">
+            {STEP_LABELS.map((label, index) => {
+              const number = index + 1;
+              const done = step > number;
+              const active = step === number;
+              return (
+                <li key={label} className="min-w-0">
+                  <button
+                    type="button"
+                    disabled={!done || isBooking}
+                    onClick={() => setStep(number)}
+                    aria-current={active ? "step" : undefined}
+                    className="group flex w-full min-w-0 flex-col gap-2.5 text-left disabled:cursor-default"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "h-1 w-full overflow-hidden rounded-full bg-white/10",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "block h-full rounded-full transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
+                          done ? "w-full bg-[#FAF9F5]" : active ? "w-1/2 bg-primary" : "w-0",
+                        )}
+                      />
+                    </span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={cn(
+                          "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                          done
+                            ? "bg-[#FAF9F5] text-[#1A1915] group-hover:bg-white"
+                            : active
+                              ? "bg-primary text-[#1A1915]"
+                              : "bg-white/10 text-[#C9C6BC] ring-1 ring-white/15",
+                        )}
+                      >
+                        {done ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : number}
+                      </span>
+                      <span
+                        className={cn(
+                          "hidden truncate text-[13px] sm:inline",
+                          active ? "font-medium text-[#FAF9F5]" : done ? "text-[#ECE9E0] group-hover:underline" : "text-[#8E8B82]",
+                        )}
+                      >
+                        {label}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="-mt-3 text-[13px] text-[#C9C6BC] sm:hidden">
+            Step {step} of 4 · {STEP_LABELS[step - 1]}
+          </p>
         </div>
-      </div>
+      </GlowPanel>
 
       {isOrgBooking && formData.clientId && (
-        <Card className="border-primary/25 bg-primary/5">
-          <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-primary">Organization booking</p>
-              <p className="text-sm font-semibold">{formData.clientName}</p>
-              <p className="text-xs text-muted-foreground mt-1">
+        <Card className="rounded-[24px] border-0 bg-primary/10 shadow-none ring-0">
+          <CardContent className="flex flex-col justify-between gap-3 py-4 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white text-[oklch(0.45_0.12_39)] dark:bg-card dark:text-primary">
+                <Users aria-hidden="true" className="size-4" />
+              </span>
+              <div>
+              <p className="text-[13px] font-medium text-[oklch(0.45_0.12_39)] dark:text-primary">Organisation booking</p>
+              <p className="text-[15px] font-medium">{formData.clientName}</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
                 Billing stays on this account. Step 1: pick the examinee. Step 2: examiner must be
                 available at the time you choose.
               </p>
+              </div>
             </div>
             <Button
               variant="outline"
@@ -759,25 +828,30 @@ function BookAppointmentPageContent() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
-        <div className="space-y-4 sm:space-y-6 lg:col-span-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6">
+        <div className="min-w-0 space-y-5">
           {isLoadingInitialData ? (
-            <Card className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-md">
-              <CardContent className="p-5 text-sm text-muted-foreground sm:p-8">Loading booking data...</CardContent>
-            </Card>
+            <div className="flex flex-col gap-4 rounded-[28px] bg-white p-6 ring-1 ring-border/50 dark:bg-card">
+              <div className="h-6 w-48 animate-pulse rounded-lg bg-muted" />
+              <div className="h-11 w-full animate-pulse rounded-xl bg-muted" />
+              <div className="h-11 w-full animate-pulse rounded-xl bg-muted" />
+              <div className="h-24 w-full animate-pulse rounded-xl bg-muted" />
+            </div>
           ) : (
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                  <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/50 shadow-sm backdrop-blur-md">
-                    <CardHeader className="border-b border-border/50 bg-muted/30 pb-3 sm:pb-4">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        <User className="h-5 w-5 text-primary" />
+                  <Card className="overflow-visible rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+                    <CardHeader className="gap-1.5 border-b border-border/50 px-5 pt-6 pb-5 sm:px-7">
+                      <CardTitle className="flex items-center gap-3 text-lg font-medium tracking-[-0.01em]">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                          <User aria-hidden="true" className="size-4" />
+                        </span>
                         Client & Exam Selection
                       </CardTitle>
                       <CardDescription>Search the requesting client, confirm who is being tested, and attach a real exam protocol.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4 p-4 sm:space-y-6 sm:p-6">
+                    <CardContent className="space-y-5 p-5 sm:space-y-6 sm:p-7">
                       <div className="space-y-2">
                         <Label htmlFor="client-search">
                           {isOrgBooking && formData.clientId ? "Account (organization)" : "Search client"}
@@ -798,32 +872,42 @@ function BookAppointmentPageContent() {
                           </div>
                         ) : (
                         <div className="relative" ref={clientSearchRef}>
-                          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
                           <Input
                             id="client-search"
                             placeholder="Search organization or individual..."
-                            className="h-10 rounded-xl border-border/50 bg-muted/20 pl-10 sm:h-12"
+                            className="h-12 rounded-xl border-0 bg-[#F3F1EA] pl-11 text-sm shadow-none transition-colors focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-primary/30 dark:bg-muted dark:focus-visible:bg-card"
                             value={clientSearch}
                             onFocus={() => setShowClientResults(true)}
                             onChange={(event) => setClientSearch(event.target.value)}
                           />
                           {showClientResults && (
-                            <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-border/50 bg-card shadow-2xl backdrop-blur-xl">
+                            <SearchResults label="Clients">
                               {clients.length > 0 ? (
-                                clients.map((client) => (
-                                  <button
-                                    key={client.id}
-                                    className="flex w-full flex-col gap-0.5 border-b border-border/30 px-4 py-3 text-left transition-colors last:border-0 hover:bg-primary/5"
-                                    onClick={() => handleSelectClient(client)}
-                                  >
-                                    <span className="text-sm font-bold text-foreground">{client.name}</span>
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{client.email}</span>
-                                  </button>
-                                ))
+                                clients.map((client) => {
+                                  const isOrg = isOrganizationClient(client);
+                                  return (
+                                    <SearchResultOption
+                                      key={client.id}
+                                      name={client.name}
+                                      secondary={displayEmail(client.email)}
+                                      query={clientSearch}
+                                      badge={isOrg ? "Organisation" : "Individual"}
+                                      avatarTone={isOrg ? "org" : "person"}
+                                      selected={formData.clientId === String(client.id)}
+                                      onSelect={() => handleSelectClient(client)}
+                                    />
+                                  );
+                                })
                               ) : (
-                                <div className="p-4 text-center text-sm italic text-muted-foreground">No clients found.</div>
+                                <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
+                                  <span className="text-sm font-medium">No clients match &ldquo;{clientSearch}&rdquo;</span>
+                                  <Link href="/dashboard/clients/new" className="text-[13px] text-[oklch(0.45_0.12_39)] hover:underline dark:text-primary">
+                                    Register a new client
+                                  </Link>
+                                </div>
                               )}
-                            </div>
+                            </SearchResults>
                           )}
                         </div>
                         )}
@@ -879,11 +963,11 @@ function BookAppointmentPageContent() {
                           <div className="space-y-2">
                             <Label htmlFor="subject-search">Search or type examinee name</Label>
                             <div className="relative" ref={subjectSearchRef}>
-                              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
                               <Input
                                 id="subject-search"
                                 placeholder="Type examinee name (e.g. spouse, relative) or search existing..."
-                                className="h-10 rounded-xl border-border/50 bg-muted/20 pl-10 sm:h-12"
+                                className="h-12 rounded-xl border-0 bg-[#F3F1EA] pl-11 text-sm shadow-none transition-colors focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-primary/30 dark:bg-muted dark:focus-visible:bg-card"
                                 value={subjectSearch}
                                 onFocus={() => setShowSubjectResults(true)}
                                 onChange={(event) => {
@@ -899,31 +983,13 @@ function BookAppointmentPageContent() {
                                 }}
                               />
                               {showSubjectResults && (
-                                <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-border/50 bg-card shadow-2xl backdrop-blur-xl">
-                                  {subjects.length > 0 && (
-                                    subjects.map((subject) => {
-                                      const label = `${subject.first_name} ${subject.last_name}`.trim();
-                                      return (
-                                        <button
-                                          key={subject.id}
-                                          type="button"
-                                          className="flex w-full flex-col gap-0.5 border-b border-border/30 px-4 py-3 text-left transition-colors last:border-0 hover:bg-primary/5"
-                                          onClick={() => handleSelectSubject(subject)}
-                                        >
-                                          <span className="text-sm font-bold text-foreground">{label}</span>
-                                          <span className="text-[10px] text-muted-foreground">
-                                            {[subject.email, subject.phone].filter(Boolean).join(" · ") ||
-                                              subject.employee_ref ||
-                                              "Existing Examinee"}
-                                          </span>
-                                        </button>
-                                      );
-                                    })
-                                  )}
-                                  {subjectSearch.trim().length > 0 && (
+                                <SearchResults
+                                  label="Examinees"
+                                  footer={
+                                    subjectSearch.trim().length > 0 ? (
                                     <button
                                       type="button"
-                                      className="flex w-full items-center gap-2 border-t border-border/30 px-4 py-3 text-left transition-colors hover:bg-primary/10 text-primary font-semibold text-sm"
+                                      className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-primary/10"
                                       onClick={() => {
                                         setFormData((prev) => ({
                                           ...prev,
@@ -933,23 +999,49 @@ function BookAppointmentPageContent() {
                                         setShowSubjectResults(false);
                                       }}
                                     >
-                                      <Plus className="h-4 w-4 shrink-0" />
-                                      <span>Use &quot;{subjectSearch.trim()}&quot; as new examinee linked to this client</span>
+                                      <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                                        <Plus aria-hidden="true" className="size-4" />
+                                      </span>
+                                      <span className="flex min-w-0 flex-col">
+                                        <span className="truncate font-medium">Add &ldquo;{subjectSearch.trim()}&rdquo; as a new examinee</span>
+                                        <span className="truncate text-[13px] text-muted-foreground">Linked to {formData.clientName || "this client"}</span>
+                                      </span>
                                     </button>
-                                  )}
-                                  {subjects.length === 0 && !subjectSearch.trim() && (
-                                    <div className="p-4 text-center text-sm italic text-muted-foreground">
-                                      Type examinee name (e.g. spouse&apos;s name)...
+                                    ) : undefined
+                                  }
+                                >
+                                  {subjects.map((subject) => {
+                                    const label = `${subject.first_name} ${subject.last_name}`.trim();
+                                    const detail =
+                                      [displayEmail(subject.email), subject.phone].filter(Boolean).join(" · ") ||
+                                      (subject.employee_ref ? `Ref ${subject.employee_ref}` : "Existing examinee");
+                                    return (
+                                      <SearchResultOption
+                                        key={subject.id}
+                                        name={label}
+                                        secondary={detail}
+                                        query={subjectSearch}
+                                        avatarTone="person"
+                                        selected={formData.subjectId === String(subject.id)}
+                                        onSelect={() => handleSelectSubject(subject)}
+                                      />
+                                    );
+                                  })}
+                                  {subjects.length === 0 && (
+                                    <div className="px-4 py-5 text-center text-[13px] text-muted-foreground">
+                                      {subjectSearch.trim()
+                                        ? "No existing examinee matches. Add them as new below."
+                                        : "Start typing a name, e.g. a spouse or relative."}
                                     </div>
                                   )}
-                                </div>
+                                </SearchResults>
                               )}
                             </div>
 
                             {!useClientAsSubject && formData.subjectName.trim() && !formData.subjectId && (
                               <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-xs">
                                 <div>
-                                  <span className="font-bold text-primary uppercase tracking-wider text-[10px] block">New Examinee</span>
+                                  <span className="block text-[13px] font-medium text-[oklch(0.45_0.12_39)] dark:text-primary">New examinee</span>
                                   <span className="font-semibold text-foreground text-sm">{formData.subjectName}</span>
                                   <p className="text-muted-foreground mt-0.5">
                                     Will be registered as a new examinee linked to client <strong className="text-foreground">{formData.clientName || "selected client"}</strong> upon booking.
@@ -964,7 +1056,7 @@ function BookAppointmentPageContent() {
                             {!useClientAsSubject && formData.subjectId && (
                               <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs">
                                 <div>
-                                  <span className="font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider text-[10px] block">Selected Existing Examinee</span>
+                                  <span className="block text-[13px] font-medium text-emerald-700 dark:text-emerald-400">Existing examinee selected</span>
                                   <span className="font-semibold text-foreground text-sm">{formData.subjectName}</span>
                                 </div>
                                 <Button
@@ -999,7 +1091,7 @@ function BookAppointmentPageContent() {
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div className="space-y-1.5">
-                              <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                              <Label className="text-[13px] font-medium text-muted-foreground">
                                 English proficiency
                               </Label>
                               <Select
@@ -1130,10 +1222,12 @@ function BookAppointmentPageContent() {
 
               {step === 2 && (
                 <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                  <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/50 shadow-sm backdrop-blur-md">
-                    <CardHeader className="border-b border-border/50 bg-muted/30 pb-3 sm:pb-4">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        <Shield className="h-5 w-5 text-primary" />
+                  <Card className="overflow-visible rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+                    <CardHeader className="gap-1.5 border-b border-border/50 px-5 pt-6 pb-5 sm:px-7">
+                      <CardTitle className="flex items-center gap-3 text-lg font-medium tracking-[-0.01em]">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                          <Shield aria-hidden="true" className="size-4" />
+                        </span>
                         Examiner Availability
                       </CardTitle>
                       <CardDescription>
@@ -1141,16 +1235,16 @@ function BookAppointmentPageContent() {
                         Past times stay available when you need to log an exam that already happened.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-5 p-4 sm:space-y-8 sm:p-6">
+                    <CardContent className="space-y-6 p-5 sm:space-y-8 sm:p-7">
                       <div className="space-y-3">
-                        <Label htmlFor="examiner-search" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                        <Label htmlFor="examiner-search" className="text-[13px] font-medium text-muted-foreground">
                           Search Examiner
                         </Label>
                         <div className="relative">
-                          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 z-10 size-4 -translate-y-1/2 text-muted-foreground" />
                           <Input
                             id="examiner-search"
-                            className="h-10 rounded-xl border-border/50 bg-muted/20 pl-10 sm:h-12"
+                            className="h-12 rounded-xl border-0 bg-[#F3F1EA] pl-11 text-sm shadow-none transition-colors focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-primary/30 dark:bg-muted dark:focus-visible:bg-card"
                             placeholder="Search active or pending examiners..."
                             value={examinerSearch}
                             onChange={(event) => setExaminerSearch(event.target.value)}
@@ -1171,9 +1265,9 @@ function BookAppointmentPageContent() {
                                   : "border-border/50 bg-muted/10 hover:border-primary/30 hover:bg-muted/20",
                               )}
                             >
-                              <p className="text-sm font-bold text-foreground">{examiner.name}</p>
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{examiner.email}</p>
-                              <Badge variant="outline" className="mt-2 text-[10px] uppercase">
+                              <p className="text-sm font-medium text-foreground">{examiner.name}</p>
+                              <p className="truncate text-[13px] text-muted-foreground">{displayEmail(examiner.email)}</p>
+                              <Badge variant="outline" className="mt-2 rounded-full text-[11px] capitalize">
                                 {examiner.status}
                               </Badge>
                             </button>
@@ -1183,7 +1277,7 @@ function BookAppointmentPageContent() {
 
                       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-8">
                         <div className="space-y-3">
-                          <Label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Examination Date</Label>
+                          <Label className="text-[13px] font-medium text-muted-foreground">Examination Date</Label>
                           <div className="relative">
                             <CalendarIcon className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
@@ -1219,7 +1313,7 @@ function BookAppointmentPageContent() {
                         </div>
 
                         <div className="space-y-3">
-                          <Label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+                          <Label className="text-[13px] font-medium text-muted-foreground">
                             Available Slots (Dubai time)
                           </Label>
                           {presetTime && (
@@ -1278,15 +1372,17 @@ function BookAppointmentPageContent() {
 
               {step === 3 && (
                 <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                  <Card className="overflow-hidden rounded-2xl border-border/50 bg-card/50 shadow-sm backdrop-blur-md">
-                    <CardHeader className="bg-muted/30 pb-3 sm:pb-4">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        <CreditCard className="h-5 w-5 text-primary" />
+                  <Card className="overflow-visible rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+                    <CardHeader className="gap-1.5 border-b border-border/50 px-5 pt-6 pb-5 sm:px-7">
+                      <CardTitle className="flex items-center gap-3 text-lg font-medium tracking-[-0.01em]">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                          <CreditCard aria-hidden="true" className="size-4" />
+                        </span>
                         Payment & Background
                       </CardTitle>
                       <CardDescription>Capture payment mode and the case context that will be handed to the examiner.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4 p-4 sm:space-y-6 sm:p-6">
+                    <CardContent className="space-y-5 p-5 sm:space-y-6 sm:p-7">
                       {isOrgBooking && (prepaidSummary?.available ?? 0) > 0 ? (
                         <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
                           <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
@@ -1386,13 +1482,18 @@ function BookAppointmentPageContent() {
 
               {step === 4 && (
                 <motion.div key="step4" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                  <Card className="rounded-3xl border-border/50 bg-card/50 shadow-xl backdrop-blur-md">
-                    <CardHeader className="pb-4 sm:pb-6">
-                      <CardTitle className="text-xl sm:text-2xl">Review Appointment</CardTitle>
-                      <CardDescription>Confirm the booking before it is written to the backend.</CardDescription>
+                  <Card className="overflow-visible rounded-[28px] border-0 bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+                    <CardHeader className="gap-1.5 border-b border-border/50 px-5 pt-6 pb-5 sm:px-7">
+                      <CardTitle className="flex items-center gap-3 text-lg font-medium tracking-[-0.01em]">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary">
+                          <Check aria-hidden="true" className="size-4" strokeWidth={2.5} />
+                        </span>
+                        Review &amp; confirm
+                      </CardTitle>
+                      <CardDescription>Check every detail. Nothing is saved until you confirm.</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4 px-4 pb-4 sm:space-y-6 sm:px-6 sm:pb-6">
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <CardContent className="space-y-5 p-5 sm:p-7">
+                      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
                         <ReviewItem label="Client" value={formData.clientName || "Not selected"} />
                         <ReviewItem label="Subject" value={selectedSubjectLabel} />
                         <ReviewItem label="Exam Type" value={selectedExamType?.name || "Not selected"} />
@@ -1423,9 +1524,9 @@ function BookAppointmentPageContent() {
                           }
                         />
                       </div>
-                      <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Background</p>
-                        <p className="mt-2 text-sm leading-relaxed text-foreground">{formData.reason || "No background provided."}</p>
+                      <div className="rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/50">
+                        <p className="text-[13px] text-muted-foreground">Case notes</p>
+                        <p className="mt-1.5 text-sm leading-relaxed text-foreground">{formData.reason || "No case notes provided."}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -1435,103 +1536,140 @@ function BookAppointmentPageContent() {
           )}
         </div>
 
-        <div className="space-y-4 sm:space-y-6">
-          <Card className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-md">
-            <CardHeader>
-              <CardTitle className="text-lg">Booking Summary</CardTitle>
-              <CardDescription>Quick summary of your current booking details.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
-              <SummaryRow label="Client" value={formData.clientName || "Not selected"} />
-              <SummaryRow label="Subject" value={selectedSubjectLabel} />
-              <SummaryRow label="Type" value={selectedExamType?.name || "Not selected"} />
-              <SummaryRow
-                label="Price"
-                value={
-                  selectedExamType
-                    ? formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency)
-                    : "Not set"
-                }
-              />
-              <SummaryRow label="Examiner" value={selectedExaminer?.name || "Not assigned"} />
-              <SummaryRow
-                label="Time Slot"
-                value={
-                  formData.date && formData.time
-                    ? `${formData.date} @ ${formData.time}${isBackdatedBooking ? " (backdated)" : ""}`
-                    : "Not scheduled"
-                }
-              />
-              {isBackdatedBooking && (
-                <div className="col-span-full flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-amber-900 dark:text-amber-100">
-                  <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
-                  <p className="text-[11px] leading-relaxed">
-                    Backdated time — this logs an exam that already happened.
-                  </p>
+        <aside className="lg:sticky lg:top-4">
+          <GlowPanel tone="ink" orb="80%" lineTop={0} className="p-5 sm:p-6">
+            {(() => {
+              const timeLabel =
+                formData.date && formData.time
+                  ? `${formData.date} · ${formData.time}${isBackdatedBooking ? " (backdated)" : ""}`
+                  : "";
+              const items = [
+                { icon: UserRound, label: "Client", value: formData.clientName || "" },
+                { icon: User, label: "Examinee", value: selectedSubjectLabel && selectedSubjectLabel !== "Not selected" ? selectedSubjectLabel : "" },
+                { icon: Tag, label: "Exam type", value: selectedExamType?.name || "" },
+                { icon: Shield, label: "Examiner", value: selectedExaminer?.name || "" },
+                { icon: CalendarIcon, label: "Time", value: timeLabel },
+                { icon: CreditCard, label: "Payment", value: formData.paymentType || "" },
+              ];
+              const filled = items.filter((item) => item.value).length;
+              const price = selectedExamType ? formatMoney(examPriceInOrg(selectedExamType.price), orgCurrency) : null;
+              const duration = selectedExamType ? selectedExamType.duration : 150;
+              return (
+                <div className="flex flex-col gap-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-[13px] font-semibold tracking-[0.1em] uppercase">Summary</h2>
+                    <span className="font-mono text-xs text-[#B5B2A8]">
+                      {filled}/{items.length} details
+                    </span>
+                  </div>
+
+                  <ul className="flex flex-col gap-1">
+                    {items.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <li key={item.label} className="flex items-start gap-3 rounded-xl px-1 py-2">
+                          <span
+                            className={cn(
+                              "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full transition-colors",
+                              item.value ? "bg-[#FAF9F5] text-[#1A1915]" : "bg-white/[0.06] text-[#8E8B82] ring-1 ring-white/10",
+                            )}
+                          >
+                            {item.value ? <Check aria-hidden="true" className="size-3.5" strokeWidth={3} /> : <Icon aria-hidden="true" className="size-3.5" />}
+                          </span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="text-xs text-[#B5B2A8]">{item.label}</span>
+                            <span className={cn("text-sm wrap-break-word", item.value ? "text-[#FAF9F5]" : "text-[#8E8B82]")}>
+                              {item.value || "Not set yet"}
+                            </span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  {isBackdatedBooking && (
+                    <div className="flex items-start gap-2 rounded-xl bg-[#E2B35A]/15 px-3 py-2.5 text-[#F3D79B] ring-1 ring-[#E2B35A]/30">
+                      <History aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                      <p className="text-xs leading-relaxed">Backdated time: this logs an exam that already happened.</p>
+                    </div>
+                  )}
+
+                  <div className="flex items-end justify-between gap-3 border-t border-white/10 pt-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-[#B5B2A8]">Price</span>
+                      <span className="font-mono text-2xl tabular-nums">{price ?? "–"}</span>
+                    </div>
+                    <span className="flex items-center gap-1.5 text-[13px] text-[#C9C6BC]">
+                      <Clock aria-hidden="true" className="size-3.5" />
+                      {(duration / 60).toFixed(duration % 60 === 0 ? 0 : 1)} h
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[auto_1fr] gap-2">
+                    <button
+                      type="button"
+                      disabled={step === 1 || isBooking}
+                      onClick={() => setStep((current) => Math.max(1, current - 1))}
+                      className="h-12 rounded-full bg-white/[0.07] px-5 text-sm font-medium text-[#FAF9F5] ring-1 ring-white/15 transition-colors hover:bg-white/[0.12] disabled:pointer-events-none disabled:opacity-35"
+                    >
+                      Back
+                    </button>
+                    {step < 4 ? (
+                      <button
+                        type="button"
+                        disabled={!isStepValid() || isContinueLoading}
+                        aria-busy={isContinueLoading}
+                        onClick={() => setStep((current) => Math.min(4, current + 1))}
+                        className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#FAF9F5] px-6 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-white disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        {isContinueLoading ? (
+                          <>
+                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                            Checking…
+                          </>
+                        ) : (
+                          <>Continue to {STEP_LABELS[step].toLowerCase()}</>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={isBooking || !isStepValid()}
+                        aria-busy={isBooking}
+                        onClick={() => void handleComplete()}
+                        className="flex h-12 items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-[#1A1915] transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        {isBooking ? (
+                          <>
+                            <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                            Booking…
+                          </>
+                        ) : isBackdatedBooking ? (
+                          "Confirm backdated booking"
+                        ) : (
+                          "Confirm booking"
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {step < 4 && !isStepValid() && !isContinueLoading ? (
+                    <p className="-mt-2 text-center text-xs text-[#8E8B82]">Complete this step to continue</p>
+                  ) : null}
                 </div>
-              )}
-              <SummaryRow
-                label="Estimated duration"
-                value={selectedExamType ? `${(selectedExamType.duration / 60).toFixed(1)} hours` : "2.5 hours"}
-              />
-            </CardContent>
-          </Card>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" className="w-full" disabled={step === 1 || isBooking} onClick={() => setStep((current) => Math.max(1, current - 1))}>
-              Back
-            </Button>
-            {step < 4 ? (
-              <Button className="w-full" disabled={!isStepValid() || isContinueLoading} aria-busy={isContinueLoading} onClick={() => setStep((current) => Math.min(4, current + 1))}>
-                {isContinueLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  "Continue"
-                )}
-              </Button>
-            ) : (
-              <Button
-                className="w-full"
-                disabled={isBooking || !isStepValid()}
-                aria-busy={isBooking}
-                onClick={() => void handleComplete()}
-              >
-                {isBooking ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Booking...
-                  </>
-                ) : isBackdatedBooking ? (
-                  "Confirm Backdated Booking"
-                ) : (
-                  "Confirm Booking"
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
+              );
+            })()}
+          </GlowPanel>
+        </aside>
       </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 space-y-0.5">
-      <span className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
-      <span className="block text-sm font-semibold text-foreground wrap-break-word">{value}</span>
     </div>
   );
 }
 
 function ReviewItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-border/50 bg-muted/20 p-4">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-foreground">{value}</p>
+    <div className="flex flex-col gap-1 rounded-2xl bg-[#F7F6F1] px-4 py-3.5 dark:bg-muted/50">
+      <p className="text-[13px] text-muted-foreground">{label}</p>
+      <p className="text-[15px] font-medium text-foreground">{value}</p>
     </div>
   );
 }

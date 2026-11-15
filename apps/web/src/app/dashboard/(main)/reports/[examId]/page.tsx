@@ -1,18 +1,20 @@
 "use client";
 
 import * as React from "react";
+import { useUIStore } from "@/lib/store";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
-  FileSignature,
   Plus,
-  Trash,
   Loader2,
   Activity,
-  BrainCircuit,
   Eye,
   EyeOff,
   ListChecks,
-  Printer,
+  Save,
+  LockOpen,
+  X,
+  FilePen,
+  Trash2,
   Lock,
   ArrowLeft,
   LayoutTemplate,
@@ -27,11 +29,11 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
+import { Segmented } from "@/components/dashboard/ui-kit";
 import { CredentialsRichTextContent } from "@/components/dashboard/credentials-rich-text-editor";
 import { ReportRichTextContent } from "@/components/dashboard/report-rich-text-content";
 import { ReportRichTextField } from "@/components/dashboard/report-rich-text-field";
@@ -95,6 +97,16 @@ export default function ReportBuilderPage() {
   const [mounted, setMounted] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(true);
   const [mobileTab, setMobileTab] = React.useState<"editor" | "preview">("editor");
+  const editorScrollRef = React.useRef<HTMLDivElement>(null);
+
+  // The builder needs the width: collapse the sidebar while it's open and
+  // restore whatever the user had when they leave.
+  React.useEffect(() => {
+    const { isSidebarCollapsed, setSidebarCollapsed } = useUIStore.getState();
+    const wasCollapsed = isSidebarCollapsed;
+    setSidebarCollapsed(true);
+    return () => useUIStore.getState().setSidebarCollapsed(wasCollapsed);
+  }, []);
   const [isLocked, setIsLocked] = React.useState(false);
   const [overrideReason, setOverrideReason] = React.useState("");
   const [overrideDialogOpen, setOverrideDialogOpen] = React.useState(false);
@@ -600,568 +612,413 @@ export default function ReportBuilderPage() {
     );
   }
 
+  const statusLabel = isLocked ? "Locked" : hasSavedReport ? "Draft" : "New report";
+  // Scroll only the editor column — scrollIntoView would also scroll the
+  // dashboard's outer containers and leave a gap under the builder.
+  const scrollToSection = (id: string) => {
+    const container = editorScrollRef.current;
+    const target = document.getElementById(id);
+    if (!container || !target) return;
+    const top =
+      target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 56;
+    container.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  };
+
   return (
-    <div className="flex min-h-[calc(100dvh-4rem)] lg:h-[calc(100dvh-4rem)] flex-col overflow-hidden -m-4 sm:-m-6 lg:-m-8 p-2 sm:p-4">
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl sm:rounded-[2.5rem] border border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
       {/* Header */}
-      <div className="p-3 sm:p-5 border-b border-border/40 flex flex-col md:flex-row md:items-center justify-between shrink-0 gap-3">
-        <div className="flex items-center gap-3">
-          <Button
+      <div className="flex shrink-0 flex-col gap-3 border-b border-border/50 px-3 py-3 sm:px-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
-            className="rounded-xl h-10 w-10 shrink-0"
+            aria-label="Back to reports"
+            title="Back to reports"
             onClick={() => router.back()}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground ring-1 ring-border transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
           >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+            <ArrowLeft aria-hidden="true" className="size-4" />
+          </button>
           <div className="min-w-0">
-            <h1 className="text-lg sm:text-2xl font-black flex items-center gap-2 truncate">
-              <FileSignature className="h-5 w-5 sm:h-6 sm:w-6 text-primary shrink-0" />
-              <span className="truncate">Polygraph Forensic Report Builder</span>
-            </h1>
-            <p className="font-semibold text-xs text-muted-foreground mt-0.5 truncate">
-              {subjectName ? (
-                <>
-                  Examinee: <span className="text-foreground">{subjectName}</span>
-                  {clientName ? (
-                    <>
-                      {" "}
-                      · Client: <span className="text-foreground">{clientName}</span>
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                "Configure report sections on the left and preview the official formatted template on the right."
-              )}
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-lg leading-tight font-medium tracking-[-0.01em] sm:text-xl">
+                {subjectName || "Polygraph report"}
+              </h1>
+              <BuilderStatusPill label={statusLabel} locked={isLocked} />
+            </div>
+            <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+              {clientName ? <>{clientName} · </> : null}
+              {referenceNo ? <span className="font-mono text-xs">{referenceNo}</span> : "Report builder"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-stretch sm:justify-end w-full md:w-auto">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           {!readOnly && reportTemplates.length > 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-xl h-10 px-4 text-xs font-semibold gap-2 flex-1 sm:flex-initial"
-              onClick={() => setTemplatePickerOpen(true)}
-            >
-              <LayoutTemplate className="h-4 w-4 shrink-0" />
-              <span className="truncate max-w-[140px]">
-                {activeTemplate ? activeTemplate.name : "Choose template"}
-              </span>
-            </Button>
+            <HeaderButton icon={LayoutTemplate} onClick={() => setTemplatePickerOpen(true)} title="Choose template">
+              <span className="max-w-[160px] truncate">{activeTemplate ? activeTemplate.name : "Choose template"}</span>
+            </HeaderButton>
           ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            className="hidden lg:flex rounded-xl h-10 px-4 text-xs hover:bg-muted/50 font-semibold"
+          <HeaderButton
+            icon={showPreview ? EyeOff : Eye}
             onClick={() => setShowPreview((current) => !current)}
+            className="hidden lg:flex"
           >
-            {showPreview ? <EyeOff className="mr-1.5 h-4 w-4" /> : <Eye className="mr-1.5 h-4 w-4" />}
-            {showPreview ? "Hide Preview" : "Show Preview"}
-          </Button>
+            {showPreview ? "Hide preview" : "Show preview"}
+          </HeaderButton>
           {isLocked && canOverrideLockedReport ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-xl h-10 px-4 text-xs font-semibold flex-1 sm:flex-initial"
-              onClick={() => setOverrideDialogOpen(true)}
-            >
-              <ArrowLeft className="mr-1.5 h-4 w-4 rotate-180" />
-              Unlock For Revision
-            </Button>
+            <HeaderButton icon={LockOpen} onClick={() => setOverrideDialogOpen(true)}>
+              Unlock for revision
+            </HeaderButton>
           ) : null}
-          {!isLocked && canFinalizeReport ? (
-            <Button
-              type="button"
-              variant="secondary"
-              className="rounded-xl h-10 px-4 text-xs font-bold gap-1.5 flex-1 sm:flex-initial"
-              onClick={() => setFinalizeDialogOpen(true)}
-              disabled={saving || finalizing || loading}
-            >
-              <Lock className="h-4 w-4" />
-              Finalize & Sign
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            className="rounded-xl h-10 px-4 text-xs hover:bg-muted/50 font-semibold flex-1 sm:flex-initial"
-            onClick={() => router.back()}
-          >
-            {isLocked ? "Close" : "Cancel"}
-          </Button>
-          <Button
-            className="rounded-xl font-bold gap-2 h-10 px-5 text-xs bg-primary hover:scale-[1.02] shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all text-primary-foreground flex-1 sm:flex-initial"
-            onClick={() => void handleSave()}
-            disabled={saving || loading || isLocked}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : isLocked ? (
-              <>
-                <Eye className="h-4 w-4" />
-                View Only
-              </>
-            ) : (
-              <>
-                <Printer className="h-4 w-4" />
-                Save Report
-              </>
-            )}
-          </Button>
+          {isLocked ? (
+            <HeaderButton icon={X} onClick={() => router.back()}>
+              Close
+            </HeaderButton>
+          ) : (
+            <>
+              <HeaderButton icon={saving ? Loader2 : Save} spin={saving} onClick={() => void handleSave()} disabled={saving || loading}>
+                {saving ? "Saving…" : "Save draft"}
+              </HeaderButton>
+              {canFinalizeReport ? (
+                <button
+                  type="button"
+                  onClick={() => setFinalizeDialogOpen(true)}
+                  disabled={saving || finalizing || loading}
+                  className="flex h-10 flex-1 items-center justify-center gap-2 rounded-full bg-[#30302E] px-5 text-sm font-semibold text-[#FAF9F5] transition-colors hover:bg-[#1F1F1D] disabled:opacity-50 sm:flex-initial dark:bg-secondary dark:text-secondary-foreground"
+                >
+                  <Lock aria-hidden="true" className="size-4" />
+                  Finalize &amp; sign
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Mobile Mode Switcher Bar (visible on < lg screens) */}
-      <div className="flex lg:hidden items-center justify-center p-1 bg-muted/40 rounded-xl border border-border/40 mx-3 my-2 shrink-0">
-        <button
-          type="button"
-          className={cn(
-            "flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
-            mobileTab === "editor" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-          )}
-          onClick={() => setMobileTab("editor")}
-        >
-          <FileSignature className="h-3.5 w-3.5" />
-          Edit Report Form
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5",
-            mobileTab === "preview" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-          )}
-          onClick={() => {
-            setShowPreview(true);
-            setMobileTab("preview");
+      {/* Mobile: switch between form and preview */}
+      <div className="flex shrink-0 justify-center px-3 pt-3 lg:hidden">
+        <Segmented
+          label="View"
+          value={mobileTab}
+          onChange={(tab) => {
+            if (tab === "preview") setShowPreview(true);
+            setMobileTab(tab);
           }}
-        >
-          <Eye className="h-3.5 w-3.5" />
-          Live A4 Preview
-        </button>
+          options={[
+            { value: "editor", label: "Edit report" },
+            { value: "preview", label: "A4 preview" },
+          ]}
+        />
       </div>
 
       {loading ? (
-        <div className="flex justify-center items-center flex-1">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 aria-hidden="true" className="size-8 animate-spin text-primary" />
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-12">
-          {/* Left Column: Form Editor (Scrollable) */}
+          {/* Left column: form editor */}
           <div
+            ref={editorScrollRef}
             className={cn(
-              "min-h-0 overflow-y-auto overflow-x-hidden border-border/40 p-4 sm:p-6 space-y-6",
+              "min-h-0 overflow-x-hidden overflow-y-auto border-border/50",
               showPreview ? "lg:col-span-5 lg:border-r" : "lg:col-span-12",
-              mobileTab === "editor" ? "block" : "hidden lg:block"
+              mobileTab === "editor" ? "block" : "hidden lg:block",
             )}
           >
-            <h3 className="text-sm font-black uppercase tracking-wider text-primary border-b border-primary/20 pb-2">
-              Report Parameters
-            </h3>            {isLocked ? (
-              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-950">
-                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
-                  <Lock className="h-4 w-4" /> Final Report Locked
-                </div>
-                <p className="mt-2 text-xs text-emerald-900/80">
-                  This report is immutable{lockedAt ? ` since ${formatClinicDateTime(lockedAt)}` : ""}. Return to Forensic Reports to email the secure PDF to the client.
-                  {canOverrideLockedReport ? " An authorized admin can unlock it for revision if needed." : ""}
-                </p>
-              </div>
-            ) : legacyMeta && !hasSavedReport ? (
-              <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-950">
-                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
-                  <Activity className="h-4 w-4" /> Assessment complete — write formal report
-                </div>
-                <p className="mt-2 text-xs text-blue-900/80">
-                  The examination session is marked complete from your legacy import. Spreadsheet status/results below are reference only — write the official Polygraph report here, then finalize and send.
-                </p>
-                <div className="mt-3 grid gap-1 text-xs text-blue-900/90">
-                  {legacyMeta.legacyStatus && (
-                    <p><span className="font-semibold">Legacy session status:</span> {legacyMeta.legacyStatus}</p>
-                  )}
-                  {legacyMeta.legacyResults && (
-                    <p><span className="font-semibold">Legacy result:</span> {legacyMeta.legacyResults}</p>
-                  )}
-                  {legacyMeta.reference && (
-                    <p><span className="font-semibold">Reference:</span> {legacyMeta.reference}</p>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-950">
-                <div className="flex items-center gap-2 font-bold uppercase tracking-wider text-[11px]">
-                  <FileSignature className="h-4 w-4" /> Draft In Progress
-                </div>
-                <p className="mt-2 text-xs text-amber-900/80">
-                  Save your draft as you work, then use <span className="font-semibold">Finalize &amp; Lock</span> when the report is ready to send. Locked reports cannot be edited unless an admin unlocks them.
-                </p>
-              </div>
-            )}
-
-
-            {/* Ref & Dates & Verdict */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="ref-no" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Ref ID · Auto-generated</Label>
-                <Input
-                  id="ref-no"
-                  value={referenceNo}
-                  readOnly
-                  aria-readonly="true"
-                  className="h-10 rounded-xl bg-muted/40 border-border/50 font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="test-date" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Test Date</Label>
-                <Input
-                  id="test-date"
-                  value={examDate}
-                  onChange={(e) => setExamDate(e.target.value)}
-                  disabled={readOnly}
-                  className="h-10 rounded-xl bg-card border-border/50"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="report-date" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Report Date</Label>
-                <Input
-                  id="report-date"
-                  value={reportDate}
-                  onChange={(e) => setReportDate(e.target.value)}
-                  disabled={readOnly}
-                  className="h-10 rounded-xl bg-card border-border/50"
-                />
-              </div>
-
-            </div>
-
-            <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Session details</h4>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground font-semibold">Exam start time</Label>
-                  <Input value={examStartTime} onChange={(e) => setExamStartTime(e.target.value)} disabled={readOnly} className="h-10 rounded-xl" placeholder="14:00" />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground font-semibold">Exam end time</Label>
-                  <Input value={examEndTime} onChange={(e) => setExamEndTime(e.target.value)} disabled={readOnly} className="h-10 rounded-xl" placeholder="15:45" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground font-semibold">Identity verification</Label>
-                <div className="flex flex-wrap gap-3">
-                  {([
-                    ["passport", "Passport"],
-                    ["emirates_id", "Emirates ID"],
-                  ] as const).map(([value, label]) => (
-                    <label key={value} className="flex items-center gap-2 text-xs font-semibold">
-                      <input
-                        type="radio"
-                        name="identity-document-type"
-                        checked={identityDocumentType === value}
-                        onChange={() => {
-                          setIdentityDocumentType(value);
-                          setIdentityVerificationText(identitySentence(value));
-                        }}
-                        disabled={readOnly}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <ReportRichTextField
-                  rows={2}
-                  value={identityVerificationText}
-                  onChange={setIdentityVerificationText}
-                  disabled={readOnly}
-                  hint="Shown under examinee details on the report."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground font-semibold">Pre-exam question count phrase</Label>
-                <ReportRichTextField
-                  rows={2}
-                  value={preExamQuestionCountText}
-                  onChange={handleQuestionCountChange}
-                  disabled={readOnly}
-                  hint="Bold this phrase in the toolbar — it is also synced into Section 1 pre-test notes."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground font-semibold">Cooperation line (Section 3)</Label>
-                <Select
-                  value={cooperationMode}
-                  onValueChange={(value) => {
-                    const mode = value as "cooperated" | "counter_measures";
-                    setCooperationMode(mode);
-                    setPostTestNotes(cooperationSentence(mode));
-                  }}
-                  disabled={readOnly}
+            {/* Section jump bar */}
+            <nav
+              aria-label="Report sections"
+              className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-border/50 bg-white/95 px-3 py-2 no-scrollbar sm:px-5 dark:bg-card/95"
+            >
+              {SECTION_NAV.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => scrollToSection(s.id)}
+                  className="h-8 shrink-0 rounded-full px-3 text-[13px] whitespace-nowrap text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
                 >
-                  <SelectTrigger className="rounded-xl h-10 bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cooperated">Examinee cooperated</SelectItem>
-                    <SelectItem value="counter_measures">Counter-measures employed</SelectItem>
-                  </SelectContent>
-                </Select>
-                <ReportRichTextField
-                  rows={2}
-                  value={postTestNotes}
-                  onChange={setPostTestNotes}
-                  disabled={readOnly}
-                  hint="Printed once in Section 3 after the opinion notes. Choosing a preset above replaces this text."
-                />
-              </div>
-            </div>
+                  {s.label}
+                </button>
+              ))}
+            </nav>
 
-            {/* Verdict Selector */}
-            <div className="space-y-2 rounded-2xl border border-primary/20 bg-primary/[0.02] p-4">
-              <Label className="font-bold flex items-center gap-1.5 text-primary text-xs uppercase tracking-wider mb-2">
-                <BrainCircuit className="h-4 w-4" /> Final Evaluation Verdict
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Client wording: {reportVerdictWordingDescription(verdictWording)}
-              </p>
-              <Select
-                value={verdict}
-                onValueChange={(val) => handleVerdictChange(String(val))}
-                disabled={readOnly}
-              >
-                <SelectTrigger className="rounded-xl h-11 bg-background">
-                  <SelectValue placeholder="Select verdict..." />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  <SelectItem value="NDI">{formatVerdictOptionLabel("NDI", verdictWording)}</SelectItem>
-                  <SelectItem value="DI">{formatVerdictOptionLabel("DI", verdictWording)}</SelectItem>
-                  <SelectItem value="NSR">{formatVerdictOptionLabel("NSR", verdictWording)}</SelectItem>
-                  <SelectItem value="SR">{formatVerdictOptionLabel("SR", verdictWording)}</SelectItem>
-                  <SelectItem value="Inconclusive">{formatVerdictOptionLabel("Inconclusive", verdictWording)}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground">
-                Changing the verdict updates the result phrase in Section 3 opinion notes.
-              </p>
-            </div>
+            <div className={cn("mx-auto flex flex-col gap-5 p-3 sm:p-5", !showPreview && "max-w-3xl")}>
+              {/* Status */}
+              {isLocked ? (
+                <Callout tone="sage" icon={Lock} title="Final report locked">
+                  Read-only{lockedAt ? ` since ${formatClinicDateTime(lockedAt)}` : ""}. Send the secure PDF from Reports.
+                  {canOverrideLockedReport ? " An admin can unlock it for revision." : ""}
+                </Callout>
+              ) : legacyMeta && !hasSavedReport ? (
+                <Callout tone="lavender" icon={Activity} title="Imported session — write the formal report">
+                  The spreadsheet values below are for reference only.
+                  {legacyMeta.legacyStatus || legacyMeta.legacyResults || legacyMeta.reference ? (
+                    <span className="mt-2 grid gap-0.5">
+                      {legacyMeta.legacyStatus ? <span>Legacy status: <span className="font-medium text-foreground">{legacyMeta.legacyStatus}</span></span> : null}
+                      {legacyMeta.legacyResults ? <span>Legacy result: <span className="font-medium text-foreground">{legacyMeta.legacyResults}</span></span> : null}
+                      {legacyMeta.reference ? <span>Reference: <span className="font-medium text-foreground">{legacyMeta.reference}</span></span> : null}
+                    </span>
+                  ) : null}
+                </Callout>
+              ) : (
+                <Callout tone="amber" icon={FilePen} title={hasSavedReport ? "Draft in progress" : "New report"}>
+                  Save as you go. When it&apos;s ready, <span className="font-medium text-foreground">Finalize &amp; sign</span> locks it for sending — only an admin can unlock it after that.
+                </Callout>
+              )}
 
-            {/* Section 1: Pre-Examination */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Section 1: Pre-Test Details</h4>
-              <div className="space-y-2">
-                <Label htmlFor="pretest-intro" className="text-xs text-muted-foreground font-semibold">Introductory Paragraph</Label>
-                <ReportRichTextField
-                  id="pretest-intro"
-                  rows={3}
-                  value={preTestPhaseText}
-                  onChange={setPreTestPhaseText}
-                  disabled={readOnly}
-                  placeholder="On 04th May 2026 at about 14:00 hrs..."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pretest-notes" className="text-xs text-muted-foreground font-semibold">Consent & Health Statements</Label>
-                <ReportRichTextField
-                  id="pretest-notes"
-                  rows={2}
-                  value={preTestNotes}
-                  onChange={setPreTestNotes}
-                  disabled={readOnly}
-                  placeholder="Consent and fitness notes..."
-                />
-              </div>
-            </div>
-
-            {/* Section 2: Questions Table */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center border-b border-border/40 pb-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                  <Activity className="h-4 w-4" /> Section 2: Questions asked
-                </h4>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl text-xs gap-1.5 h-8"
-                    onClick={() => void handleLoadQuestionsFromSession()}
-                    disabled={readOnly || loadingSessionQuestions}
-                  >
-                    {loadingSessionQuestions ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ListChecks className="h-3.5 w-3.5" />
-                    )}
-                    Load from session
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl text-xs gap-1.5 h-8"
-                    onClick={handleAddQuestion}
-                    disabled={readOnly}
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Question
-                  </Button>
+              {/* Report details */}
+              <SectionCard id="sec-details" title="Report details">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Field id="ref-no" label="Reference" hint="Generated automatically">
+                    <Input id="ref-no" value={referenceNo} readOnly aria-readonly="true" className={cn(FIELD, "font-mono text-[13px] text-muted-foreground")} />
+                  </Field>
+                  <Field id="test-date" label="Test date">
+                    <Input id="test-date" value={examDate} onChange={(e) => setExamDate(e.target.value)} disabled={readOnly} className={FIELD} />
+                  </Field>
+                  <Field id="report-date" label="Report date">
+                    <Input id="report-date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} disabled={readOnly} className={FIELD} />
+                  </Field>
                 </div>
-              </div>
+              </SectionCard>
 
-              <div className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 p-3">
-                <div className="space-y-0.5">
-                  <Label className="text-xs font-bold text-foreground">Color-Coded Evaluations</Label>
-                  <p className="text-[11px] text-muted-foreground">
-                    Highlight responses in Red (Deceptive) & Green (No Reaction) in PDF and live preview
-                  </p>
+              {/* Session */}
+              <SectionCard id="sec-session" title="Session">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field id="exam-start" label="Start time">
+                    <Input id="exam-start" value={examStartTime} onChange={(e) => setExamStartTime(e.target.value)} disabled={readOnly} placeholder="14:00" className={cn(FIELD, "tabular-nums")} />
+                  </Field>
+                  <Field id="exam-end" label="End time">
+                    <Input id="exam-end" value={examEndTime} onChange={(e) => setExamEndTime(e.target.value)} disabled={readOnly} placeholder="15:45" className={cn(FIELD, "tabular-nums")} />
+                  </Field>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="sr-only peer"
-                    checked={enableColorCoding}
-                    disabled={readOnly}
-                    onChange={(e) => setEnableColorCoding(e.target.checked)}
-                  />
-                  <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="exam-intro" className="text-xs text-muted-foreground font-semibold font-bold">Introductory statement</Label>
-                <ReportRichTextField
-                  id="exam-intro"
-                  rows={2}
-                  value={examPhaseText}
-                  onChange={setExamPhaseText}
-                  disabled={readOnly}
-                />
-              </div>
-
-              <div className="space-y-3">
-                {questions.map((q, idx) => (
-                  <div
-                    key={idx}
-                    className="flex flex-col gap-2 p-3 rounded-2xl border border-border/40 bg-card relative"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Label className="text-[10px] font-black uppercase text-primary">Question #{idx + 1}</Label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 rounded-lg hover:bg-rose-500/10 hover:text-rose-500"
-                        onClick={() => handleRemoveQuestion(idx)}
-                        disabled={readOnly}
-                      >
-                        <Trash className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <Input
-                      placeholder="Type question text..."
-                      value={q.text}
-                      onChange={(e) => handleQuestionChange(idx, "text", e.target.value)}
-                      disabled={readOnly}
-                      className="h-9 rounded-lg"
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="px-1 text-[13px] font-medium">Identity verified with</span>
+                    <Segmented
+                      label="Identity document"
+                      value={identityDocumentType}
+                      onChange={(value) => {
+                        setIdentityDocumentType(value);
+                        setIdentityVerificationText(identitySentence(value));
+                      }}
+                      options={[
+                        { value: "passport", label: "Passport", disabled: readOnly },
+                        { value: "emirates_id", label: "Emirates ID", disabled: readOnly },
+                      ]}
                     />
-                    <div className="grid grid-cols-2 gap-2 mt-1">
-                      <div className="space-y-1">
-                        <Label className="text-[9px] text-muted-foreground uppercase font-bold">Answer</Label>
-                        <Select
-                          value={q.answer}
-                          onValueChange={(val) => handleQuestionChange(idx, "answer", String(val))}
-                          disabled={readOnly}
-                        >
-                          <SelectTrigger className="h-8 rounded-lg text-xs bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-lg">
-                            <SelectItem value="Yes">Yes</SelectItem>
-                            <SelectItem value="No">No</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[9px] text-muted-foreground uppercase font-bold">Evaluation</Label>
-                        <Select
-                          value={q.evaluation}
-                          onValueChange={(val) => handleQuestionChange(idx, "evaluation", String(val))}
-                          disabled={readOnly}
-                        >
-                          <SelectTrigger className="h-8 rounded-lg text-xs bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-lg">
-                            <SelectItem value="No Reaction">No Reaction</SelectItem>
-                            <SelectItem value="Reaction / Deceptive">Reaction / Deceptive</SelectItem>
-                            <SelectItem value="Inconclusive">Inconclusive</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="limestone" className="text-xs text-muted-foreground font-semibold">Instrument & Recording statement</Label>
-                <ReportRichTextField
-                  id="limestone"
-                  rows={3}
-                  value={limestoneNotes}
-                  onChange={setLimestoneNotes}
-                  disabled={readOnly}
-                  hint="Use Bold in the toolbar for the polygram sentence (e.g. Four polygrams, including 1 acquaintance and 3 official tests)."
-                />
-              </div>
-            </div>
-
-            {/* Section 3: Opinion */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Section 3: Opinion & Verdict details</h4>
-              <div className="space-y-2">
-                <Label htmlFor="opinion-statement" className="text-xs text-muted-foreground font-semibold">Opinion notes</Label>
-                <ReportRichTextField
-                  id="opinion-statement"
-                  rows={3}
-                  value={opinionPhaseText}
-                  onChange={setOpinionPhaseText}
-                  disabled={readOnly}
-                  placeholder="Based on diagnostic evaluations..."
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  The cooperation line from Session details is added automatically after this on the report.
-                </p>
-              </div>
-
-              <div className="space-y-3 rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="block text-xs font-bold uppercase tracking-wider text-primary">Examiner&apos;s Observation</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-label="Include Examiner's Observation"
-                    aria-checked={examinersObservationEnabled}
-                    disabled={readOnly}
-                    onClick={() => setExaminersObservationEnabled((enabled) => !enabled)}
-                    className={cn(
-                      "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-                      examinersObservationEnabled ? "bg-blue-600" : "bg-zinc-300",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute left-0.5 top-0.5 block h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
-                        examinersObservationEnabled ? "translate-x-5" : "translate-x-0",
-                      )}
-                    />
-                  </button>
+                  <ReportRichTextField rows={2} value={identityVerificationText} onChange={setIdentityVerificationText} disabled={readOnly} hint="Shown under the examinee details." />
                 </div>
-                {examinersObservationEnabled ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="examiners-observation" className="text-xs font-semibold text-muted-foreground">Observation text</Label>
+                <Field label="Question count phrase">
+                  <ReportRichTextField
+                    rows={2}
+                    value={preExamQuestionCountText}
+                    onChange={handleQuestionCountChange}
+                    disabled={readOnly}
+                    hint="Keep it bold. Also synced into Section 1."
+                  />
+                </Field>
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="px-1 text-[13px] font-medium">Cooperation</span>
+                    <Segmented
+                      label="Cooperation"
+                      value={cooperationMode}
+                      onChange={(mode) => {
+                        setCooperationMode(mode);
+                        setPostTestNotes(cooperationSentence(mode));
+                      }}
+                      options={[
+                        { value: "cooperated", label: "Cooperated", disabled: readOnly },
+                        { value: "counter_measures", label: "Counter-measures", disabled: readOnly },
+                      ]}
+                    />
+                  </div>
+                  <ReportRichTextField
+                    rows={2}
+                    value={postTestNotes}
+                    onChange={setPostTestNotes}
+                    disabled={readOnly}
+                    hint="Printed once in Section 3, after the opinion. Switching the option above replaces this text."
+                  />
+                </div>
+              </SectionCard>
+
+              {/* Verdict */}
+              <SectionCard
+                id="sec-verdict"
+                title="Verdict"
+                aside={<span className="text-xs text-muted-foreground">{reportVerdictWordingDescription(verdictWording)}</span>}
+              >
+                <div role="radiogroup" aria-label="Verdict" className="flex flex-wrap gap-2">
+                  {VERDICT_OPTIONS.map((v) => {
+                    const active = verdict === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        disabled={readOnly}
+                        onClick={() => handleVerdictChange(v)}
+                        className={cn(
+                          "inline-flex min-h-10 items-center gap-2 rounded-full px-3.5 py-1.5 text-left text-[13px] transition-colors disabled:cursor-not-allowed",
+                          active
+                            ? cn(VERDICT_TONE[v].chip, "font-medium ring-1 ring-current/20")
+                            : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground disabled:hover:bg-transparent dark:hover:bg-muted",
+                          readOnly && !active && "opacity-50",
+                        )}
+                      >
+                        <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", VERDICT_TONE[v].dot, !active && "opacity-60")} />
+                        {formatVerdictOptionLabel(v, verdictWording)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="px-1 text-xs text-muted-foreground">Changing the verdict updates the result phrase in Section 3.</p>
+              </SectionCard>
+
+              {/* Section 1 */}
+              <SectionCard id="sec-1" number={1} title="Pre-test">
+                <Field id="pretest-intro" label="Introduction">
+                  <ReportRichTextField id="pretest-intro" rows={3} value={preTestPhaseText} onChange={setPreTestPhaseText} disabled={readOnly} placeholder="On 04th May 2026 at about 14:00 hrs..." />
+                </Field>
+                <Field id="pretest-notes" label="Consent & health">
+                  <ReportRichTextField id="pretest-notes" rows={2} value={preTestNotes} onChange={setPreTestNotes} disabled={readOnly} placeholder="Consent and fitness notes..." />
+                </Field>
+              </SectionCard>
+
+              {/* Section 2 */}
+              <SectionCard
+                id="sec-2"
+                number={2}
+                title="Questions"
+                aside={
+                  <div className="flex flex-wrap gap-1.5">
+                    <SmallButton
+                      icon={loadingSessionQuestions ? Loader2 : ListChecks}
+                      spin={loadingSessionQuestions}
+                      onClick={() => void handleLoadQuestionsFromSession()}
+                      disabled={readOnly || loadingSessionQuestions}
+                    >
+                      Load from session
+                    </SmallButton>
+                    <SmallButton icon={Plus} onClick={handleAddQuestion} disabled={readOnly}>
+                      Add question
+                    </SmallButton>
+                  </div>
+                }
+              >
+                <SwitchRow
+                  label="Colour-code responses"
+                  description="Reactions print red and no-reactions green, in the PDF and the preview."
+                  checked={enableColorCoding}
+                  disabled={readOnly}
+                  onChange={setEnableColorCoding}
+                />
+                <Field id="exam-intro" label="Introduction">
+                  <ReportRichTextField id="exam-intro" rows={2} value={examPhaseText} onChange={setExamPhaseText} disabled={readOnly} />
+                </Field>
+
+                {questions.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center">
+                    <p className="text-sm font-medium">No questions yet</p>
+                    <p className="mt-1 text-[13px] text-muted-foreground">Load the ones recorded during the session, or add them by hand.</p>
+                  </div>
+                ) : (
+                  <ol className="flex flex-col gap-3">
+                    {questions.map((q, idx) => (
+                      <li key={idx} className="flex flex-col gap-3 rounded-2xl bg-[#F7F6F1] p-3 sm:p-4 dark:bg-muted/40">
+                        <div className="flex items-start gap-3">
+                          <span
+                            aria-hidden="true"
+                            className="mt-2 flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold tabular-nums ring-1 ring-border dark:bg-card"
+                          >
+                            {idx + 1}
+                          </span>
+                          <label htmlFor={`question-${idx}`} className="sr-only">
+                            Question {idx + 1}
+                          </label>
+                          <Input
+                            id={`question-${idx}`}
+                            placeholder="Type the question…"
+                            value={q.text}
+                            onChange={(e) => handleQuestionChange(idx, "text", e.target.value)}
+                            disabled={readOnly}
+                            className="h-11 flex-1 rounded-xl border-0 bg-white px-3.5 text-sm shadow-none dark:bg-card"
+                          />
+                          <button
+                            type="button"
+                            aria-label={`Remove question ${idx + 1}`}
+                            title="Remove question"
+                            onClick={() => handleRemoveQuestion(idx)}
+                            disabled={readOnly}
+                            className="mt-1 flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[#F6E3E1] hover:text-[#8A2C22] disabled:opacity-40 disabled:hover:bg-transparent dark:hover:bg-red-950 dark:hover:text-red-300"
+                          >
+                            <Trash2 aria-hidden="true" className="size-4" />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-10">
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Answer</span>
+                            <Segmented
+                              label={`Answer to question ${idx + 1}`}
+                              value={q.answer}
+                              onChange={(value) => handleQuestionChange(idx, "answer", value)}
+                              className="bg-white dark:bg-card"
+                              options={ANSWER_OPTIONS.map((a) => ({ value: a, label: a, disabled: readOnly }))}
+                            />
+                          </span>
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Result</span>
+                            <Segmented
+                              label={`Evaluation of question ${idx + 1}`}
+                              value={q.evaluation}
+                              onChange={(value) => handleQuestionChange(idx, "evaluation", value)}
+                              className="bg-white dark:bg-card"
+                              options={EVALUATION_OPTIONS.map((o) => ({ ...o, disabled: readOnly }))}
+                            />
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+
+                <Field id="limestone" label="Instrument & recording">
+                  <ReportRichTextField
+                    id="limestone"
+                    rows={3}
+                    value={limestoneNotes}
+                    onChange={setLimestoneNotes}
+                    disabled={readOnly}
+                    hint="Bold the polygram sentence, e.g. Four polygrams, including 1 acquaintance and 3 official tests."
+                  />
+                </Field>
+              </SectionCard>
+
+              {/* Section 3 */}
+              <SectionCard id="sec-3" number={3} title="Opinion">
+                <Field id="opinion-statement" label="Opinion">
+                  <ReportRichTextField
+                    id="opinion-statement"
+                    rows={3}
+                    value={opinionPhaseText}
+                    onChange={setOpinionPhaseText}
+                    disabled={readOnly}
+                    placeholder="Based on diagnostic evaluations..."
+                    hint="The cooperation line from Session is added after this automatically."
+                  />
+                </Field>
+                <SwitchRow
+                  label="Examiner's observation"
+                  description="Adds a separate observation paragraph, printed in blue."
+                  checked={examinersObservationEnabled}
+                  disabled={readOnly}
+                  onChange={setExaminersObservationEnabled}
+                >
+                  {examinersObservationEnabled ? (
                     <ReportRichTextField
                       id="examiners-observation"
                       rows={3}
@@ -1171,96 +1028,72 @@ export default function ReportBuilderPage() {
                       placeholder="Enter the examiner's observation..."
                       className="text-blue-600"
                     />
+                  ) : null}
+                </SwitchRow>
+              </SectionCard>
+
+              {/* Section 4 */}
+              <SectionCard id="sec-4" number={4} title="Follow-up">
+                <Field id="follow-up" label="Follow-up by requesting agency">
+                  <Input id="follow-up" value={section4FollowUp} onChange={(e) => setSection4FollowUp(e.target.value)} disabled={readOnly} className={FIELD} />
+                </Field>
+              </SectionCard>
+
+              {/* Signature */}
+              <SectionCard id="sec-signature" title="Signature">
+                <p className="px-1 text-xs text-muted-foreground">
+                  Name, title and organisation come from the signing examiner&apos;s My Profile and can&apos;t be changed per report.
+                </p>
+                {examinerSignature ? (
+                  <div className="space-y-1 rounded-2xl bg-white p-4 text-zinc-900 ring-1 ring-border">
+                    <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
+                    <p className="text-sm font-semibold">{signerDisplayName || "Examiner name missing"}</p>
+                    {splitSignerCaptionLines(signerCaptionLines).map((line) => (
+                      <p key={line} className="text-xs text-zinc-600">{line}</p>
+                    ))}
                   </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Section 4: Follow up */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Section 4: Follow Up</h4>
-              <div className="space-y-2">
-                <Label htmlFor="follow-up" className="text-xs text-muted-foreground font-semibold">Requesting Agency Follow-up</Label>
-                <Input
-                  id="follow-up"
-                  value={section4FollowUp}
-                  onChange={(e) => setSection4FollowUp(e.target.value)}
-                  disabled={readOnly}
-                  className="h-10 rounded-xl bg-card border-border/50 text-xs"
-                />
-              </div>
-            </div>
-
-            {/* Signature + credentials options */}
-            <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-primary">Signature block</h4>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Name, title, and organization come from the signing examiner&apos;s My Profile. They cannot be edited per report.
-                </p>
-              </div>
-              {examinerSignature ? (
-                <div className="rounded-xl border bg-white p-3 text-zinc-900 space-y-1">
-                  <img src={examinerSignature.image} alt="Examiner signature" className="h-14 max-w-56 object-contain" />
-                  <p className="text-xs font-bold">{signerDisplayName || "Examiner name missing"}</p>
-                  {splitSignerCaptionLines(signerCaptionLines).map((line) => (
-                    <p key={line} className="text-[11px]">{line}</p>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                  {signatureError || "Select an examiner with a saved signature to preview the signature block."}
-                </p>
-              )}
-              <label className="flex items-start gap-3 rounded-xl border p-3 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-1"
+                ) : (
+                  <p className="rounded-2xl bg-[#F8EEDB] px-4 py-3 text-[13px] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300">
+                    {signatureError || "Choose a signing examiner with a saved signature when you finalize — it will appear here."}
+                  </p>
+                )}
+                <SwitchRow
+                  label="Add credentials page"
+                  description={
+                    canIncludeCredentials
+                      ? "Adds a page with the examiner's saved credentials after the signature."
+                      : "This examiner hasn't added credentials in My Profile yet."
+                  }
                   checked={includeCredentials}
                   disabled={readOnly || !canIncludeCredentials}
-                  onChange={(e) => setIncludeCredentials(e.target.checked)}
+                  onChange={setIncludeCredentials}
                 />
-                <span className="space-y-1">
-                  <span className="block font-medium">Include examiner credentials page</span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    Off by default. When on, a new page with the examiner&apos;s saved credentials is added after the signature.
-                    {!canIncludeCredentials
-                      ? " This examiner has not added credentials in My Profile yet."
-                      : ""}
-                  </span>
-                </span>
-              </label>
+              </SectionCard>
             </div>
           </div>
 
-
-          {/* Right Column: Live A4 Document Preview */}
+          {/* Right column: live A4 preview */}
           {showPreview ? (
           <div
             className={cn(
-              "lg:col-span-7 flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950/40",
+              "lg:col-span-7 flex min-h-0 flex-1 flex-col overflow-hidden bg-[#E9E6DD] dark:bg-zinc-950/60",
               mobileTab === "preview" ? "flex" : "hidden lg:flex"
             )}
           >
-            <div className="z-10 flex w-full shrink-0 items-center justify-between border-b border-border/40 bg-zinc-900/60 px-4 py-2.5 backdrop-blur">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Eye className="h-4 w-4 text-primary" /> Live Document Preview
+            <div className="flex w-full shrink-0 items-center justify-between gap-3 border-b border-border/50 bg-[#F3F1EA] px-4 py-2 dark:bg-zinc-900">
+              <span className="flex items-center gap-2 text-[13px] font-medium">
+                <Eye aria-hidden="true" className="size-4 text-muted-foreground" />
+                Live preview
+                <span className="font-normal text-muted-foreground">· A4, as printed</span>
               </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="hidden lg:flex h-8 rounded-lg px-2.5 text-[10px] font-bold uppercase tracking-wider"
-                  onClick={() => setShowPreview(false)}
-                >
-                  <EyeOff className="mr-1.5 h-3.5 w-3.5" />
-                  Hide Preview
-                </Button>
-                <span className="text-[10px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">
-                  A4 Ratio Print Simulated
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowPreview(false)}
+                className="hidden h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-muted-foreground transition-colors hover:bg-white hover:text-foreground lg:flex dark:hover:bg-muted"
+              >
+                <EyeOff aria-hidden="true" className="size-3.5" />
+                Hide
+              </button>
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overflow-x-auto p-2 sm:p-6 max-w-full">
@@ -1671,13 +1504,229 @@ export default function ReportBuilderPage() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Builder UI pieces                                                   */
+/* ------------------------------------------------------------------ */
 
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none disabled:opacity-70 dark:bg-muted";
 
+const SECTION_NAV = [
+  { id: "sec-details", label: "Details" },
+  { id: "sec-session", label: "Session" },
+  { id: "sec-verdict", label: "Verdict" },
+  { id: "sec-1", label: "1 · Pre-test" },
+  { id: "sec-2", label: "2 · Questions" },
+  { id: "sec-3", label: "3 · Opinion" },
+  { id: "sec-4", label: "4 · Follow-up" },
+  { id: "sec-signature", label: "Signature" },
+] as const;
 
+const VERDICT_OPTIONS = ["NDI", "DI", "NSR", "SR", "Inconclusive"] as const;
 
+const VERDICT_TONE: Record<(typeof VERDICT_OPTIONS)[number], { chip: string; dot: string }> = {
+  NDI: { chip: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300", dot: "bg-[#3F7A37] dark:bg-emerald-400" },
+  NSR: { chip: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300", dot: "bg-[#3F7A37] dark:bg-emerald-400" },
+  DI: { chip: "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300", dot: "bg-[#B94A3E] dark:bg-red-400" },
+  SR: { chip: "bg-[#F6E3E1] text-[#8A2C22] dark:bg-red-950 dark:text-red-300", dot: "bg-[#B94A3E] dark:bg-red-400" },
+  Inconclusive: { chip: "bg-[#ECE9E0] text-[#3D3929] dark:bg-muted dark:text-foreground", dot: "bg-[#8B887E]" },
+};
 
+const ANSWER_OPTIONS = ["Yes", "No", "Other"] as const;
 
+/** Values are what the report stores; labels are just shorter. */
+const EVALUATION_OPTIONS = [
+  { value: "No Reaction", label: "No reaction" },
+  { value: "Reaction / Deceptive", label: "Reaction" },
+  { value: "Inconclusive", label: "Inconclusive" },
+];
 
+type IconType = React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" }>;
 
+function BuilderStatusPill({ label, locked }: { label: string; locked: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        locked
+          ? "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300"
+          : "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950 dark:text-amber-300",
+      )}
+    >
+      {locked ? <Lock aria-hidden="true" className="size-3" /> : <span aria-hidden="true" className="size-1.5 rounded-full bg-[#E2B35A]" />}
+      {label}
+    </span>
+  );
+}
 
+function HeaderButton({
+  icon: Icon,
+  children,
+  onClick,
+  disabled,
+  spin,
+  title,
+  className,
+}: {
+  icon: IconType;
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  spin?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        "flex h-10 flex-1 items-center justify-center gap-2 rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-50 sm:flex-initial dark:hover:bg-muted",
+        className,
+      )}
+    >
+      <Icon aria-hidden="true" className={cn("size-4 shrink-0", spin && "animate-spin")} />
+      {children}
+    </button>
+  );
+}
 
+function SmallButton({
+  icon: Icon,
+  children,
+  onClick,
+  disabled,
+  spin,
+}: {
+  icon: IconType;
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  spin?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] disabled:opacity-50 disabled:hover:bg-transparent dark:hover:bg-muted"
+    >
+      <Icon aria-hidden="true" className={cn("size-3.5", spin && "animate-spin")} />
+      {children}
+    </button>
+  );
+}
+
+const CALLOUT_TONE = {
+  amber: { box: "bg-[#F8EEDB] dark:bg-amber-950/60", icon: "text-[#8A5A12] dark:text-amber-300" },
+  sage: { box: "bg-[#E7F1E4] dark:bg-emerald-950/60", icon: "text-[#2D5A27] dark:text-emerald-300" },
+  lavender: { box: "bg-[#EFEBFE] dark:bg-violet-950/60", icon: "text-[#3B2E86] dark:text-violet-200" },
+} as const;
+
+function Callout({ tone, icon: Icon, title, children }: { tone: keyof typeof CALLOUT_TONE; icon: IconType; title: string; children: React.ReactNode }) {
+  const style = CALLOUT_TONE[tone];
+  return (
+    <div className={cn("flex gap-3 rounded-2xl px-4 py-3", style.box)}>
+      <Icon aria-hidden="true" className={cn("mt-0.5 size-4 shrink-0", style.icon)} />
+      <div className="min-w-0 text-[13px] text-muted-foreground">
+        <p className="text-sm font-medium text-foreground">{title}</p>
+        <div className="mt-0.5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SectionCard({
+  id,
+  number,
+  title,
+  aside,
+  children,
+}: {
+  id: string;
+  number?: number;
+  title: string;
+  aside?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} aria-labelledby={`${id}-title`} className="flex scroll-mt-14 flex-col gap-4 rounded-[22px] p-4 ring-1 ring-border/60 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id={`${id}-title`} className="flex items-center gap-2.5 text-[15px] font-medium">
+          {number ? (
+            <span className="flex size-6 items-center justify-center rounded-full bg-[#30302E] text-xs font-semibold text-[#FAF9F5] tabular-nums dark:bg-secondary dark:text-secondary-foreground">
+              {number}
+            </span>
+          ) : null}
+          {number ? `Section ${number} · ${title}` : title}
+        </h2>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({ id, label, hint, children }: { id?: string; label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-1.5">
+      <label htmlFor={id} className="px-1 text-[13px] font-medium">
+        {label}
+      </label>
+      {children}
+      {hint ? <p className="px-1 text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+function SwitchRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+  children,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  children?: React.ReactNode;
+}) {
+  const id = React.useId();
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/40">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <label htmlFor={id} className={cn("text-sm font-medium", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
+            {label}
+          </label>
+          {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+        </div>
+        <button
+          id={id}
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          disabled={disabled}
+          onClick={() => onChange(!checked)}
+          className={cn(
+            "relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            checked ? "bg-[#30302E] dark:bg-[#5FA86C]" : "bg-[#D9D5CA] dark:bg-zinc-600",
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "absolute top-0.5 left-0.5 block size-5 rounded-full bg-white shadow-sm transition-transform",
+              checked ? "translate-x-5" : "translate-x-0",
+            )}
+          />
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}

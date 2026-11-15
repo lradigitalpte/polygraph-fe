@@ -59,6 +59,11 @@ import {
 import type { AccountSummary } from "@/lib/client-account";
 import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
 import { fetchBillingLedger, mapLedgerEntryToInvoice, deleteInvoice, bulkEditInvoicePrices, type FinancialInvoice } from "@/lib/billing";
+import {
+  CollectionSummary,
+  StatusDonut,
+  type InsightRow,
+} from "@/components/dashboard/payments-insights";
 import { DeleteConfirmDialog } from "@/components/dashboard/delete-confirm-dialog";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { fetchOrganizationSettings } from "@/lib/settings";
@@ -629,6 +634,26 @@ export default function PaymentsPage() {
     }, 0),
   };
 
+  const insightRows = React.useMemo<InsightRow[]>(
+    () =>
+      invoices.map((inv) => {
+        const money = ledgerRowMoney(
+          { total_amount: inv.totalAmount, paid_amount: inv.paidAmount, balance_due: inv.balanceDue, currency: inv.currency },
+          orgCurrency,
+          orgSettings,
+        );
+        const parsed = Date.parse(inv.date);
+        return {
+          time: Number.isNaN(parsed) ? null : parsed,
+          status: inv.status,
+          total: money.total,
+          paid: money.paid,
+          balance: money.balance,
+        };
+      }),
+    [invoices, orgCurrency, orgSettings],
+  );
+
   // Called from the confirm step — the form step's button only advances to "confirm".
   const handleCreateInvoice = async () => {
     if (!form.client || !form.examType) return;
@@ -806,6 +831,7 @@ export default function PaymentsPage() {
         subject: sendEmail.subject.trim(),
         body: sendEmail.body.trim(),
         ...(balance > 0 ? { charge_amount: chargeAmount } : {}),
+        ...(sendEmail.agreementLink ? { agreement_url: sendEmail.agreementLink } : {}),
       });
       await loadData();
       setIsSendQuoteOpen(false);
@@ -859,302 +885,328 @@ export default function PaymentsPage() {
   };
 
   return (
-    <div className="space-y-10 max-w-[1600px] mx-auto pb-20 px-4 sm:px-0">
-      {/* Decorative Background */}
-      <div className="fixed inset-0 pointer-events-none z-[-1]">
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-emerald-500/5 rounded-full blur-[100px] translate-y-1/2 -translate-x-1/4" />
-      </div>
-
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 rounded-[2.5rem] bg-card/40 border border-border/50 backdrop-blur-xl shadow-sm relative overflow-hidden group">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.03] to-transparent pointer-events-none" />
-        <div className="space-y-1 relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-                <DollarSign className="h-6 w-6" />
-            </div>
-            <h1 className="text-3xl font-black tracking-tight">Financial Hub</h1>
-          </div>
-          <p className="text-muted-foreground text-sm font-bold opacity-70 uppercase tracking-widest text-[10px] pl-1 pt-1">
-            Clinical Revenue & Collection Oversight
-          </p>
-          <p className="text-xs text-muted-foreground pl-1 pt-2 max-w-xl">
+    <div className="mx-auto flex max-w-[1440px] flex-col gap-4 pb-8">
+      {/* Hero */}
+      <section className="flex flex-wrap items-end justify-between gap-6 px-1 pt-2 pb-2">
+        <div className="flex min-w-0 flex-col gap-2.5">
+          <span className="text-muted-foreground text-[15px]">Clinical revenue &amp; collection oversight</span>
+          <h1 className="text-4xl leading-none font-normal tracking-[-0.035em] sm:text-5xl">
+            Financial <span className="font-semibold">Hub</span>
+          </h1>
+          <span className="text-muted-foreground max-w-xl text-base">
             Booked exams from Calendar appear here as invoices. Exam types under Settings set the price when you book.
-          </p>
+          </span>
         </div>
-        <div className="flex items-center gap-3 relative z-10">
-          <Button 
-            onClick={() => router.push("/dashboard/payments/new")}
-            className="h-12 px-8 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-black text-xs uppercase tracking-widest shadow-xl shadow-primary/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            New Quotation
-          </Button>
-        </div>
-      </div>
+        <button
+          type="button"
+          onClick={() => router.push("/dashboard/payments/new")}
+          className="flex h-13 items-center gap-2.5 rounded-full bg-[#30302E] px-6 text-[15px] font-semibold text-[#FAF9F5] shadow-[0_8px_20px_-8px_rgba(48,48,46,0.6)] transition-colors hover:bg-[#1F1F1D] dark:bg-secondary dark:text-secondary-foreground"
+        >
+          <span className="bg-primary flex size-6 items-center justify-center rounded-full text-[#1A1915]">
+            <Plus aria-hidden="true" className="size-3.5" strokeWidth={3} />
+          </span>
+          New quotation
+        </button>
+      </section>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { label: "Billed Total", value: stats.total, icon: FileText, color: "bg-primary/10 text-primary" },
-          { label: "Collected", value: stats.collected, icon: CheckCircle2, color: "bg-emerald-500/10 text-emerald-500" },
-          { label: "Pending", value: stats.pending, icon: Clock, color: "bg-amber-500/10 text-amber-500" },
-          { label: "Overdue", value: stats.overdue, icon: AlertCircle, color: "bg-rose-500/10 text-rose-500" }
-        ].map((stat, i) => (
-          <Card key={i} className="border-border/40 bg-card/30 backdrop-blur-md shadow-xl overflow-hidden group hover:border-primary/30 transition-all hover:scale-[1.02]">
-            <CardContent className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <div className={cn("p-2.5 rounded-xl shadow-inner", stat.color)}>
-                  <stat.icon className="h-5 w-5" />
-                </div>
-                <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground/60">{stat.label}</p>
-              </div>
-              <p className="text-3xl font-black tracking-tighter">{formatMoney(stat.value, orgCurrency)}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Overview */}
+      <section className="flex flex-wrap gap-4">
+        <CollectionSummary
+          total={stats.total}
+          collected={stats.collected}
+          pending={stats.pending}
+          overdue={stats.overdue}
+          currency={orgCurrency}
+          isLoading={loading}
+        />
+        <StatusDonut rows={insightRows} isLoading={loading} />
+      </section>
 
-      {/* Table Section */}
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
-          <div className="relative w-full sm:w-96 group">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-all" />
-            <Input 
-              placeholder="Search by client or invoice ID..." 
-              className="h-12 pl-12 rounded-2xl bg-card border-border/50 focus:border-primary/50 transition-all shadow-sm"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
+      {/* Transactions */}
+      <section className="flex flex-col gap-3 rounded-[28px] bg-white p-6 shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/60 dark:bg-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-base font-semibold">Transactions</h2>
+            <span className="bg-muted rounded-full px-2.5 py-0.5 text-[13px] font-semibold tabular-nums">
+              {loading ? "–" : filteredInvoices.length}
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            {selectedInvoiceKeys.length > 0 && (
-              <Button
-                onClick={() => setIsBulkPriceEditOpen(true)}
-                className="h-12 px-6 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-amber-500/25 transition-all"
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="text-muted-foreground absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+              <Input
+                placeholder="Search client or invoice ID…"
+                className="h-9 w-64 rounded-full pl-10 text-[13px]"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+              />
+            </div>
+            {["All", "Pending", "Partial", "Completed"].map((s) => (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={statusFilter === s}
+                onClick={() => {
+                  setStatusFilter(s);
+                  setCurrentPage(1);
+                }}
+                className={cn(
+                  "h-9 rounded-full px-3.5 text-[13px] transition-colors",
+                  statusFilter === s
+                    ? "bg-[#30302E] font-semibold text-[#FAF9F5] dark:bg-foreground dark:text-background"
+                    : "bg-card hover:bg-muted border",
+                )}
               >
-                Bulk Edit ({selectedInvoiceKeys.length})
-              </Button>
+                {s}
+              </button>
+            ))}
+            {selectedInvoiceKeys.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsBulkPriceEditOpen(true)}
+                className="bg-primary text-[#1A1915] h-9 rounded-full px-4 text-[13px] font-semibold"
+              >
+                Bulk edit ({selectedInvoiceKeys.length})
+              </button>
             )}
-            <Button
-              variant="outline"
-              className="h-12 rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm px-6 gap-2 hover:bg-muted/50 transition-all"
+            <button
+              type="button"
               onClick={() => setFiltersOpen(true)}
+              className="bg-card hover:bg-muted flex h-9 items-center gap-2 rounded-full border px-3.5 text-[13px]"
             >
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Filters</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-12 w-12 rounded-2xl border border-border/50 hover:bg-muted/50"
+              <Filter className="h-3.5 w-3.5" />
+              Filters
+            </button>
+            <button
+              type="button"
+              aria-label="Export CSV"
               onClick={handleExportCSV}
+              className="bg-card hover:bg-muted flex size-9 items-center justify-center rounded-full border"
             >
-                <Download className="h-5 w-5" />
-            </Button>
+              <Download className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
-        <div className="rounded-[2.5rem] border border-border/40 bg-card/20 backdrop-blur-xl overflow-hidden shadow-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left border-collapse">
-              <thead>
-                <tr className="bg-muted/30 border-b border-border/50">
-                  <th className="w-12 px-6 py-5">
-                    <input
-                      type="checkbox"
-                      checked={
-                        paginatedInvoices.length > 0 &&
-                        paginatedInvoices.every((inv) =>
-                          selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`)
-                        )
-                      }
-                      onChange={() => handleToggleAll(paginatedInvoices)}
-                      className="rounded border-border/50 h-4 w-4 accent-primary cursor-pointer"
-                    />
-                  </th>
-                  <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Invoice / Client</th>
-                  <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status</th>
-                  <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Progress</th>
-                  <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Balance Due</th>
-                  <th className="px-8 py-5 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
-                      Loading financial records...
+        <div className="max-h-[640px] overflow-auto">
+          <table className="w-full min-w-[760px] border-separate border-spacing-0 text-sm">
+            <thead className="[&_th]:bg-white [&_th]:dark:bg-card sticky top-0 z-10">
+              <tr className="text-muted-foreground text-left text-[13px]">
+                <th className="w-10 px-3.5 py-2.5">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={
+                      paginatedInvoices.length > 0 &&
+                      paginatedInvoices.every((inv) => selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`))
+                    }
+                    onChange={() => handleToggleAll(paginatedInvoices)}
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                  />
+                </th>
+                <th className="px-3.5 py-2.5 font-medium">Invoice / Client</th>
+                <th className="px-3.5 py-2.5 font-medium">Status</th>
+                <th className="px-3.5 py-2.5 font-medium">Progress</th>
+                <th className="px-3.5 py-2.5 text-right font-medium">Balance due</th>
+                <th className="relative px-3.5 py-2.5">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                [0, 1, 2].map((i) => (
+                  <tr key={i}>
+                    <td colSpan={6} className="border-t px-3.5 py-3">
+                      <div className="bg-muted h-6 w-full animate-pulse rounded-2xl" />
                     </td>
                   </tr>
-                ) : paginatedInvoices.length > 0 ? (
-                  paginatedInvoices.map((inv) => {
-                    const { total: convertedTotal, paid: convertedPaid, balance: convertedBalance } = ledgerRowMoney(
-                      {
-                        total_amount: inv.totalAmount,
-                        paid_amount: inv.paidAmount,
-                        balance_due: inv.balanceDue,
-                        currency: inv.currency,
-                      },
-                      orgCurrency,
-                      orgSettings,
-                    );
+                ))
+              ) : paginatedInvoices.length > 0 ? (
+                paginatedInvoices.map((inv) => {
+                  const { total: convertedTotal, paid: convertedPaid, balance: convertedBalance } = ledgerRowMoney(
+                    {
+                      total_amount: inv.totalAmount,
+                      paid_amount: inv.paidAmount,
+                      balance_due: inv.balanceDue,
+                      currency: inv.currency,
+                    },
+                    orgCurrency,
+                    orgSettings,
+                  );
+                  const openRow = () => {
+                    const qid = inv.quotationId ?? (inv.source === "quote" ? inv.id : undefined);
+                    if (qid) {
+                      router.push(`/dashboard/payments/q/${qid}`);
+                      return;
+                    }
+                    toast.error("No invoice record to open — create or link a quotation first");
+                  };
 
-                    return (
-                      <tr key={`${inv.source}-${inv.id}`} className="hover:bg-primary/[0.03] transition-all group">
-                        <td className="px-6 py-6 w-12 text-center">
-                          <input
-                            type="checkbox"
-                            checked={selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`)}
-                            onChange={() => handleToggleRow(inv.source, inv.id)}
-                            className="rounded border-border/50 h-4 w-4 accent-primary cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-8 py-6">
-                          <div className="flex flex-col gap-1">
-                            <span className="font-black text-base leading-none text-foreground">{inv.client}</span>
-                            <span className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[10px] font-black text-primary uppercase tracking-[0.1em]">{inv.code}</span>
-                              <span className={cn(
-                                "rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest",
-                                inv.source === "quote" ? "bg-violet-500/10 text-violet-600" : "bg-muted text-muted-foreground",
-                              )}>
+                  return (
+                    <tr key={`${inv.source}-${inv.id}`} className="hover:bg-muted/40 transition-colors">
+                      <td className="border-t px-3.5 py-3.5">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${inv.code}`}
+                          checked={selectedInvoiceKeys.includes(`${inv.source}-${inv.id}`)}
+                          onChange={() => handleToggleRow(inv.source, inv.id)}
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                        />
+                      </td>
+                      <td className="border-t px-3.5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <span
+                            aria-hidden="true"
+                            className="bg-primary/15 flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-[oklch(0.42_0.12_39)] dark:text-primary"
+                          >
+                            {inv.client
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map((part) => part[0]?.toUpperCase() ?? "")
+                              .join("") || "?"}
+                          </span>
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="truncate font-medium">{inv.client}</span>
+                            <span className="text-muted-foreground flex flex-wrap items-center gap-2 text-[13px]">
+                              <span className="font-mono">{inv.code}</span>
+                              <span className="bg-muted rounded-full px-2 py-0.5 text-[11px] font-medium">
                                 {inv.source === "quote" ? "Quotation" : "Invoice"}
                               </span>
-                              <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
-                                <Calendar className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-3.5 w-3.5 shrink-0" />
                                 {inv.date || "—"}
                               </span>
                             </span>
                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                          <Badge 
-                            variant="outline"
+                        </div>
+                      </td>
+                      <td className="border-t px-3.5 py-3.5">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-[13px] font-medium",
+                            inv.status === "Completed"
+                              ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                              : inv.status === "Pending"
+                                ? "bg-chart-2/20 text-foreground"
+                                : inv.status === "Sent"
+                                  ? "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400"
+                                  : inv.status === "Approved"
+                                    ? "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"
+                                    : inv.status === "Partial"
+                                      ? "bg-primary/15 text-foreground"
+                                      : "bg-rose-500/10 text-rose-700 dark:text-rose-400",
+                          )}
+                        >
+                          <span
+                            aria-hidden="true"
                             className={cn(
-                              "rounded-full px-3 py-1 font-black uppercase tracking-widest text-[9px] border-none shadow-sm",
-                              inv.status === "Completed" ? "bg-emerald-500/10 text-emerald-600" :
-                              inv.status === "Pending" ? "bg-amber-500/10 text-amber-600" :
-                              inv.status === "Sent" ? "bg-cyan-500/10 text-cyan-600" :
-                              inv.status === "Approved" ? "bg-indigo-500/10 text-indigo-600" :
-                              inv.status === "Partial" ? "bg-blue-500/10 text-blue-600" :
-                              "bg-rose-500/10 text-rose-600"
+                              "mr-1.5 size-1.5 rounded-full",
+                              inv.status === "Completed"
+                                ? "bg-[#3F7A37] dark:bg-emerald-400"
+                                : inv.status === "Pending" || inv.status === "Partial"
+                                  ? "bg-primary"
+                                  : inv.status === "Sent"
+                                    ? "bg-cyan-500"
+                                    : inv.status === "Approved"
+                                      ? "bg-indigo-500"
+                                      : "bg-rose-500",
                             )}
-                          >
-                            {inv.status}
-                          </Badge>
-                        </td>
-                        <td className="px-8 py-6">
-                          <div className="space-y-2">
-                            <div className="w-32 h-1.5 bg-muted/50 rounded-full overflow-hidden border border-border/50">
-                              <div 
-                                className={cn(
-                                  "h-full transition-all duration-1000 ease-out rounded-full",
-                                  inv.status === "Completed" ? "bg-emerald-500" : 
-                                  inv.status === "Partial" ? "bg-blue-500" : "bg-primary/20"
-                                )}
-                                style={{ width: `${(convertedPaid / (convertedTotal || 1)) * 100}%` }}
-                              />
-                            </div>
-                            <p className="text-[9px] font-black text-muted-foreground/60 uppercase tracking-widest">
-                              {formatMoney(convertedPaid, orgCurrency)} Collected
-                            </p>
+                          />
+                          {inv.status}
+                        </span>
+                      </td>
+                      <td className="border-t px-3.5 py-3.5">
+                        <div className="flex flex-col gap-1.5">
+                          <div className="bg-muted h-1.5 w-32 overflow-hidden rounded-full">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                inv.status === "Completed" ? "bg-emerald-500" : "bg-primary",
+                              )}
+                              style={{ width: `${Math.min(100, (convertedPaid / (convertedTotal || 1)) * 100)}%` }}
+                            />
                           </div>
-                        </td>
-                        <td className="px-8 py-6 text-right font-black text-lg tracking-tighter">
-                          {formatMoney(convertedBalance, orgCurrency)}
-                        </td>
-                        <td className="px-8 py-6 text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-10 w-10 rounded-2xl hover:bg-primary/10 hover:text-primary transition-all group-hover:translate-x-1"
-                            onClick={() => {
-                              const qid = inv.quotationId ?? (inv.source === "quote" ? inv.id : undefined);
-                              if (qid) {
-                                router.push(`/dashboard/payments/q/${qid}`);
-                                return;
-                              }
-                              toast.error("No invoice record to open — create or link a quotation first");
-                            }}
-                          >
-                            <ChevronRight className="h-6 w-6" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="px-8 py-20 text-center text-muted-foreground font-bold italic">
-                      No invoices found matching your criteria.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination Footer */}
-          <div className="px-10 py-6 border-t border-border/50 bg-muted/10 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
-              Showing <span className="text-foreground">{(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredInvoices.length)}</span> of {filteredInvoices.length} Transactions
-            </p>
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="h-10 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-              >
-                <ChevronLeft className="mr-2 h-4 w-4" />
-                <span className="font-black text-[9px] uppercase tracking-widest">Previous</span>
-              </Button>
-              
-              <div className="flex items-center gap-1.5">
-                {[...Array(totalPages)].map((_, i) => (
-                    <Button 
-                        key={i}
-                        variant={currentPage === i + 1 ? "default" : "ghost"}
+                          <span className="text-muted-foreground text-[13px] tabular-nums">
+                            {formatMoney(convertedPaid, orgCurrency)} collected
+                          </span>
+                        </div>
+                      </td>
+                      <td
                         className={cn(
-                            "h-10 w-10 rounded-xl font-black text-xs transition-all", 
-                            currentPage === i + 1 ? "shadow-xl shadow-primary/20 bg-primary" : "text-muted-foreground hover:bg-primary/5"
+                          "border-t px-3.5 py-3.5 text-right text-base font-semibold tabular-nums",
+                          convertedBalance <= 0 && "text-muted-foreground font-normal",
                         )}
-                        onClick={() => setCurrentPage(i + 1)}
-                    >
-                        {i + 1}
-                    </Button>
-                ))}
-              </div>
+                      >
+                        {formatMoney(convertedBalance, orgCurrency)}
+                      </td>
+                      <td className="border-t px-3.5 py-3.5 text-right">
+                        <button type="button" onClick={openRow} className="text-[13px] font-semibold hover:underline">
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="text-muted-foreground border-t px-3.5 py-8 text-center">
+                    No invoices found matching your criteria.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="h-10 px-4 rounded-xl border-border/50 bg-card hover:bg-muted transition-all disabled:opacity-30"
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages || totalPages === 0}
-              >
-                <span className="font-black text-[9px] uppercase tracking-widest">Next</span>
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            </div>
+        {/* Pagination */}
+        <div className="flex flex-col items-center justify-between gap-3 px-1 pt-2 sm:flex-row">
+          <p className="text-muted-foreground text-[13px]">
+            Showing{" "}
+            <span className="text-foreground font-medium tabular-nums">
+              {filteredInvoices.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} –{" "}
+              {Math.min(currentPage * itemsPerPage, filteredInvoices.length)}
+            </span>{" "}
+            of {filteredInvoices.length} transactions
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="bg-card hover:bg-muted flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] disabled:opacity-40"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </button>
+            <span className="text-muted-foreground px-2 text-[13px] tabular-nums">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className="bg-card hover:bg-muted flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-[13px] disabled:opacity-40"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages || totalPages === 0}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Invoice Details Sheet */}
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="sm:max-w-md bg-card/95 backdrop-blur-3xl border-l border-border/50 shadow-2xl p-0 overflow-hidden">
+        <SheetContent className="sm:max-w-md bg-[#FAF9F5] dark:bg-background border-l border-border/60 shadow-2xl p-0 overflow-hidden">
           {selectedInvoice && (
             <div className="h-full flex flex-col">
               <div className="h-72 flex flex-col justify-end p-10 text-white relative">
-                <div className="absolute inset-0 bg-neutral-950 z-0" />
-                <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/40 to-transparent z-10" />
+                <div className="absolute inset-0 bg-[#2B2A27] z-0" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#2B2A27] via-[#2B2A27]/40 to-transparent z-10" />
                 <div className="absolute inset-0 opacity-10 z-0 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:20px_20px]" />
                 
                 <div className="relative z-20 space-y-4">
@@ -1168,7 +1220,7 @@ export default function PaymentsPage() {
                     {selectedInvoice.status}
                   </Badge>
                   <div className="space-y-1">
-                    <h2 className="text-5xl font-black tracking-tighter leading-none">{formatMoney(selectedInvoice.balanceDue ?? Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount), selectedInvoice.currency || orgCurrency)}</h2>
+                    <h2 className="text-5xl font-medium tracking-[-0.03em] leading-none">{formatMoney(selectedInvoice.balanceDue ?? Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount), selectedInvoice.currency || orgCurrency)}</h2>
                     <p className="text-[11px] font-black text-white/40 uppercase tracking-[0.3em] pl-1">Balance Due</p>
                   </div>
                 </div>
@@ -1177,7 +1229,7 @@ export default function PaymentsPage() {
               <div className="flex-1 overflow-y-auto p-10 space-y-10 custom-scrollbar bg-background">
                 <div className="space-y-4">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Case Information</p>
-                  <div className="grid grid-cols-2 gap-4 border border-border/50 p-6 rounded-[2rem] bg-muted/10 shadow-inner">
+                  <div className="grid grid-cols-2 gap-4 border border-border/50 p-6 rounded-[28px] bg-white dark:bg-card ring-1 ring-border/40">
                     <div>
                       <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">Client</p>
                       <p className="text-sm font-black tracking-tight">{selectedInvoice.client}</p>
@@ -1192,19 +1244,21 @@ export default function PaymentsPage() {
                       Emailed: {selectedInvoice.sentAt}
                     </p>
                   ) : null}
-                  {selectedInvoice.stripePaymentLinkUrl ? (
-                    <div className="rounded-2xl border border-border/40 bg-muted/10 px-4 py-3 space-y-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                        Stripe payment link
-                      </p>
-                      <p className="text-xs break-all text-foreground/80">{selectedInvoice.stripePaymentLinkUrl}</p>
+                  {selectedInvoice.payLinkUrl ? (
+                    <div className="flex items-center gap-3 rounded-2xl border border-border/40 bg-muted/10 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payment link</p>
+                        <p className="mt-1 truncate font-mono text-xs text-foreground/80" title={selectedInvoice.payLinkUrl}>
+                          {selectedInvoice.payLinkUrl.replace(/^https?:\/\//, "")}
+                        </p>
+                      </div>
                       <Button
                         type="button"
                         variant="outline"
-                        className="h-9 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                        className="h-9 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest"
                         onClick={async () => {
                           try {
-                            await navigator.clipboard.writeText(selectedInvoice.stripePaymentLinkUrl || "");
+                            await navigator.clipboard.writeText(selectedInvoice.payLinkUrl || "");
                             toast.success("Payment link copied");
                           } catch {
                             toast.error("Could not copy link");
@@ -1312,7 +1366,7 @@ export default function PaymentsPage() {
                               totalAmount: selectedInvoice.totalAmount,
                               paidAmount: selectedInvoice.paidAmount,
                               chargeAmount: charge,
-                              agreementLink: agreementLink || undefined,
+                              includeAgreements: Boolean(agreementLink),
                               bankAccounts: selectedBankDetails,
                             }),
                             chargeAmount: String(charge),
@@ -1939,7 +1993,7 @@ export default function PaymentsPage() {
                             totalAmount: selectedInvoice.totalAmount,
                             paidAmount: selectedInvoice.paidAmount,
                             chargeAmount: chargeForBody,
-                            agreementLink: v.agreementLink || undefined,
+                            includeAgreements: Boolean(v.agreementLink),
                             bankAccounts: selectedBankDetails,
                           }),
                         };

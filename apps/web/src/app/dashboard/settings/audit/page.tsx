@@ -1,13 +1,13 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, ChevronRight, Globe, RefreshCw, ScrollText, Search, ShieldAlert, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, ChevronUp, Eye, Globe, RefreshCcw, ShieldAlert } from "lucide-react";
+import { HeroAction, PageHero, Segmented } from "@/components/dashboard/ui-kit";
+import { describeActivity } from "@/lib/activity-describe";
 import { fetchAuditLogById, fetchAuditLogs, type AuditLogRecord } from "@/lib/audit-logs";
+import { cn } from "@/lib/utils";
 
 type FilterState = "all" | "success" | "warning" | "error";
 
@@ -128,17 +128,8 @@ function humanizeAction(method: string, path: string): string {
   if (resource === "settings" && m === "PATCH") return "Updated organization settings";
   if (resource === "settings" && m === "DELETE") return "Reset organization settings";
 
-  if (m === "GET" && specific) return `Viewed ${specific}`;
-  if (m === "GET") return `Viewed ${plural} list`;
-  if (m === "POST") return `Created a new ${label}`;
-  if (m === "PUT" && specific) return `Updated ${specific}`;
-  if (m === "PUT") return `Updated a ${label}`;
-  if (m === "PATCH" && specific) return `Updated ${specific}`;
-  if (m === "PATCH") return `Updated a ${label}`;
-  if (m === "DELETE" && specific) return `Deleted ${specific}`;
-  if (m === "DELETE") return `Deleted a ${label}`;
-
-  return `${m} ${cleanPath}`;
+  // Everything else: the shared wording helper (also used on the user and roles pages).
+  return describeActivity({ method: m, path: cleanPath, action: "" }).title;
 }
 
 /** Returns a short resource label for the "Resource" column. */
@@ -148,7 +139,7 @@ function humanizeResource(path: string, method: string): string {
   if (cleanPath.includes("/auth/")) return "Authentication";
   const parts = cleanPath.replace(/^\/api\//, "").split("/");
   const resource = parts[0] ?? "";
-  const id = parts[1];
+  const id = /^\d+$/.test(parts[1] ?? "") ? parts[1] : undefined;
   const labels: Record<string, string> = {
     leads: "Leads",
     subjects: "Subjects",
@@ -230,9 +221,57 @@ function formatIp(ip: string | null | undefined): string {
   return ip;
 }
 
+const PAGE_STEP = 25;
+
+type ViewState = "changes" | "all";
+
+function dayLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Earlier";
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+}
+
+function formatClock(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+const TONE_DOT: Record<FilterState, string> = {
+  all: "bg-[#C9C5B8]",
+  success: "bg-[#3F7A37] dark:bg-emerald-400",
+  warning: "bg-[#C98A1F] dark:bg-amber-400",
+  error: "bg-[#B94A3E] dark:bg-red-400",
+};
+
+const TONE_PILL: Record<FilterState, string> = {
+  all: "",
+  success: "bg-[#E7F1E4] text-[#2D5A27] dark:bg-emerald-950 dark:text-emerald-300",
+  warning: "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-300",
+  error: "bg-[#F8E4E0] text-[#7A2A1E] dark:bg-red-950/60 dark:text-red-200",
+};
+
+const CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+const FIELD = "h-11 rounded-xl border-0 bg-[#F3F1EA] px-3.5 text-sm shadow-none dark:bg-muted";
+
+function isNoise(log: AuditLogRecord): boolean {
+  const { method, path } = splitAction(log.action);
+  if (method.toUpperCase() === "OPTIONS") return true;
+  return describeActivity({ method: log.method || method, path: log.path || path, action: "" }).kind === "background";
+}
+
+function isChange(log: AuditLogRecord): boolean {
+  const { method, path } = splitAction(log.action);
+  return describeActivity({ method: log.method || method, path: log.path || path, action: "" }).kind === "change";
+}
+
 export default function AuditLogsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterState>("all");
+  const [view, setView] = useState<ViewState | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -244,8 +283,7 @@ export default function AuditLogsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [showTechnical, setShowTechnical] = useState(false);
-  const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const [shown, setShown] = useState(PAGE_STEP);
 
   const loadLogs = async (refresh = false) => {
     if (refresh) {
@@ -269,10 +307,10 @@ export default function AuditLogsPage() {
     void loadLogs(false);
   }, []);
 
-  // Reset to the first page whenever the filter, search, or date range changes.
+  // Start from the top whenever the filters change.
   useEffect(() => {
-    setPage(1);
-  }, [query, filter, dateFrom, dateTo]);
+    setShown(PAGE_STEP);
+  }, [query, filter, view, dateFrom, dateTo]);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -297,11 +335,22 @@ export default function AuditLogsPage() {
     return { success, warning, error };
   }, [logs]);
 
+  const changeCount = useMemo(() => logs.filter(isChange).length, [logs]);
+  const activeView: ViewState = view ?? (changeCount > 0 ? "changes" : "all");
+
   const filteredLogs = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
     const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
     return logs.filter((log) => {
+      // Failures always matter, so they stay visible even if they were just page loads.
+      const failed = log.status >= 400;
+      if (!failed) {
+        if (activeView === "changes" ? !isChange(log) : isNoise(log)) return false;
+      } else if (isNoise(log)) {
+        return false;
+      }
+
       const tone = statusTone(log.status);
       if (filter !== "all" && tone !== filter) return false;
 
@@ -316,363 +365,284 @@ export default function AuditLogsPage() {
       const user = renderUser(log).toLowerCase();
       const { method, path } = splitAction(log.action);
       const readable = humanizeAction(method, path).toLowerCase();
-      return (
-        user.includes(normalized) ||
-        readable.includes(normalized) ||
-        log.path.toLowerCase().includes(normalized) ||
-        log.ip.toLowerCase().includes(normalized)
-      );
+      return user.includes(normalized) || readable.includes(normalized) || log.path.toLowerCase().includes(normalized) || log.ip.toLowerCase().includes(normalized);
     });
-  }, [filter, logs, query, dateFrom, dateTo]);
+  }, [filter, logs, query, dateFrom, dateTo, activeView]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const pagedLogs = filteredLogs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const visible = filteredLogs.slice(0, shown);
+  const groups = useMemo(() => {
+    const out: { label: string; items: AuditLogRecord[] }[] = [];
+    for (const log of visible) {
+      const label = dayLabel(log.createdAt);
+      const last = out[out.length - 1];
+      if (last && last.label === label) last.items.push(log);
+      else out.push({ label, items: [log] });
+    }
+    return out;
+  }, [visible]);
+
+  const hasFilters = query.trim() !== "" || filter !== "all" || dateFrom !== "" || dateTo !== "";
 
   return (
-    <div className="space-y-6">
-      {/* Header card */}
-      <div className="rounded-3xl border border-border/60 bg-linear-to-br from-primary/10 via-background to-background p-6 md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h3 className="text-2xl font-semibold tracking-tight">Audit Logs</h3>
-            <p className="text-sm text-muted-foreground">
-              Track all critical actions performed within your organization.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            className="w-fit gap-2"
-            onClick={() => void loadLogs(true)}
-            disabled={isRefreshing}
+    <div className="space-y-5 pb-10">
+      <PageHero
+        tone="ink"
+        icon={ScrollText}
+        eyebrow="People & access"
+        title={<>Audit <strong className="font-semibold">log</strong></>}
+        description="Track all critical actions performed within your organization, in plain English."
+        actions={
+          <HeroAction icon={RefreshCw} onClick={() => void loadLogs(true)} disabled={isRefreshing}>
+            {isRefreshing ? "Refreshing…" : "Refresh"}
+          </HeroAction>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
+          <OutcomeTile label="Successful actions" value={stats.success} tone="success" active={filter === "success"} onClick={() => setFilter(filter === "success" ? "all" : "success")} />
+          <OutcomeTile label="Access warnings" value={stats.warning} tone="warning" active={filter === "warning"} onClick={() => setFilter(filter === "warning" ? "all" : "warning")} />
+          <OutcomeTile label="System errors" value={stats.error} tone="error" active={filter === "error"} onClick={() => setFilter(filter === "error" ? "all" : "error")} />
+        </div>
+      </PageHero>
+
+      {/* Toolbar */}
+      <div className={cn(CARD, "flex flex-col gap-3 p-4 lg:flex-row lg:flex-wrap lg:items-center")}>
+        <div className="relative min-w-0 flex-1 lg:min-w-64">
+          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input aria-label="Search the audit log" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by person, action or IP…" className={cn(FIELD, "pl-10")} />
+        </div>
+        <Segmented<ViewState>
+          label="What to show"
+          value={activeView}
+          onChange={setView}
+          options={[
+            { value: "changes", label: "Changes", count: changeCount },
+            { value: "all", label: "All activity" },
+          ]}
+        />
+        <div className="flex items-center gap-2">
+          <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => setDateFrom(e.target.value)} className={cn(FIELD, "w-auto")} aria-label="From date" />
+          <span className="text-sm text-muted-foreground">to</span>
+          <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} className={cn(FIELD, "w-auto")} aria-label="To date" />
+        </div>
+        {hasFilters ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setFilter("all");
+              setDateFrom("");
+              setDateTo("");
+            }}
+            className="flex h-11 items-center gap-1.5 self-start rounded-full px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-[#F3F1EA] hover:text-foreground lg:self-auto dark:hover:bg-muted"
           >
-            <RefreshCcw className={cn("h-4 w-4", isRefreshing ? "animate-spin" : "")} />
-            Refresh
-          </Button>
-        </div>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Successful actions</p>
-              <p className="mt-2 text-2xl font-semibold text-emerald-500">{stats.success}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Access warnings</p>
-              <p className="mt-2 text-2xl font-semibold text-amber-500">{stats.warning}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">System errors</p>
-              <p className="mt-2 text-2xl font-semibold text-destructive">{stats.error}</p>
-            </CardContent>
-          </Card>
-        </div>
+            <X aria-hidden="true" className="size-4" />
+            Clear
+          </button>
+        ) : null}
       </div>
 
-      {/* Table card */}
-      <Card>
-        <CardHeader className="space-y-4">
-          <div>
-            <CardTitle>Activity History</CardTitle>
-            <CardDescription>
-              Every action taken in your organization - in plain English.
-            </CardDescription>
-          </div>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by user, action, or IP..."
-              className="lg:max-w-xs"
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              {(["all", "success", "warning", "error"] as const).map((tone) => (
-                <Button
-                  key={tone}
-                  variant={filter === tone ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setFilter(tone)}
-                  className="capitalize"
-                >
-                  {tone}
-                </Button>
-              ))}
+      {/* Log */}
+      {logsLoading ? (
+        <div aria-hidden="true" className={cn(CARD, "divide-y divide-border/50")}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center gap-4 px-5 py-4">
+              <div className="size-2 rounded-full bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3.5 w-64 max-w-full animate-pulse rounded bg-muted" />
+                <div className="h-3 w-40 animate-pulse rounded bg-muted" />
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-auto"
-                aria-label="From date"
-              />
-              <span className="text-sm text-muted-foreground">to</span>
-              <Input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-auto"
-                aria-label="To date"
-              />
-              {(dateFrom || dateTo) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
-                >
-                  Clear dates
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {logsLoading ? (
-            <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              Loading activity...
-            </div>
-          ) : logsError ? (
-            <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-              <ShieldAlert className="h-4 w-4" />
-              {logsError}
-            </div>
-          ) : (
-            <>
-            <div className="relative w-full overflow-auto">
-              <table className="w-full caption-bottom text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="h-11 px-2 font-medium text-muted-foreground">Who</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">What happened</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">Resource</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">IP address</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">When</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">Outcome</th>
-                    <th className="h-11 px-2 font-medium text-muted-foreground">Details</th>
-                  </tr>
-                </thead>
-                <tbody className="[&_tr:last-child]:border-0">
-                  {filteredLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-6 text-center text-sm text-muted-foreground">
-                        No activity matched your filters.
-                      </td>
-                    </tr>
-                  ) : (
-                    pagedLogs.map((log) => {
-                      const { method, path } = splitAction(log.action);
-                      const tone = statusTone(log.status);
-                      const variant =
-                        tone === "success" ? "success" : tone === "warning" ? "warning" : "destructive";
-                      const isPreflight = method.toUpperCase() === "OPTIONS";
-
-                      return (
-                        <tr
-                          key={log.id}
-                          className={cn(
-                            "border-b transition-colors hover:bg-muted/50",
-                            isPreflight ? "opacity-50" : "",
-                          )}
-                        >
-                          <td className="p-2 font-medium">
-                            {isPreflight ? (
-                              <span className="text-muted-foreground text-xs">System</span>
-                            ) : (
-                              renderUser(log)
-                            )}
-                          </td>
-                          <td className="p-2">{humanizeAction(method, path)}</td>
-                          <td className="p-2 text-muted-foreground">{humanizeResource(path, method)}</td>
-                          <td className="p-2">
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                              <Globe className="h-3 w-3" />
+          ))}
+        </div>
+      ) : logsError ? (
+        <div role="alert" className="flex items-center gap-3 rounded-[26px] bg-[#F8E4E0] p-5 text-sm text-[#7A2A1E] dark:bg-red-950/60 dark:text-red-200">
+          <ShieldAlert aria-hidden="true" className="size-4 shrink-0" />
+          <span className="flex-1">{logsError}</span>
+          <button type="button" onClick={() => void loadLogs(false)} className="flex h-9 items-center rounded-full px-4 text-sm font-medium ring-1 ring-current/30 transition-colors hover:bg-white/50">
+            Try again
+          </button>
+        </div>
+      ) : filteredLogs.length === 0 ? (
+        <div className={cn(CARD, "px-6 py-14 text-center")}>
+          <p className="font-medium">{hasFilters ? "No activity matches your filters" : activeView === "changes" ? "No changes recorded yet" : "No activity recorded yet"}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {hasFilters ? "Try a different search or clear the filters." : activeView === "changes" && logs.length > 0 ? "Switch to All activity to see pages people opened." : "Actions will appear here as they happen."}
+          </p>
+          {!hasFilters && activeView === "changes" && logs.length > 0 ? (
+            <button type="button" onClick={() => setView("all")} className="mt-4 inline-flex h-10 items-center rounded-full px-4 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted">
+              Show all activity
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((group) => (
+            <section key={group.label} aria-label={group.label} className="space-y-2">
+              <h2 className="px-1 text-[13px] font-medium text-muted-foreground">{group.label}</h2>
+              <ul className={cn(CARD, "divide-y divide-border/50 overflow-hidden")}>
+                {group.items.map((log) => {
+                  const { method, path } = splitAction(log.action);
+                  const tone = statusTone(log.status);
+                  return (
+                    <li key={log.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(log.id)}
+                        className="group flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-[#F7F6F1] focus-visible:bg-[#F7F6F1] focus-visible:outline-none dark:hover:bg-muted/40"
+                      >
+                        <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", TONE_DOT[tone])} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{humanizeAction(method, path)}</span>
+                          <span className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="truncate">{renderUser(log)}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="inline-flex shrink-0 items-center gap-1">
+                              <Globe aria-hidden="true" className="size-3" />
                               {formatIp(log.ip)}
                             </span>
-                          </td>
-                          <td className="p-2 text-xs text-muted-foreground">{formatRelativeTime(log.createdAt)}</td>
-                          <td className="p-2">
-                            <Badge variant={variant}>
-                              {statusLabel(log.status)} | {log.status}
-                            </Badge>
-                          </td>
-                          <td className="p-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-1"
-                              onClick={() => setSelectedId(log.id)}
-                            >
-                              <Eye className="h-4 w-4" />
-                              View
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {filteredLogs.length > 0 && (
-              <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Showing {(currentPage - 1) * pageSize + 1}–
-                  {Math.min(currentPage * pageSize, filteredLogs.length)} of {filteredLogs.length}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPage <= 1}
-                    onClick={() => setPage(currentPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Page {currentPage} of {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setPage(currentPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+                          </span>
+                        </span>
+                        {tone !== "success" ? (
+                          <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-medium", TONE_PILL[tone])}>{humanizeStatus(log.status)}</span>
+                        ) : null}
+                        <time className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums" dateTime={log.createdAt} title={formatRelativeTime(log.createdAt)}>
+                          {formatClock(log.createdAt)}
+                        </time>
+                        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              Showing {visible.length} of {filteredLogs.length}
+            </p>
+            {filteredLogs.length > visible.length ? (
+              <button
+                type="button"
+                onClick={() => setShown((n) => n + PAGE_STEP)}
+                className="flex h-10 items-center rounded-full px-5 text-sm font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+              >
+                Show {Math.min(PAGE_STEP, filteredLogs.length - visible.length)} more
+              </button>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* Detail modal */}
       <Dialog open={selectedId !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-[26px] sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Event Details</DialogTitle>
-            <DialogDescription>
-              What happened, who did it, and when.
-            </DialogDescription>
+            <DialogTitle>Event details</DialogTitle>
+            <DialogDescription>What happened, who did it, and when.</DialogDescription>
           </DialogHeader>
 
           {detailLoading ? (
-            <p className="text-sm text-muted-foreground py-4">Loading...</p>
+            <div aria-hidden="true" className="space-y-3 py-2">
+              <div className="h-24 animate-pulse rounded-2xl bg-[#F3F1EA] dark:bg-muted" />
+              <div className="h-9 animate-pulse rounded-full bg-[#F3F1EA] dark:bg-muted" />
+            </div>
           ) : detailError || !detailLog ? (
-            <p className="text-sm text-destructive">{detailError ?? "Unable to load event details."}</p>
-          ) : (() => {
-            const { method, path } = splitAction(detailLog.action);
-            const tone = statusTone(detailLog.status);
-            const outcomeColor =
-              tone === "success"
-                ? "text-emerald-600"
-                : tone === "warning"
-                  ? "text-amber-600"
-                  : "text-destructive";
-
-            return (
-              <div className="space-y-5 text-sm">
-                {/* Summary strip */}
-                <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
-                  <SummaryRow label="What happened">
-                    <span className="font-medium">{humanizeAction(method, path)}</span>
-                  </SummaryRow>
-                  <SummaryRow label="Who">
-                    {renderUser(detailLog)}
-                  </SummaryRow>
-                  <SummaryRow label="When">
-                    {new Date(detailLog.createdAt).toLocaleString(undefined, {
-                      dateStyle: "long",
-                      timeStyle: "medium",
-                    })}
-                  </SummaryRow>
-                  <SummaryRow label="From IP">
-                    {formatIp(detailLog.ip)}
-                  </SummaryRow>
-                  <SummaryRow label="Resource">
-                    {humanizeResource(path, method)}
-                  </SummaryRow>
-                  <SummaryRow label="Outcome">
-                    <span className={outcomeColor}>
+            <p role="alert" className="text-sm text-destructive">{detailError ?? "Unable to load event details."}</p>
+          ) : (
+            (() => {
+              const { method, path } = splitAction(detailLog.action);
+              const tone = statusTone(detailLog.status);
+              return (
+                <div className="space-y-4 text-sm">
+                  <div className="rounded-2xl bg-[#F7F6F1] p-4 dark:bg-muted/40">
+                    <p className="text-base font-medium">{humanizeAction(method, path)}</p>
+                    <span className={cn("mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium", TONE_PILL[tone])}>
+                      <span aria-hidden="true" className={cn("size-1.5 rounded-full", TONE_DOT[tone])} />
                       {humanizeStatus(detailLog.status)}
                     </span>
-                  </SummaryRow>
-                </div>
-
-                {/* Technical details toggle */}
-                <button
-                  type="button"
-                  onClick={() => setShowTechnical((v) => !v)}
-                  className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
-                >
-                  <span className="font-medium uppercase tracking-wide">Technical details</span>
-                  {showTechnical ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
-
-                {showTechnical && (
-                  <div className="space-y-3 text-xs">
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <Detail label="HTTP Method" value={detailLog.method} />
-                      <Detail label="HTTP Status" value={String(detailLog.status)} />
-                      <Detail label="Endpoint path" value={detailLog.path} />
-                      <Detail label="Event ID" value={String(detailLog.id)} />
-                    </div>
-                    <Detail label="Browser / client" value={detailLog.userAgent || "-"} />
-                    {detailLog.payload && detailLog.payload !== "{}" && (
-                      <div>
-                        <p className="mb-1 font-semibold uppercase tracking-wide text-muted-foreground">
-                          Request data
-                        </p>
-                        <pre className="max-h-40 overflow-auto rounded-lg border bg-muted/40 p-3 font-mono whitespace-pre-wrap break-all">
-                          {detailLog.payload}
-                        </pre>
-                      </div>
-                    )}
                   </div>
-                )}
-              </div>
-            );
-          })()}
+
+                  <dl className="divide-y divide-border/50">
+                    <SummaryRow label="Who">{renderUser(detailLog)}</SummaryRow>
+                    <SummaryRow label="When">
+                      {new Date(detailLog.createdAt).toLocaleString(undefined, { dateStyle: "long", timeStyle: "medium" })}
+                    </SummaryRow>
+                    <SummaryRow label="From">{formatIp(detailLog.ip)}</SummaryRow>
+                    <SummaryRow label="Resource">{humanizeResource(path, method)}</SummaryRow>
+                  </dl>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowTechnical((v) => !v)}
+                    aria-expanded={showTechnical}
+                    className="flex h-10 w-full items-center justify-between rounded-full px-4 text-[13px] font-medium text-muted-foreground ring-1 ring-border transition-colors hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted"
+                  >
+                    Technical details
+                    <ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", showTechnical && "rotate-180")} />
+                  </button>
+
+                  {showTechnical && (
+                    <div className="space-y-3 text-xs">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Detail label="HTTP method" value={detailLog.method} />
+                        <Detail label="HTTP status" value={String(detailLog.status)} />
+                        <Detail label="Endpoint path" value={detailLog.path} />
+                        <Detail label="Event ID" value={String(detailLog.id)} />
+                      </div>
+                      <Detail label="Browser / client" value={detailLog.userAgent || "-"} />
+                      {detailLog.payload && detailLog.payload !== "{}" && (
+                        <div>
+                          <p className="mb-1.5 px-1 text-[11px] font-medium text-muted-foreground">Request data</p>
+                          <pre className="max-h-40 overflow-auto rounded-2xl bg-[#F7F6F1] p-3 font-mono break-all whitespace-pre-wrap dark:bg-muted/40">{detailLog.payload}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function SummaryRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function OutcomeTile({ label, value, tone, active, onClick }: { label: string; value: number; tone: FilterState; active: boolean; onClick: () => void }) {
   return (
-    <div className="min-w-0">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-0.5 break-words">{children}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex min-w-0 flex-col gap-3 rounded-[22px] bg-white/[0.05] p-4 text-left ring-1 transition-colors focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none sm:p-5",
+        active ? "bg-white/[0.1] ring-white/50" : "ring-white/10 hover:bg-white/[0.08]",
+      )}
+    >
+      <span className="flex items-center gap-2 text-[13px] text-[#C9C6BC]">
+        <span aria-hidden="true" className={cn("size-1.5 rounded-full", tone === "success" ? "bg-[#7FBF8A]" : tone === "warning" ? "bg-[#E2B35A]" : "bg-[#E58A7E]")} />
+        {label}
+      </span>
+      <span className="text-3xl font-medium tracking-[-0.02em] tabular-nums sm:text-[32px]">{value.toLocaleString()}</span>
+    </button>
+  );
+}
+
+function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3">
+      <dt className="text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right font-medium break-words">{children}</dd>
     </div>
   );
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border bg-muted/30 p-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 break-all font-mono">{value}</p>
+    <div className="rounded-2xl bg-[#F7F6F1] p-3 dark:bg-muted/40">
+      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono break-all">{value}</p>
     </div>
   );
 }
-
-function cn(...classes: string[]) {
-  return classes.filter(Boolean).join(" ");
-}
-

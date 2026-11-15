@@ -1,21 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  ClipboardList,
-  ExternalLink,
-  FolderLock,
-  Inbox,
-  Link2,
-  Mail,
-  PenLine,
-  Send,
-  Upload,
-} from "lucide-react";
+import { ClipboardList, ExternalLink, FileText, FolderLock, Inbox, Mail, PenLine, Search, Send, Upload, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export type VaultDocument = {
@@ -28,16 +15,12 @@ export type VaultDocument = {
   form_data?: string;
 };
 
+export const VAULT_CARD = "rounded-[26px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card";
+
 function formatDate(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 function typeLabel(type: string) {
@@ -61,76 +44,72 @@ function formPreview(formData?: string) {
   try {
     const parsed = JSON.parse(formData) as Record<string, unknown>;
     return Object.entries(parsed)
-      .slice(0, 4)
-      .map(([key, value]) => {
-        const label = key.replace(/_/g, " ");
-        return `${label}: ${String(value)}`;
-      })
+      .filter(([, v]) => v !== "" && v !== null && v !== undefined)
+      .slice(0, 3)
+      .map(([key, value]) => `${key.replace(/_/g, " ")}: ${String(value)}`)
       .join(" · ");
   } catch {
     return formData.slice(0, 120);
   }
 }
 
-export function VaultDocumentRow({
-  doc,
-  onSend,
-}: {
-  doc: VaultDocument;
-  onSend?: (doc: VaultDocument) => void;
-}) {
+export function VaultDocumentRow({ doc, onSend }: { doc: VaultDocument; onSend?: (doc: VaultDocument) => void }) {
   const isForm = doc.source === "online_form";
+  const isAgreement = doc.type === "agreement";
   const preview = isForm ? formPreview(doc.form_data) : null;
   const canSend = Boolean(onSend && doc.url && !isForm);
+  const Icon = isForm ? ClipboardList : isAgreement ? FileText : FolderLock;
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-card/50 hover:bg-muted/30 transition-colors">
-      <div className="flex items-start gap-3 min-w-0">
-        <div
+    <li className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span
           className={cn(
-            "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
-            isForm ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+            "flex size-10 shrink-0 items-center justify-center rounded-xl",
+            isForm ? "bg-primary/12 text-[oklch(0.45_0.12_39)] dark:text-primary" : "bg-[#F3F1EA] text-muted-foreground dark:bg-muted",
           )}
         >
-          {isForm ? (
-            <ClipboardList className="h-4 w-4" />
-          ) : (
-            <FolderLock className="h-4 w-4" />
-          )}
-        </div>
-        <div className="min-w-0 space-y-1">
-          <div className="text-sm font-semibold truncate">{doc.name}</div>
-          <div className="text-xs text-muted-foreground">{formatDate(doc.created_at)}</div>
-          {preview && (
-            <p className="text-xs text-muted-foreground line-clamp-2">{preview}</p>
-          )}
+          <Icon aria-hidden="true" className="size-[18px]" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium" title={doc.name}>
+            {doc.name}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+            <span className="rounded-full bg-[#F3F1EA] px-2 py-px font-medium text-[#3D3929] capitalize dark:bg-muted dark:text-foreground">{typeLabel(doc.type)}</span>
+            <span>{isForm ? "Filled in by client" : isAgreement ? "Signed online" : "Uploaded"}</span>
+            <span aria-hidden="true">·</span>
+            <span>{formatDate(doc.created_at)}</span>
+          </p>
+          {preview ? <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{preview}</p> : null}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Badge variant="outline">{typeLabel(doc.type)}</Badge>
-        <Badge variant={isForm ? "secondary" : "default"}>
-          {isForm ? "Client submitted" : "Uploaded"}
-        </Badge>
-        {doc.url && (
-          <Button
-            variant="ghost"
-            size="sm"
-            render={<a href={doc.url} target="_blank" rel="noopener noreferrer" />}
+      <div className="flex shrink-0 gap-2 pl-[52px] sm:pl-0">
+        {doc.url ? (
+          <a
+            href={doc.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
           >
-            <ExternalLink className="h-4 w-4 mr-1" />
-            Open
-          </Button>
-        )}
-        {canSend && (
-          <Button variant="outline" size="sm" onClick={() => onSend?.(doc)}>
-            <Send className="h-4 w-4 mr-1" />
-            Send to client
-          </Button>
-        )}
+            <ExternalLink aria-hidden="true" className="size-3.5" /> Open
+          </a>
+        ) : null}
+        {canSend ? (
+          <button
+            type="button"
+            onClick={() => onSend?.(doc)}
+            className="flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 ring-border transition-colors hover:bg-[#F3F1EA] dark:hover:bg-muted"
+          >
+            <Send aria-hidden="true" className="size-3.5" /> Send
+          </button>
+        ) : null}
       </div>
-    </div>
+    </li>
   );
 }
+
+type TabKey = "vault" | "forms" | "upload" | "manual";
 
 type DocumentVaultTabsProps = {
   clientName: string;
@@ -155,143 +134,184 @@ export function DocumentVaultTabs({
   onSendDocument,
   sharesPanel,
 }: DocumentVaultTabsProps) {
-  const [filter, setFilter] = React.useState<"all" | "forms" | "files">("all");
+  // Land on what's already stored; an empty vault starts on sending forms.
+  const [tab, setTab] = React.useState<TabKey>(documents.length > 0 ? "vault" : "forms");
+  const [filter, setFilter] = React.useState<"all" | "forms" | "files" | "agreements">("all");
+  const [search, setSearch] = React.useState("");
 
   const forms = documents.filter((d) => d.source === "online_form");
-  const files = documents.filter((d) => d.source !== "online_form");
+  const agreements = documents.filter((d) => d.type === "agreement" && d.source !== "online_form");
+  const files = documents.filter((d) => d.source !== "online_form" && d.type !== "agreement");
 
-  const filtered =
-    filter === "forms" ? forms : filter === "files" ? files : documents;
+  const filtered = React.useMemo(() => {
+    const base = filter === "forms" ? forms : filter === "files" ? files : filter === "agreements" ? agreements : documents;
+    const q = search.trim().toLowerCase();
+    return [...base]
+      .filter((d) => !q || d.name.toLowerCase().includes(q) || typeLabel(d.type).toLowerCase().includes(q))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- derived from documents
+  }, [documents, filter, search]);
+
+  const tabs: { key: TabKey; label: string; icon: typeof Inbox; badge?: number; hidden?: boolean }[] = [
+    { key: "vault", label: "In vault", icon: Inbox, badge: documents.length },
+    { key: "forms", label: "Send forms", icon: Mail, badge: pendingCount || undefined },
+    { key: "upload", label: "Upload", icon: Upload },
+    { key: "manual", label: "Paper entry", icon: PenLine, hidden: !showManualTab },
+  ];
 
   return (
-    <Tabs defaultValue="send" className="space-y-6">
-      <TabsList
-        className={cn(
-          "grid w-full h-auto p-1 gap-1",
-          showManualTab ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-3"
-        )}
-      >
-        <TabsTrigger value="send" className="gap-2 py-2.5 text-xs sm:text-sm">
-          <Mail className="h-4 w-4 shrink-0" />
-          <span className="truncate">Send forms</span>
-          {pendingCount > 0 && (
-            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
-              {pendingCount}
-            </Badge>
-          )}
-        </TabsTrigger>
-        <TabsTrigger value="received" className="gap-2 py-2.5 text-xs sm:text-sm">
-          <Inbox className="h-4 w-4 shrink-0" />
-          Received ({documents.length})
-        </TabsTrigger>
-        <TabsTrigger value="upload" className="gap-2 py-2.5 text-xs sm:text-sm">
-          <Upload className="h-4 w-4 shrink-0" />
-          Upload file
-        </TabsTrigger>
-        {showManualTab && (
-          <TabsTrigger value="manual" className="gap-2 py-2.5 text-xs sm:text-sm">
-            <PenLine className="h-4 w-4 shrink-0" />
-            Paper / staff entry
-          </TabsTrigger>
-        )}
-      </TabsList>
+    <div className="space-y-5">
+      <div role="tablist" aria-label="Document vault" className="flex max-w-full gap-1 overflow-x-auto rounded-full bg-[#E9E6DD] p-1 no-scrollbar dark:bg-muted">
+        {tabs
+          .filter((t) => !t.hidden)
+          .map((t) => {
+            const active = t.key === tab;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  "flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-colors",
+                  active ? "bg-white text-foreground shadow-sm dark:bg-card" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <t.icon aria-hidden="true" className="size-4" />
+                {t.label}
+                {t.badge ? (
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-[11px] tabular-nums",
+                      t.key === "forms" ? "bg-[#F8EEDB] text-[#8A5A12] dark:bg-amber-950/60 dark:text-amber-200" : "bg-[#F3F1EA] dark:bg-muted-foreground/20",
+                    )}
+                    title={t.key === "forms" ? "Forms awaiting the client" : undefined}
+                  >
+                    {t.badge}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+      </div>
 
-      <TabsContent value="send" className="space-y-4 mt-0 outline-none">
-        <Card className="border-primary/20 bg-primary/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Link2 className="h-4 w-4 text-primary" />
-              Email a form link to {clientName}
-            </CardTitle>
-            <CardDescription>
-              This is the usual workflow: pick consent, privacy, or intake → client gets an email →
-              they fill a secure page → answers land in <strong>Received</strong> automatically.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3 text-xs text-muted-foreground">
-            <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-              <span className="font-bold text-foreground">1. You send</span>
-              <p className="mt-1">Choose template and email address.</p>
+      {tab === "vault" ? (
+        <div className="space-y-5">
+          <section aria-label="Stored documents" className={cn(VAULT_CARD, "overflow-hidden")}>
+            <div className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between">
+              <div role="radiogroup" aria-label="Filter documents" className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: "all", label: "All", count: documents.length },
+                    { id: "forms", label: "Client forms", count: forms.length },
+                    { id: "files", label: "Files", count: files.length },
+                    ...(agreements.length ? [{ id: "agreements", label: "Agreements", count: agreements.length }] : []),
+                  ] as { id: typeof filter; label: string; count: number }[]
+                ).map((item) => {
+                  const active = filter === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setFilter(item.id)}
+                      className={cn(
+                        "flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+                        active ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background" : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted",
+                      )}
+                    >
+                      {item.label}
+                      <span className="tabular-nums opacity-70">{item.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {documents.length > 4 ? (
+                <div className="relative w-full lg:w-60">
+                  <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input aria-label="Search documents" placeholder="Search files…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-10 rounded-full border-0 bg-[#F3F1EA] pr-9 pl-10 text-sm shadow-none dark:bg-muted" />
+                  {search ? (
+                    <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="absolute top-1/2 right-2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground hover:bg-white dark:hover:bg-card">
+                      <X aria-hidden="true" className="size-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-              <span className="font-bold text-foreground">2. They complete</span>
-              <p className="mt-1">Public link (expires in 14 days).</p>
-            </div>
-            <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-              <span className="font-bold text-foreground">3. You receive</span>
-              <p className="mt-1">Saved in vault — check Received tab.</p>
-            </div>
-          </CardContent>
-        </Card>
-        {sendTab}
-      </TabsContent>
 
-      <TabsContent value="received" className="space-y-4 mt-0 outline-none">
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              { id: "all" as const, label: `All (${documents.length})` },
-              { id: "forms" as const, label: `Client forms (${forms.length})` },
-              { id: "files" as const, label: `Files (${files.length})` },
-            ] as const
-          ).map((item) => (
-            <Button
-              key={item.id}
-              type="button"
-              size="sm"
-              variant={filter === item.id ? "default" : "outline"}
-              onClick={() => setFilter(item.id)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Stored documents</CardTitle>
-            <CardDescription>
-              Everything returned from form links or uploaded by your team.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
             {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-10 text-center">
-                {filter === "forms"
-                  ? "No completed client forms yet. Use the Send forms tab."
-                  : filter === "files"
-                    ? "No uploaded files yet. Use the Upload file tab."
-                    : "Nothing stored yet. Send a form link or upload a file."}
-              </p>
+              <div className="flex flex-col items-center gap-3 border-t border-border/50 px-6 py-12 text-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-[#F3F1EA] dark:bg-muted">
+                  <FolderLock aria-hidden="true" className="size-5 text-muted-foreground" />
+                </span>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {search
+                    ? "Nothing matches your search."
+                    : documents.length === 0
+                      ? `Nothing in ${clientName.split(" ")[0]}'s vault yet. Send a form for them to fill in, or upload a file.`
+                      : "Nothing in this category."}
+                </p>
+                {documents.length === 0 ? (
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button type="button" onClick={() => setTab("forms")} className="flex h-10 items-center gap-1.5 rounded-full bg-[#2B2A27] px-4 text-sm font-medium text-[#FAF9F5] hover:bg-[#3A3935] dark:bg-foreground dark:text-background">
+                      <Mail aria-hidden="true" className="size-4" /> Send a form
+                    </button>
+                    <button type="button" onClick={() => setTab("upload")} className="flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-medium ring-1 ring-border hover:bg-[#F3F1EA] dark:hover:bg-muted">
+                      <Upload aria-hidden="true" className="size-4" /> Upload a file
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             ) : (
-              filtered.map((doc) => (
-                <VaultDocumentRow key={doc.id} doc={doc} onSend={onSendDocument} />
-              ))
+              <ul className="divide-y divide-border/50 border-t border-border/50">
+                {filtered.map((doc) => (
+                  <VaultDocumentRow key={doc.id} doc={doc} onSend={onSendDocument} />
+                ))}
+              </ul>
             )}
-          </CardContent>
-        </Card>
-      </TabsContent>
+          </section>
+          {sharesPanel}
+        </div>
+      ) : null}
 
-      <TabsContent value="upload" className="mt-0 outline-none space-y-6">
-        {uploadTab}
-        {sharesPanel}
-      </TabsContent>
+      {tab === "forms" ? (
+        <div className="space-y-5">
+          <section className={cn(VAULT_CARD, "p-6")}>
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="max-w-lg">
+                <h3 className="text-[15px] font-medium">Ask {clientName.split(" ")[0]} to fill in a form</h3>
+                <p className="mt-1 text-[13px] text-muted-foreground">They get a secure link by email, fill it in online, and the answers land in the vault automatically.</p>
+              </div>
+              <ol className="flex flex-wrap items-center gap-2 text-[13px]">
+                {["You send", "They fill it in", "It's in the vault"].map((step, i) => (
+                  <li key={step} className="flex items-center gap-2">
+                    {i > 0 ? <span aria-hidden="true" className="h-px w-4 bg-border" /> : null}
+                    <span className="flex items-center gap-1.5 rounded-full bg-[#F7F6F1] px-3 py-1.5 dark:bg-muted/50">
+                      <span className="flex size-5 items-center justify-center rounded-full bg-[#2B2A27] text-[11px] font-semibold text-[#FAF9F5] dark:bg-foreground dark:text-background">{i + 1}</span>
+                      {step}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+          {sendTab}
+        </div>
+      ) : null}
 
-      {showManualTab && (
-        <TabsContent value="manual" className="mt-0 outline-none">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Record a paper or in-office form</CardTitle>
-              <CardDescription>
-                Only use this when the client already signed on paper or you are typing answers for
-                them. For normal cases, use <strong>Send forms</strong> so they fill it online
-                themselves.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>{manualTab}</CardContent>
-          </Card>
-        </TabsContent>
-      )}
-    </Tabs>
+      {tab === "upload" ? <div className="space-y-5">{uploadTab}</div> : null}
+
+      {tab === "manual" && showManualTab ? (
+        <section className={cn(VAULT_CARD, "p-6")}>
+          <h3 className="text-[15px] font-medium">Record a paper form</h3>
+          <p className="mt-1 mb-4 max-w-xl text-[13px] text-muted-foreground">
+            Only for forms the client already signed on paper, or answers you&apos;re typing for them. Normally, use <strong>Send forms</strong> so they fill it in themselves.
+          </p>
+          {manualTab}
+        </section>
+      ) : null}
+    </div>
   );
 }
