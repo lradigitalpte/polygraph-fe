@@ -451,3 +451,27 @@ export const holdScheduledSend = (id: number, reason = "") =>
 export const resumeScheduledSend = (id: number) => scheduledSendRequest(`/${id}/resume`, { method: "POST" });
 export const cancelScheduledSend = (id: number) => scheduledSendRequest(`/${id}/cancel`, { method: "POST" });
 export const sendScheduledNow = (id: number) => scheduledSendRequest(`/${id}/send-now`, { method: "POST" });
+
+/** Locked, never-sent reports with no automatic send (signed before auto-send existed). */
+export async function fetchUnscheduledReady(): Promise<{ exam_report_id: number; exam_id: number }[]> {
+  const response = await authenticatedFetch("/api/reports/scheduled-sends/unscheduled");
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Failed to load unscheduled reports (${response.status})`);
+  return data ?? [];
+}
+
+/** Queue one exam's locked report to auto-send 48h from now. */
+export async function queueScheduledSendForExam(examId: number): Promise<ScheduledReportSend> {
+  const response = await authenticatedFetch(`/api/reports/${examId}/schedule-send`, { method: "POST" });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Failed to schedule report (${response.status})`);
+  return data as ScheduledReportSend;
+}
+
+/** Queue every unscheduled ready report to auto-send 48h from now. */
+export async function queueAllUnscheduledReady(): Promise<number> {
+  const response = await authenticatedFetch("/api/reports/scheduled-sends/queue-unscheduled", { method: "POST" });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Failed to schedule reports (${response.status})`);
+  return Number(data?.queued ?? 0);
+}

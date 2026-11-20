@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Archive,
+  CalendarClock,
   ArchiveRestore,
   ArrowUpRight,
   Copy,
@@ -32,7 +33,7 @@ import { ScheduledSendsPanel } from "@/components/dashboard/scheduled-sends-pane
 import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { clinicDateKey, formatClinicDateLabel } from "@/lib/clinic-time";
+import { clinicDateKey, formatClinicDateLabel, formatClinicDateTime } from "@/lib/clinic-time";
 import { fetchAppointments, type AppointmentRecord } from "@/lib/exam-booking";
 import {
   buildReportWorkflowMap,
@@ -42,6 +43,9 @@ import {
   fetchConsolidatedStats,
   fetchReportWorkflowStatuses,
   fetchSecureShares,
+  fetchUnscheduledReady,
+  queueAllUnscheduledReady,
+  queueScheduledSendForExam,
   regenerateSecureShare,
   setSecureShareArchived,
   type ConsolidatedReportStats,
@@ -107,6 +111,10 @@ export default function ReportsDashboard() {
 
   const [tab, setTab] = React.useState<Tab>("sessions");
   const [scheduledCount, setScheduledCount] = React.useState<number | undefined>(undefined);
+  // Locked reports signed before auto-send existed (no schedule yet), by exam id.
+  const [unscheduled, setUnscheduled] = React.useState<Set<number>>(new Set());
+  const [queueingExamId, setQueueingExamId] = React.useState<number | null>(null);
+  const [panelKey, setPanelKey] = React.useState(0);
   const [search, setSearch] = React.useState("");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -141,6 +149,9 @@ export default function ReportsDashboard() {
         fetchReportWorkflowStatuses(),
         fetchExaminers().catch(() => [] as UserRecord[]),
       ]);
+      fetchUnscheduledReady()
+        .then((rows) => setUnscheduled(new Set(rows.map((r) => r.exam_id))))
+        .catch(() => setUnscheduled(new Set()));
       setShares(sharesData);
       setStats(statsData);
       setAppointments(apptsData);
@@ -279,6 +290,32 @@ export default function ReportsDashboard() {
     } finally {
       setSharing(false);
     }
+  };
+
+  const queueOne = async (examId: number) => {
+    setQueueingExamId(examId);
+    try {
+      const send = await queueScheduledSendForExam(examId);
+      setUnscheduled((prev) => {
+        const next = new Set(prev);
+        next.delete(examId);
+        return next;
+      });
+      setScheduledCount((n) => (n ?? 0) + 1);
+      setPanelKey((k) => k + 1);
+      toast.success(`Scheduled: emails ${send.recipient_email || "the client"} on ${formatClinicDateTime(send.send_at)}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't schedule this report");
+    } finally {
+      setQueueingExamId(null);
+    }
+  };
+
+  const queueAll = async () => {
+    const queued = await queueAllUnscheduledReady();
+    setUnscheduled(new Set());
+    setPanelKey((k) => k + 1);
+    toast.success(`${queued} report${queued === 1 ? "" : "s"} scheduled to send in 48 hours`);
   };
 
   const openEditor = (examId: number, subjectName: string) => {
@@ -540,7 +577,7 @@ export default function ReportsDashboard() {
       ) : null}
 
       {tab === "scheduled" ? (
-        <ScheduledSendsPanel search={search} onCountChange={setScheduledCount} onDelivered={() => void load()} />
+        <ScheduledSendsPanel key={panelKey} search={search} unscheduledCount={unscheduled.size} onQueueAll={queueAll} onCountChange={setScheduledCount} onDelivered={() => void load()} />
       ) : (
       /* Table */
       <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
@@ -585,6 +622,15 @@ export default function ReportsDashboard() {
                         </td>
                         <td className="px-6 py-4">
                           <RowActions>
+                            {status === "locked" && unscheduled.has(examId) ? (
+                              <ActionButton
+                                label="Schedule"
+                                icon={queueingExamId === examId ? Loader2 : CalendarClock}
+                                spin={queueingExamId === examId}
+                                disabled={queueingExamId === examId}
+                                onClick={() => void queueOne(examId)}
+                              />
+                            ) : null}
                             {status === "locked" ? (
                               <ActionButton primary label="Send report" icon={Mail} onClick={() => openShare(examId, appt.subject?.email)} />
                             ) : status === "sent" ? (

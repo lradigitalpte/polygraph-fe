@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowUpRight, Ban, Link2, Loader2, LockKeyhole, Pause, Pencil, Play, Send } from "lucide-react";
+import { AlertCircle, ArrowUpRight, Ban, CalendarClock, Link2, Loader2, LockKeyhole, Pause, Pencil, Play, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Segmented } from "@/components/dashboard/ui-kit";
@@ -79,7 +79,20 @@ const editable = (send: ScheduledReportSend) => send.status === "scheduled" || s
 
 type Confirm = { kind: "send" | "cancel"; send: ScheduledReportSend } | null;
 
-export function ScheduledSendsPanel({ search, onCountChange, onDelivered }: { search: string; onCountChange?: (n: number) => void; onDelivered?: () => void }) {
+export function ScheduledSendsPanel({
+  search,
+  onCountChange,
+  onDelivered,
+  unscheduledCount = 0,
+  onQueueAll,
+}: {
+  search: string;
+  onCountChange?: (n: number) => void;
+  onDelivered?: () => void;
+  /** Locked reports signed before auto-send existed. */
+  unscheduledCount?: number;
+  onQueueAll?: () => Promise<void>;
+}) {
   const router = useRouter();
   const [view, setView] = React.useState<View>("active");
   const [sends, setSends] = React.useState<ScheduledReportSend[]>([]);
@@ -89,6 +102,8 @@ export function ScheduledSendsPanel({ search, onCountChange, onDelivered }: { se
   const [confirm, setConfirm] = React.useState<Confirm>(null);
   const [editing, setEditing] = React.useState<ScheduledReportSend | null>(null);
   const [, setTick] = React.useState(0);
+  const [queueAllOpen, setQueueAllOpen] = React.useState(false);
+  const [queueingAll, setQueueingAll] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -159,6 +174,18 @@ export function ScheduledSendsPanel({ search, onCountChange, onDelivered }: { se
           Signed reports email the client automatically 48h after signing, password-protected unless the client is set otherwise.
         </p>
       </div>
+
+      {unscheduledCount > 0 && onQueueAll ? (
+        <div className="flex flex-col gap-3 border-b border-border/50 bg-[#F8EEDB] px-4 py-3 text-sm text-[#8A5A12] sm:flex-row sm:items-center sm:justify-between sm:px-6 dark:bg-amber-950 dark:text-amber-300">
+          <span className="flex items-start gap-2">
+            <CalendarClock aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {unscheduledCount} locked report{unscheduledCount === 1 ? " was" : "s were"} signed before automatic sending was turned on and {unscheduledCount === 1 ? "isn't" : "aren't"} scheduled.
+          </span>
+          <Button size="sm" className="gap-1.5 rounded-full" onClick={() => setQueueAllOpen(true)}>
+            Schedule {unscheduledCount === 1 ? "it" : `all ${unscheduledCount}`}
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="flex items-center gap-2 bg-[#F6E3E1] px-6 py-3 text-sm text-[#8A2C22] dark:bg-red-950 dark:text-red-300">
@@ -288,6 +315,40 @@ export function ScheduledSendsPanel({ search, onCountChange, onDelivered }: { se
           setConfirm(null);
         }}
       />
+      <Dialog open={queueAllOpen} onOpenChange={(open) => !open && !queueingAll && setQueueAllOpen(false)}>
+        <DialogContent className="max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Schedule {unscheduledCount} report{unscheduledCount === 1 ? "" : "s"}?</DialogTitle>
+            <DialogDescription>
+              Each one will be emailed to its client&apos;s email on file 48 hours from now, password-protected unless the client is set otherwise. Nothing is sent
+              right away; you can edit, hold or cancel each one here until then.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setQueueAllOpen(false)} disabled={queueingAll}>
+              Go back
+            </Button>
+            <Button
+              className="gap-2 rounded-xl font-bold"
+              disabled={queueingAll}
+              onClick={async () => {
+                setQueueingAll(true);
+                try {
+                  await onQueueAll?.();
+                  setQueueAllOpen(false);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Couldn't schedule the reports");
+                } finally {
+                  setQueueingAll(false);
+                }
+              }}
+            >
+              {queueingAll ? <Loader2 className="size-4 animate-spin" /> : null}
+              Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <EditDialog
         send={editing}
         onClose={() => setEditing(null)}
