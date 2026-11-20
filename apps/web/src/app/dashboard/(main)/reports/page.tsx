@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { useCurrentUser } from "@/components/dashboard/use-current-user";
 import { GlassStat, GlowPanel, Highlight, Segmented } from "@/components/dashboard/ui-kit";
 import { RegenerateReportDialog } from "@/components/dashboard/regenerate-report-dialog";
+import { ScheduledSendsPanel } from "@/components/dashboard/scheduled-sends-panel";
 import { ShareReportDialog } from "@/components/dashboard/share-report-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,7 +52,7 @@ import { formatSubjectName } from "@/lib/subjects";
 import { fetchExaminers, type UserRecord } from "@/lib/users";
 import { cn } from "@/lib/utils";
 
-type Tab = "sessions" | "sent";
+type Tab = "sessions" | "scheduled" | "sent";
 type WorkflowFilter = "all" | ReportWorkflowStatus;
 type ShareFilter = "all" | "live" | "expired" | "archived";
 
@@ -105,6 +106,7 @@ export default function ReportsDashboard() {
   const [error, setError] = React.useState<string | null>(null);
 
   const [tab, setTab] = React.useState<Tab>("sessions");
+  const [scheduledCount, setScheduledCount] = React.useState<number | undefined>(undefined);
   const [search, setSearch] = React.useState("");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
@@ -400,7 +402,7 @@ export default function ReportsDashboard() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <GlassStat label="Needs report" value={workflowCounts.none} hint="Completed, no report yet" icon={FilePen} accent="terracotta" loading={firstLoad} />
             <GlassStat label="Drafts" value={workflowCounts.draft} hint="Started, not locked" icon={FileSignature} accent="lavender" loading={firstLoad} />
-            <GlassStat label="Ready to send" value={workflowCounts.locked} hint="Locked, awaiting email" icon={Lock} accent="amber" loading={firstLoad} />
+            <GlassStat label="Ready to send" value={workflowCounts.locked} hint="Locked; auto-sends 48h after signing" icon={Lock} accent="amber" loading={firstLoad} />
             <GlassStat
               label="Live links"
               value={shareCounts.live}
@@ -457,6 +459,7 @@ export default function ReportsDashboard() {
             onChange={setTab}
             options={[
               { value: "sessions", label: "Sessions", count: completedExams.length },
+              { value: "scheduled", label: "Scheduled", count: scheduledCount },
               { value: "sent", label: "Sent reports", count: shareCounts.all },
             ]}
           />
@@ -467,7 +470,7 @@ export default function ReportsDashboard() {
             <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="reports-search"
-              placeholder={tab === "sessions" ? "Search examinee, client or examiner…" : "Search examinee or recipient…"}
+              placeholder={tab === "sessions" ? "Search examinee, client or examiner…" : tab === "scheduled" ? "Search examinee, client or recipient…" : "Search examinee or recipient…"}
               className="h-11 rounded-full border-0 bg-[#F3F1EA] pr-10 pl-11 text-sm shadow-none dark:bg-muted"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -484,6 +487,7 @@ export default function ReportsDashboard() {
             ) : null}
           </div>
         </div>
+        {tab === "scheduled" ? null : (
         <div className="flex flex-col gap-3 border-t border-border/50 pt-3 lg:flex-row lg:items-center lg:justify-between">
           {tab === "sessions" ? (
             <Segmented
@@ -520,6 +524,7 @@ export default function ReportsDashboard() {
             <DateInput label="To" value={dateTo} min={dateFrom || undefined} onChange={setDateTo} />
           </div>
         </div>
+        )}
       </div>
 
       {error ? (
@@ -534,7 +539,10 @@ export default function ReportsDashboard() {
         </div>
       ) : null}
 
-      {/* Table */}
+      {tab === "scheduled" ? (
+        <ScheduledSendsPanel search={search} onCountChange={setScheduledCount} onDelivered={() => void load()} />
+      ) : (
+      /* Table */
       <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
         <div className="overflow-x-auto">
           {tab === "sessions" ? (
@@ -743,6 +751,7 @@ export default function ReportsDashboard() {
           </div>
         ) : null}
       </div>
+      )}
 
       <ShareReportDialog
         open={selectedExamId !== null}

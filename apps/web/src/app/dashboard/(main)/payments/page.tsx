@@ -813,7 +813,8 @@ export default function PaymentsPage() {
     }
     const balance = selectedInvoice.balanceDue ?? Math.max(0, selectedInvoice.totalAmount - selectedInvoice.paidAmount);
     let chargeAmount = balance;
-    if (sendEmail.chargeAmount.trim() !== "") {
+    // Paid in full: nothing to charge, so the amount box is ignored.
+    if (balance > 0 && sendEmail.chargeAmount.trim() !== "") {
       chargeAmount = Number(sendEmail.chargeAmount);
       if (!Number.isFinite(chargeAmount) || chargeAmount <= 0) {
         toast.error("Enter a valid charge amount greater than zero");
@@ -1358,7 +1359,7 @@ export default function PaymentsPage() {
                           const charge = balance;
                           setSendEmail({
                             toEmail: selectedInvoice.clientEmail || "",
-                            subject: `${selectedInvoice.code} — invoice & payment`,
+                            subject: balance <= 0 ? `${selectedInvoice.code} — payment receipt` : `${selectedInvoice.code} — invoice & payment`,
                             body: buildInvoicePaymentEmailBody({
                               clientName: selectedInvoice.client,
                               code: selectedInvoice.code,

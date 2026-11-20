@@ -213,7 +213,7 @@ export default function InvoiceDetailPage() {
         setOpenTerms(terms);
         setIncludeTerms(Boolean(terms));
         setToEmail(q.sent_to_email || q.client?.email || "");
-        setSubject(`${q.code} — invoice & payment`);
+        setSubject(balance <= 0 && priced.total > 0 ? `${q.code} — payment receipt` : `${q.code} — invoice & payment`);
         setChargeAmount(String(charge));
         setPaymentAmount(String(charge));
         setBody(
@@ -465,7 +465,8 @@ export default function InvoiceDetailPage() {
       return;
     }
     let charge = balance;
-    if (chargeAmount.trim() !== "") {
+    // Paid in full: nothing to charge, so the amount box is ignored.
+    if (balance > 0 && chargeAmount.trim() !== "") {
       charge = Number(chargeAmount);
       if (!Number.isFinite(charge) || charge <= 0) {
         toast.error("Enter a valid charge amount greater than zero");
@@ -709,6 +710,15 @@ export default function InvoiceDetailPage() {
     if (lastBalance.current != null && lastBalance.current !== balance) {
       setPaymentAmount(String(balance));
       setChargeAmount(String(balance));
+      // Settling the invoice turns the message into a receipt (and back if reopened).
+      rebuildBody(String(balance));
+      setSubject((prev) => {
+        const invoiceSubject = `${quote.code} — invoice & payment`;
+        const receiptSubject = `${quote.code} — payment receipt`;
+        if (balance <= 0 && prev === invoiceSubject) return receiptSubject;
+        if (balance > 0 && prev === receiptSubject) return invoiceSubject;
+        return prev;
+      });
     }
     lastBalance.current = balance;
   }, [quote, balance]);

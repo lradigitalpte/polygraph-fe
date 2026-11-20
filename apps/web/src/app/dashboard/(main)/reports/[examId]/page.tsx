@@ -572,7 +572,19 @@ export default function ReportBuilderPage() {
       setIsLocked(true);
       setLockedAt(result.locked_at ?? new Date().toISOString());
       setFinalizeDialogOpen(false);
-      toast.success("Report finalized and locked. You can now email it from Forensic Reports.");
+      const scheduled = result.scheduled_send;
+      if (result.scheduled_send_error) {
+        toast.warning(`Report locked, but automatic sending couldn't be scheduled (${result.scheduled_send_error}). Send it manually from Reports.`);
+      } else if (scheduled && scheduled.status === "sent") {
+        toast.success("Report finalized and locked. It has already been sent.");
+      } else if (scheduled) {
+        toast.success(
+          `Report locked. It will be emailed to ${scheduled.recipient_email || "the client (no email on file yet)"} on ${formatClinicDateTime(scheduled.send_at)}. Manage it in Reports → Scheduled.`,
+          { duration: 8000 },
+        );
+      } else {
+        toast.success("Report finalized and locked. Re-send the updated report from Reports → Sent reports.");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to finalize report");
     } finally {

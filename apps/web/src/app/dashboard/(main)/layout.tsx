@@ -6,6 +6,7 @@ import { IdleTimeout } from "@/components/dashboard/idle-timeout";
 import { usePathname } from "next/navigation";
 import { useUIStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
 
 export default function MainDashboardLayout({
   children,
@@ -13,6 +14,10 @@ export default function MainDashboardLayout({
   children: React.ReactNode;
 }) {
   const { isSidebarCollapsed } = useUIStore();
+  // Apply the saved sidebar state only after hydration (store uses skipHydration).
+  useEffect(() => {
+    void useUIStore.persist.rehydrate();
+  }, []);
   const pathname = usePathname();
   const isWorkspace = /^\/dashboard\/reports\/[^/]+\/?$/.test(pathname ?? "");
 

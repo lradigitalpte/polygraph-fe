@@ -34,6 +34,25 @@ export function buildInvoicePaymentEmailBody(input: {
   const fullBalanceCardPay =
     includesProcessing && !isDeposit && safeCharge + 0.0001 >= balance;
 
+  // Paid in full: a receipt, not a payment request (no amounts due, no pay steps, no bank details).
+  if (balance <= 0.0001 && totalAmount > 0) {
+    const receipt = [
+      `Hello ${clientName || "there"},`,
+      "",
+      `Thank you — we have received your payment in full for invoice ${code}. The paid invoice is attached for your records.`,
+      "",
+      `Total paid: ${paidLabel}`,
+      `Balance due: ${formatMoney(0, currency)}`,
+    ];
+    if (includeAgreements) {
+      receipt.push("");
+      receipt.push(`Before we proceed, please review and sign your agreements with the "Review & sign agreements" button below.`);
+    }
+    receipt.push("");
+    receipt.push("If you have any questions, just reply to this email.");
+    return receipt.join("\n");
+  }
+
   const lines = [
     `Hello ${clientName || "there"},`,
     "",

@@ -247,6 +247,9 @@ export async function finalizeReport(
   exam_id: number;
   is_locked: boolean;
   locked_at?: string | null;
+  /** Automatic delivery queued by signing (absent if the report was already shared). */
+  scheduled_send?: ScheduledReportSend;
+  scheduled_send_error?: string;
 }> {
   const response = await authenticatedFetch(`/api/reports/${examId}/finalize`, {
     method: "POST",
@@ -388,3 +391,63 @@ export async function requestReportOverrideUnlock(examId: number, reason: string
     throw new Error(payload?.error || `Failed to unlock report (${response.status})`);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Automatic delivery (48h after signing)                              */
+/* ------------------------------------------------------------------ */
+
+export type ScheduledSendStatus = "scheduled" | "held" | "sending" | "sent" | "failed" | "cancelled";
+export type ScheduledSendBlockedReason = "report_unlocked" | "needs_recipient" | "awaiting_payment";
+
+export type ScheduledReportSend = {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  exam_report_id: number;
+  exam_id: number;
+  client_id: number;
+  client_name?: string;
+  subject_id: number;
+  subject?: { id: number; first_name: string; last_name: string };
+  verdict?: string;
+  recipient_email: string;
+  protection_mode: "password" | "secure_link";
+  expiry_days: number;
+  send_at: string;
+  status: ScheduledSendStatus;
+  hold_reason?: string;
+  last_error?: string;
+  attempts: number;
+  sent_at?: string | null;
+  share_id?: number | null;
+  /** Why a waiting send can't go out yet; absent when it's clear to send. */
+  blocked_reason?: ScheduledSendBlockedReason;
+};
+
+export type ScheduledSendUpdate = {
+  recipient_email?: string;
+  protection_mode?: "password" | "secure_link";
+  expiry_days?: number;
+};
+
+async function scheduledSendRequest(path: string, init?: RequestInit): Promise<ScheduledReportSend> {
+  const response = await authenticatedFetch(`/api/reports/scheduled-sends${path}`, init);
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`);
+  return data as ScheduledReportSend;
+}
+
+export async function fetchScheduledSends(view: "active" | "history" = "active"): Promise<ScheduledReportSend[]> {
+  const response = await authenticatedFetch(`/api/reports/scheduled-sends?view=${view}`);
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || `Failed to load scheduled sends (${response.status})`);
+  return (data ?? []) as ScheduledReportSend[];
+}
+
+export const updateScheduledSend = (id: number, input: ScheduledSendUpdate) =>
+  scheduledSendRequest(`/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+export const holdScheduledSend = (id: number, reason = "") =>
+  scheduledSendRequest(`/${id}/hold`, { method: "POST", body: JSON.stringify({ reason }) });
+export const resumeScheduledSend = (id: number) => scheduledSendRequest(`/${id}/resume`, { method: "POST" });
+export const cancelScheduledSend = (id: number) => scheduledSendRequest(`/${id}/cancel`, { method: "POST" });
+export const sendScheduledNow = (id: number) => scheduledSendRequest(`/${id}/send-now`, { method: "POST" });

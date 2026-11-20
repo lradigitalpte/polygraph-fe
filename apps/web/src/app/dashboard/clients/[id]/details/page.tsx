@@ -47,6 +47,8 @@ type FormState = {
   emailSummaryTime: string;
   reportVerdictWording: ReportVerdictWording;
   defaultReportTemplateId: string;
+  reportProtectionMode: "password" | "secure_link";
+  reportHoldUntilPaid: "yes" | "no";
 };
 
 type TabKey = "profile" | "billing" | "reports" | "email" | "notes" | "record";
@@ -73,6 +75,8 @@ function clientToForm(client: ClientRecord): FormState {
     emailSummaryTime: client.email_summary_time || "17:00",
     reportVerdictWording: client.report_verdict_wording === "forensic" ? "forensic" : "plain",
     defaultReportTemplateId: client.default_report_template_id ? String(client.default_report_template_id) : "",
+    reportProtectionMode: client.report_protection_mode === "secure_link" ? "secure_link" : "password",
+    reportHoldUntilPaid: client.report_hold_until_paid === false ? "no" : "yes",
   };
 }
 
@@ -304,6 +308,8 @@ export default function ClientPersonalDetailsPage() {
         email_summary_time: form.emailSummaryTime,
         report_verdict_wording: form.reportVerdictWording,
         default_report_template_id: form.defaultReportTemplateId ? Number(form.defaultReportTemplateId) : null,
+        report_protection_mode: form.reportProtectionMode,
+        report_hold_until_paid: form.reportHoldUntilPaid === "yes",
       });
       setClientRecord(updated);
       setForm(clientToForm(updated));
@@ -345,6 +351,8 @@ export default function ClientPersonalDetailsPage() {
     paymentMethod: "billing",
     reportVerdictWording: "reports",
     defaultReportTemplateId: "reports",
+    reportProtectionMode: "reports",
+    reportHoldUntilPaid: "reports",
     emailDeliveryMode: "email",
     emailBookingNotices: "email",
     emailSessionReminders: "email",
@@ -512,6 +520,29 @@ export default function ClientPersonalDetailsPage() {
                 onChange={(v) => set("defaultReportTemplateId", v)}
                 options={templateOptions}
               />
+              <OptionCards<"password" | "secure_link">
+                label="Automatic report email (48h after signing)"
+                value={form.reportProtectionMode}
+                disabled={saving}
+                onChange={(v) => set("reportProtectionMode", v)}
+                options={[
+                  { value: "password", label: "Password-protected", description: "Default. Passcode via the secure link." },
+                  { value: "secure_link", label: "No password", description: "Only if this client asked for it." },
+                ]}
+              />
+              <OptionCards<"yes" | "no">
+                label="Wait for payment"
+                value={form.reportHoldUntilPaid}
+                disabled={saving}
+                onChange={(v) => set("reportHoldUntilPaid", v)}
+                options={[
+                  { value: "yes", label: "Hold until paid", description: "Unpaid exams wait in Reports → Scheduled." },
+                  { value: "no", label: "Send regardless", description: "For clients on account / invoice terms." },
+                ]}
+              />
+              <p className="rounded-2xl bg-[#F7F6F1] px-4 py-3 text-[13px] text-muted-foreground dark:bg-muted/40">
+                Reports go to this client&apos;s email on file ({form.email || "none set"}){isCompany ? ", not to the examinee" : ""}. You can change the recipient for a single report in Reports → Scheduled.
+              </p>
             </Panel>
           ) : null}
 

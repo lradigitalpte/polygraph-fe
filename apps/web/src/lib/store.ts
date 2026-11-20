@@ -16,6 +16,10 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: "polygraph-ui-storage",
+      // Restored after mount (see MainDashboardLayout), not during the first render:
+      // the server always renders the expanded sidebar, so reading localStorage
+      // up front made the client's first render differ → React hydration error #418.
+      skipHydration: true,
     }
   )
 );

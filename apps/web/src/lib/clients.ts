@@ -36,6 +36,8 @@ export type ClientRecord = {
   last_email_summary_at?: string;
   report_verdict_wording?: ReportVerdictWording;
   default_report_template_id?: number | null;
+  report_protection_mode?: "password" | "secure_link";
+  report_hold_until_paid?: boolean;
   notes?: string;
 };
 
@@ -69,6 +71,8 @@ export type CreateClientInput = {
   notes?: string;
   report_verdict_wording?: ReportVerdictWording;
   default_report_template_id?: number | null;
+  report_protection_mode?: "password" | "secure_link";
+  report_hold_until_paid?: boolean;
 };
 
 export type UpdateClientInput = CreateClientInput;
