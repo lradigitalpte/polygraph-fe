@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowUpRight, Ban, CalendarClock, Link2, Loader2, LockKeyhole, Pause, Pencil, Play, Send } from "lucide-react";
 import { toast } from "sonner";
 
+import { TablePager, usePager } from "@/components/dashboard/table-pager";
 import { Segmented } from "@/components/dashboard/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -157,9 +158,11 @@ export function ScheduledSendsPanel({
   const rows = needle
     ? sends.filter((s) => [nameOf(s), s.client_name ?? "", s.recipient_email].some((v) => v.toLowerCase().includes(needle)))
     : sends;
+  const pager = usePager(rows, [view, needle]);
+  const tableTop = React.useRef<HTMLDivElement>(null);
 
   return (
-    <div className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
+    <div ref={tableTop} className="scroll-mt-4 overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(40,36,20,0.05)] ring-1 ring-border/50 dark:bg-card">
       <div className="flex flex-col gap-3 border-b border-border/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <Segmented
           label="Scheduled view"
@@ -228,7 +231,7 @@ export function ScheduledSendsPanel({
                 </td>
               </tr>
             ) : (
-              rows.map((send) => {
+              pager.rows.map((send) => {
                 const status = describe(send);
                 const tone = TONE[status.tone];
                 const busy = busyId === send.id;
@@ -302,6 +305,17 @@ export function ScheduledSendsPanel({
           </tbody>
         </table>
       </div>
+
+      <TablePager
+        page={pager.page}
+        perPage={pager.perPage}
+        totalPages={pager.totalPages}
+        total={pager.total}
+        onPage={pager.setPage}
+        onPerPage={pager.setPerPage}
+        label="Reports"
+        scrollTo={tableTop}
+      />
 
       <ConfirmDialog
         confirm={confirm}
