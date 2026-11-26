@@ -1,6 +1,12 @@
 import { formatMoney } from "@/lib/client-account";
 import { bankDetailsEmailText, type BankDetails } from "@/lib/bank-accounts";
 
+/**
+ * How the client is asked to pay: the online pay link and bank details together,
+ * only the pay link, or only bank transfer (no pay button, no card fee).
+ */
+export type InvoicePayBy = "both" | "link" | "bank";
+
 /** Default client email for invoice + deposit / full online payment. */
 export function buildInvoicePaymentEmailBody(input: {
   clientName: string;
@@ -16,9 +22,16 @@ export function buildInvoicePaymentEmailBody(input: {
   includeAgreements?: boolean;
   /** Bank transfer option listed after the card payment steps. */
   bankAccounts?: BankDetails[];
+  /** Defaults to "both". "bank" falls back to the pay link when there are no bank accounts. */
+  payBy?: InvoicePayBy;
 }) {
-  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, checkoutPayTotal, includeAgreements, bankAccounts } =
-    input;
+  const { clientName, code, currency, totalAmount, paidAmount, chargeAmount, includeAgreements } = input;
+  const hasBanks = Boolean(input.bankAccounts?.length);
+  const payBy: InvoicePayBy = !hasBanks ? "link" : (input.payBy ?? "both");
+  const bankOnly = payBy === "bank";
+  const bankAccounts = payBy === "link" ? undefined : input.bankAccounts;
+  // Bank transfers carry no card fee.
+  const checkoutPayTotal = bankOnly ? undefined : input.checkoutPayTotal;
   const balance = Math.max(0, totalAmount - paidAmount);
   const safeCharge = Math.max(0, Math.min(chargeAmount || balance, balance));
   const remainingAfter = Math.max(0, balance - safeCharge);
@@ -83,15 +96,22 @@ export function buildInvoicePaymentEmailBody(input: {
   if (includeAgreements) {
     lines.push(`${step++}) Review and sign your agreements with the "Review & sign agreements" button below (required before we proceed).`);
   }
+  const how = bankOnly ? "by bank transfer using the details below" : `with the "Pay invoice online" button below`;
   lines.push(
-    isDeposit
-      ? `${step++}) Pay the deposit of ${payNowLabel} with the "Pay invoice online" button below.`
-      : `${step++}) Pay ${payNowLabel} with the "Pay invoice online" button below.`,
+    isDeposit ? `${step++}) Pay the deposit of ${payNowLabel} ${how}.` : `${step++}) Pay ${payNowLabel} ${how}.`,
   );
   if (isDeposit) {
-    lines.push(`${step++}) The remaining ${remainingLabel} can be paid later (we can send another payment link when ready).`);
+    lines.push(
+      bankOnly
+        ? `${step++}) The remaining ${remainingLabel} can be paid later.`
+        : `${step++}) The remaining ${remainingLabel} can be paid later (we can send another payment link when ready).`,
+    );
   }
-  const bankText = bankDetailsEmailText(bankAccounts, code);
+  const bankText = bankDetailsEmailText(
+    bankAccounts,
+    code,
+    bankOnly ? "Bank transfer details:" : "Prefer to pay by bank transfer?",
+  );
   if (bankText) {
     lines.push("");
     lines.push(bankText);

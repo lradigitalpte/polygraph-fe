@@ -114,6 +114,8 @@ export async function sendQuotationEmail(
     processing_fee_fixed?: number;
     /** The client's agreements signing link, added to the email as a button. */
     agreement_url?: string;
+    /** Send without the "Pay invoice online" button (bank transfer only). */
+    skip_pay_link?: boolean;
   }
 ): Promise<{ payment_url?: string; stripe_url?: string }> {
   const response = await authenticatedFetch(`/api/quotations/${id}/send-email`, {

@@ -44,7 +44,7 @@ import { isOrganizationClient } from "@/lib/client-types";
 import { deleteInvoice } from "@/lib/billing";
 import { fetchClient, type ClientRecord } from "@/lib/clients";
 import { collectAppointmentPayment, formatMoney, wholeMoneyAmount } from "@/lib/client-account";
-import { buildInvoicePaymentEmailBody } from "@/lib/invoice-email";
+import { buildInvoicePaymentEmailBody, type InvoicePayBy } from "@/lib/invoice-email";
 import { formatInvoiceDisplayNumber } from "@/lib/invoice-number";
 import { InvoicePaidStamp, isInvoiceFullyPaid } from "@/components/dashboard/invoice-paid-stamp";
 import { downloadQuotationPdfFromData, pdfOrgFromSettings } from "@/lib/invoice-pdf";
@@ -101,6 +101,8 @@ export default function InvoiceDetailPage() {
   const [syncingStripe, setSyncingStripe] = React.useState(false);
   const [paymentAmount, setPaymentAmount] = React.useState("");
   const [passProcessingFee, setPassProcessingFee] = React.useState(false);
+  /** Pay link + bank details, pay link only, or bank transfer only. */
+  const [payBy, setPayBy] = React.useState<InvoicePayBy>("both");
   const [feePercentOverride, setFeePercentOverride] = React.useState("");
   const [feeFixedOverride, setFeeFixedOverride] = React.useState("");
   const [editTitle, setEditTitle] = React.useState("");
@@ -254,6 +256,11 @@ export default function InvoiceDetailPage() {
   const displayDiscount = quoteAmounts?.discountAmount ?? 0;
   const displayVat = quoteAmounts?.vatAmount ?? 0;
   const displayVatRate = quoteAmounts?.vatRate ?? Number(quote?.vat_rate || 0);
+  const hasInvoiceBanks = Boolean(quote?.bank_accounts?.length);
+  // With no bank details on the invoice, only the pay link can be offered.
+  const effectivePayBy: InvoicePayBy = hasInvoiceBanks ? payBy : "link";
+  /** The email gets a "Pay invoice online" button (and a pay link is created). */
+  const sendsPayLink = balance > 0 && effectivePayBy !== "bank";
 
   const chargeNet = React.useMemo(() => {
     const parsed = wholeMoneyAmount(Number(chargeAmount));
@@ -312,14 +319,20 @@ export default function InvoiceDetailPage() {
     return rows;
   }, [quote?.payment_history]);
 
-  const rebuildBody = (nextCharge: string, banks: BankDetails[] | undefined = quote?.bank_accounts) => {
+  const rebuildBody = (
+    nextCharge: string,
+    banks: BankDetails[] | undefined = quote?.bank_accounts,
+    nextPayBy: InvoicePayBy = payBy,
+  ) => {
     if (!quote) return;
     const parsed = Number(nextCharge);
     const chargeForBody = Number.isFinite(parsed) && parsed > 0 ? parsed : balance;
     const netForFee =
       Number.isFinite(parsed) && parsed > 0 ? Math.min(wholeMoneyAmount(parsed), balance) : balance;
+    // Bank transfer only (when there are bank details to show) carries no card fee.
+    const feeApplies = passProcessingFee && !(nextPayBy === "bank" && banks?.length);
     const gross =
-      passProcessingFee && netForFee > 0
+      feeApplies && netForFee > 0
         ? estimateStripeGrossCharge(netForFee, effectiveFeePercent, effectiveFeeFixed).gross
         : chargeForBody;
     setBody(
@@ -331,9 +344,10 @@ export default function InvoiceDetailPage() {
         paidAmount: paid,
         chargeAmount: chargeForBody,
         checkoutPayTotal:
-          passProcessingFee && gross > chargeForBody + 0.0001 ? gross : undefined,
+          feeApplies && gross > chargeForBody + 0.0001 ? gross : undefined,
         includeAgreements: includeTerms,
         bankAccounts: banks,
+        payBy: nextPayBy,
       }),
     );
   };
@@ -342,7 +356,7 @@ export default function InvoiceDetailPage() {
     if (!quote) return;
     rebuildBody(chargeAmount);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when fee toggle or inputs change
-  }, [quote?.id, chargeAmount, passProcessingFee, effectiveFeePercent, effectiveFeeFixed, total, paid, balance, includeTerms]);
+  }, [quote?.id, chargeAmount, passProcessingFee, effectiveFeePercent, effectiveFeeFixed, total, paid, balance, includeTerms, payBy]);
 
   // Active agreements to choose from, loaded once the client is known to sign online.
   const termsAvailable = Boolean(quote?.client_id) && canSendTerms && !isOrganizationClient(billingClient);
@@ -485,7 +499,8 @@ export default function InvoiceDetailPage() {
         subject: subject.trim(),
         body: body.trim(),
         ...(agreementUrl ? { agreement_url: agreementUrl } : {}),
-        ...(balance > 0
+        ...(balance > 0 && !sendsPayLink ? { skip_pay_link: true } : {}),
+        ...(sendsPayLink
           ? {
               charge_amount: charge,
               pass_processing_fee: passProcessingFee,
@@ -500,7 +515,12 @@ export default function InvoiceDetailPage() {
       });
       setConfirmSendOpen(false);
       await reload();
-      const parts = ["PDF", result?.payment_url ? "payment link" : "", agreementUrl ? "agreements link" : ""].filter(Boolean);
+      const parts = [
+        "PDF",
+        result?.payment_url ? "payment link" : "",
+        balance > 0 && effectivePayBy !== "link" ? "bank details" : "",
+        agreementUrl ? "agreements link" : "",
+      ].filter(Boolean);
       toast.success(`Invoice emailed with ${parts.join(", ").replace(/, ([^,]*)$/, " and $1")}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send email");
@@ -1382,6 +1402,48 @@ export default function InvoiceDetailPage() {
                 </div>
               ) : null}
               {balance > 0 ? (
+                <div className="grid gap-1.5">
+                  <span id="pay-by-label" className={fieldLabel}>How the client pays</span>
+                  <div role="radiogroup" aria-labelledby="pay-by-label" className="flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        { value: "both", label: "Link + bank details" },
+                        { value: "link", label: "Payment link only" },
+                        { value: "bank", label: "Bank transfer only" },
+                      ] as const
+                    ).map((opt) => {
+                      const needsBanks = opt.value !== "link";
+                      const disabled = needsBanks && !hasInvoiceBanks;
+                      const active = effectivePayBy === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          disabled={disabled}
+                          onClick={() => setPayBy(opt.value)}
+                          className={cn(
+                            pill,
+                            "h-8 px-3 disabled:cursor-not-allowed disabled:opacity-40",
+                            active
+                              ? "bg-[#2B2A27] text-[#FAF9F5] dark:bg-foreground dark:text-background"
+                              : "text-muted-foreground ring-1 ring-border hover:bg-[#F3F1EA] hover:text-foreground dark:hover:bg-muted",
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!hasInvoiceBanks ? (
+                    <p className="text-xs text-muted-foreground">Add bank details to this invoice (Overview) to offer bank transfer.</p>
+                  ) : effectivePayBy === "bank" ? (
+                    <p className="text-xs text-muted-foreground">No pay button or card fee — the email lists your bank details.</p>
+                  ) : null}
+                </div>
+              ) : null}
+              {sendsPayLink ? (
                   <div className="space-y-2 rounded-2xl bg-[#F7F6F1] p-3.5 dark:bg-muted/40">
                     <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
                       <Checkbox checked={passProcessingFee} onCheckedChange={(checked) => setPassProcessingFee(Boolean(checked))} />
@@ -1524,9 +1586,9 @@ export default function InvoiceDetailPage() {
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                 />
-                {balance > 0 || (includeTerms && termsAvailable) ? (
+                {sendsPayLink || (includeTerms && termsAvailable) ? (
                   <div className="flex flex-wrap items-center justify-center gap-2 border-t border-border/50 px-5 py-4" aria-label="Buttons in the email">
-                    {balance > 0 ? (
+                    {sendsPayLink ? (
                       <span className="rounded-lg bg-[#c0392b] px-4 py-2 text-[13px] font-bold text-white">Pay invoice online</span>
                     ) : null}
                     {includeTerms && termsAvailable ? (
@@ -1568,7 +1630,8 @@ export default function InvoiceDetailPage() {
                       <dt className="text-xs text-muted-foreground">Includes</dt>
                       <dd className="font-medium">
                         Invoice PDF
-                        {balance > 0 ? ` · Pay button for ${formatMoney(feePreview?.gross ?? chargeNet, currency)}` : ""}
+                        {sendsPayLink ? ` · Pay button for ${formatMoney(feePreview?.gross ?? chargeNet, currency)}` : ""}
+                        {balance > 0 && effectivePayBy !== "link" ? " · Bank transfer details" : ""}
                         {includeTerms && termsAvailable
                           ? ` · Agreements to sign (${(openTerms?.titles ?? chosenTerms.map((t) => t.title)).join(", ")})`
                           : ""}

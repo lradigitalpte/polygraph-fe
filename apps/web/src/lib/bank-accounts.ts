@@ -67,7 +67,11 @@ export function defaultBankAccountIds(accounts: BankAccount[], currency: string)
 }
 
 /** Plain-text "pay by bank transfer" section for invoice emails. */
-export function bankDetailsEmailText(accounts: BankDetails[] | undefined, reference: string): string {
+export function bankDetailsEmailText(
+  accounts: BankDetails[] | undefined,
+  reference: string,
+  heading = "Prefer to pay by bank transfer?",
+): string {
   if (!accounts?.length) return "";
   const blocks = accounts.map((a) =>
     [
@@ -82,7 +86,7 @@ export function bankDetailsEmailText(accounts: BankDetails[] | undefined, refere
       .join("\n"),
   );
   return [
-    "Prefer to pay by bank transfer?",
+    heading,
     "",
     blocks.join("\n\n"),
     "",
